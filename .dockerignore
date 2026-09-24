@@ -1,0 +1,16 @@
+.git
+.github
+.idea
+.vscode
+.env
+.env.*
+!.env.example
+bin
+build
+dist
+tmp
+coverage.out
+*.log
+*.md
+!README.md
+**/*_test.go

@@ -1,0 +1,14 @@
+DROP INDEX IF EXISTS collection_products_product_idx;
+DROP INDEX IF EXISTS products_badges_idx;
+DROP INDEX IF EXISTS products_sale_idx;
+DROP INDEX IF EXISTS products_popular_idx;
+DROP INDEX IF EXISTS products_created_at_idx;
+DROP INDEX IF EXISTS products_brand_idx;
+DROP INDEX IF EXISTS categories_name_trgm_idx;
+DROP INDEX IF EXISTS brands_name_trgm_idx;
+DROP INDEX IF EXISTS manufacturers_name_trgm_idx;
+DROP INDEX IF EXISTS products_series_trgm_idx;
+DROP INDEX IF EXISTS products_sku_lower_uidx;
+DROP INDEX IF EXISTS products_sku_trgm_idx;
+DROP INDEX IF EXISTS products_short_name_trgm_idx;
+DROP INDEX IF EXISTS products_name_trgm_idx;
