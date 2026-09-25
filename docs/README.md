@@ -17,7 +17,11 @@ These documents are proposals, not an implemented migration or accepted producti
 - [Repository audit](repository-audit.md): current architecture, preserved behavior, gaps, security findings, and verification limits.
 - [Migration plan](migration-plan.md): sequence, parity gates, rollback, future structure, and anticipated file changes.
 - [Storefront UX specification](storefront-ux-spec.md): product and interaction specification for the future React/Next.js storefront.
+<<<<<<< HEAD
 >>>>>>> 982b995 (docs: define storefront UX specification)
+=======
+- [Storefront visual specification](storefront-visual-spec.md): visual system, responsive composition, homepage hierarchy, and visual guardrails for the future storefront.
+>>>>>>> ee56768 (docs: define storefront visual specification)
 - [ADR 001: Target architecture](adr/001-target-architecture.md).
 - [ADR 002: Frontend migration](adr/002-frontend-migration.md).
 - [ADR 003: Information architecture](adr/003-information-architecture.md).
