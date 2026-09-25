@@ -10,6 +10,7 @@ import (
 	"os/signal"
 	"runtime"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -53,14 +54,22 @@ func main() {
 }
 
 func repository(ctx context.Context, logger *slog.Logger) (domain.Repository, string, func(), error) {
-	url := os.Getenv("DATABASE_URL")
+	url := strings.TrimSpace(os.Getenv("DATABASE_URL"))
+	mode := env("APP_MODE", "production")
+	if mode != "production" && mode != "development" && mode != "demo" {
+		return nil, "", func() {}, errors.New("APP_MODE must be production, development, or demo")
+	}
 	if url == "" {
-		logger.Warn("DATABASE_URL is not set; using in-memory demo storage")
+		if mode == "production" {
+			return nil, "", func() {}, errors.New("DATABASE_URL is required in production mode; use APP_MODE=demo for local memory storage")
+		}
+		logger.Warn("using explicit in-memory demo storage", "mode", mode)
 		return memory.NewDemo(), "memory", func() {}, nil
 	}
 	config, err := pgxpool.ParseConfig(url)
 	if err != nil {
-		return nil, "", func() {}, fmt.Errorf("parse DATABASE_URL: %w", err)
+		// pgx parse errors can include the supplied DSN and its credentials.
+		return nil, "", func() {}, errors.New("invalid DATABASE_URL")
 	}
 	config.MaxConns = int32(envInt("DB_MAX_CONNS", max(4, runtime.NumCPU())))
 	config.MinConns = int32(envInt("DB_MIN_CONNS", 1))

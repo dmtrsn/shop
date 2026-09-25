@@ -10,7 +10,7 @@ DOCKER_COMPOSE ?= docker compose
 .DEFAULT_GOAL := help
 
 .PHONY: help run run-memory run-postgres build test test-race vet fmt fmt-check check \
-	docker-build compose-config compose-up compose-down compose-logs
+	docker-build compose-config compose-up compose-down compose-logs test-integration check-api check-js
 
 help: ## Показать доступные команды
 	@awk 'BEGIN {FS = ":.*## "; printf "Использование: make <цель>\n\n"} /^[a-zA-Z0-9_-]+:.*## / {printf "  %-18s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -18,11 +18,11 @@ help: ## Показать доступные команды
 run: run-memory ## Запустить локально с временным in-memory хранилищем
 
 run-memory: ## Запустить без PostgreSQL; данные сбросятся после рестарта
-	DATABASE_URL= WEB_DIR="$(WEB_DIR)" MIGRATIONS_DIR="$(MIGRATIONS_DIR)" $(GO) run ./cmd/server
+	APP_MODE=demo DATABASE_URL= WEB_DIR="$(WEB_DIR)" MIGRATIONS_DIR="$(MIGRATIONS_DIR)" $(GO) run ./cmd/server
 
 run-postgres: ## Запустить с PostgreSQL (обязательно передать DATABASE_URL)
 	@test -n "$(DATABASE_URL)" || (echo "DATABASE_URL не задан" >&2; exit 1)
-	DATABASE_URL="$(DATABASE_URL)" RUN_MIGRATIONS="$(RUN_MIGRATIONS)" WEB_DIR="$(WEB_DIR)" MIGRATIONS_DIR="$(MIGRATIONS_DIR)" $(GO) run ./cmd/server
+	@DATABASE_URL="$(DATABASE_URL)" RUN_MIGRATIONS="$(RUN_MIGRATIONS)" WEB_DIR="$(WEB_DIR)" MIGRATIONS_DIR="$(MIGRATIONS_DIR)" $(GO) run ./cmd/server
 
 build: ## Собрать production-бинарник в bin/
 	mkdir -p "$(BIN_DIR)"
@@ -38,12 +38,12 @@ vet: ## Выполнить статическую проверку go vet
 	$(GO) vet ./...
 
 fmt: ## Отформатировать Go-код
-	$(GOFMT) -w cmd internal
+	$(GOFMT) -w cmd internal api tests
 
 fmt-check: ## Проверить gofmt без изменения файлов
-	@files="$$($(GOFMT) -l cmd internal)"; if [ -n "$$files" ]; then echo "Требуется gofmt:"; echo "$$files"; exit 1; fi
+	@files="$$($(GOFMT) -l cmd internal api tests)"; if [ -n "$$files" ]; then echo "Требуется gofmt:"; echo "$$files"; exit 1; fi
 
-check: fmt-check vet test ## Выполнить основные проверки проекта
+check: fmt-check vet test check-js ## Выполнить основные проверки проекта
 
 docker-build: ## Собрать OCI-образ приложения
 	docker build -t "$(APP_NAME):local" .
@@ -59,3 +59,12 @@ compose-down: ## Остановить контейнеры, сохранив д�
 
 compose-logs: ## Следить за логами приложения и PostgreSQL
 	$(DOCKER_COMPOSE) logs -f app postgres
+
+test-integration: ## Run race-enabled tests against a disposable PostgreSQL cluster
+	GO="$(GO)" bash scripts/test-integration.sh
+
+check-api: ## Validate OpenAPI and exercise every current HTTP operation
+	$(GO) test -count=1 ./api
+
+check-js: ## Validate legacy JavaScript syntax
+	node --check web/app.js

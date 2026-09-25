@@ -6,10 +6,10 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-sweetshop}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-sweetshop_local_2026}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
       POSTGRES_DB: ${POSTGRES_DB:-sweetshop}
     ports:
-      - "${POSTGRES_BIND:-127.0.0.1}:${POSTGRES_PORT:-5434}:5434"
+      - "${POSTGRES_BIND:-127.0.0.1}:${POSTGRES_PORT:-5434}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -33,7 +33,8 @@ services:
         condition: service_healthy
     environment:
       HTTP_ADDR: :8080
-      DATABASE_URL: ${DATABASE_URL:-postgres://sweetshop:sweetshop_local_2026@postgres:5432/sweetshop?sslmode=disable}
+      APP_MODE: ${APP_MODE:-production}
+      DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL in .env}
       RUN_MIGRATIONS: ${RUN_MIGRATIONS:-true}
       WEB_DIR: ${WEB_DIR:-/app/web}
       MIGRATIONS_DIR: ${MIGRATIONS_DIR:-/app/migrations}

@@ -1,0 +1,55 @@
+name: Baseline checks
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      # Use setup-go's PATH, rather than an unrelated /usr/local/go install.
+      GO: go
+      GOFMT: gofmt
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: shop_test_admin
+          POSTGRES_DB: postgres
+          # Disposable CI service only; no deployed or developer credentials.
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432/tcp
+        options: >-
+          --health-cmd "pg_isready -U shop_test_admin -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: go mod download && go mod verify
+      - name: Formatting, vet, unit and OpenAPI contract tests, legacy JS syntax
+        run: make check
+      - name: Go race detector
+        run: make test-race
+      - name: PostgreSQL migrations, HTTP contract, commerce and concurrency
+        env:
+          TEST_DATABASE_URL: postgres://shop_test_admin@127.0.0.1:${{ job.services.postgres.ports[5432] }}/postgres?sslmode=disable
+        run: make test-integration
+      - name: Integration static analysis
+        run: go vet -tags=integration ./tests/integration
+      - name: Compile production binary
+        run: make build
+      - name: Compose configuration and whitespace
+        run: |
+          docker compose --env-file .env.example config --quiet
+          git diff --check

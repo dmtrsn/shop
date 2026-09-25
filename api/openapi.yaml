@@ -1,0 +1,2590 @@
+openapi: 3.0.3
+info:
+  title: Sweetshop current HTTP API
+  version: 1.0.0-baseline
+  description: Implemented /api contract, baseline 2026-09-25. PostgreSQL behavior is authoritative; noted memory
+    differences are preserved. No future v2 routes. JSON-decoded endpoints require one JSON value, reject unknown
+    fields, and cap body at 1048576 bytes; malformed/empty/oversize bodies return 422, not 400/413. Content-Type
+    is not enforced. Go accepts case-insensitive JSON member names and null as zero/unset values; schemas describe
+    canonical spellings and usable requests. No independent batch item-count limit. HTTP server MaxHeaderBytes=1048576,
+    ReadHeaderTimeout=5s, ReadTimeout=15s, WriteTimeout=30s. Every GET also accepts HEAD through Go ServeMux (network
+    HEAD has no response body). Protected responses and login use no-store. Unmatched /api routes/methods reach
+    the static fallback and return 404 in the deployed configuration; no standardized 405 envelope. Generic error
+    mapper also supports forbidden=403, though no current use case emits it. Public collections/entity lists and
+    order history have no pagination. No promise of JavaScript-safe bounds for int64 money.
+servers:
+- url: /
+paths:
+  /api/health:
+    get:
+      operationId: health
+      summary: health
+      description: 'Readiness: PostgreSQL Ping with a 2-second timeout; explicit memory mode reports ready without
+        persistence. No separate liveness endpoint.'
+      security: []
+      responses:
+        '200':
+          description: Success
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Health'
+        '500':
+          description: internal_error; unexpected storage or server failure.
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: Repository ping failed; status=unavailable, not the standard error envelope.
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Health'
+  /api/auth/login:
+    post:
+      operationId: login
+      summary: login
+      description: Lowercases and trims email; password is not trimmed. Returns random bearer token and 30-day expiry;
+        only SHA-256 token hash is stored. No logout/revocation endpoint. Missing/empty credentials return 422;
+        wrong or unknown credentials return 401.
+      security: []
+      responses:
+        '200':
+          description: Success
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResult'
+        '500':
+          description: internal_error; unexpected storage or server failure.
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: validation_error; optional error.fields identifies invalid input.
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: unauthorized; incorrect credentials.
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginInput'
+  /api/me:
+    get:
+      operationId: currentUser
+      summary: currentUser
+      description: Authenticated user.
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Me'
+        '500':
+          description: internal_error; unexpected storage or server failure.
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: 'unauthorized; malformed/missing bearer header, invalid token, expired session. All protected
+            responses have Cache-Control: no-store.'
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/categories:
+    get:
+      operationId: listCategories
+      summary: listCategories
+      description: Flat categories with parentId; counts include direct children only.
+      security: []
+      responses:
+        '200':
+          description: Success
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Categories'
+        '500':
+          description: internal_error; unexpected storage or server failure.
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/manufacturers:
+    get:
+      operationId: listManufacturers
+      summary: listManufacturers
+      description: Unpaginated manufacturers, including zero-product entries.
+      security: []
+      responses:
+        '200':
+          description: Success
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Manufacturers'
+        '500':
+          description: internal_error; unexpected storage or server failure.
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/brands:
+    get:
+      operationId: listBrands
+      summary: listBrands
+      description: Unpaginated brands. PostgreSQL excludes brands with zero products.
+      security: []
+      responses:
+        '200':
+          description: Success
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Brands'
+        '500':
+          description: internal_error; unexpected storage or server failure.
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/collections:
+    get:
+      operationId: listCollections
+      summary: listCollections
+      description: Unpaginated currently scheduled collections, with ordered productIds.
+      security: []
+      responses:
+        '200':
+          description: Success
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Collections'
+        '500':
+          description: internal_error; unexpected storage or server failure.
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/catalog:
+    get:
+      operationId: catalog
+      summary: catalog
+      description: All filter axes combine with AND. Defaults page=1, limit=24, sort=popular. No matches return
+        items=[], total=0, totalPages=0. Beyond last page returns empty items with requested page. Count and items
+        are separate queries and not a consistent snapshot under concurrent writes.
+      security: []
+      responses:
+        '200':
+          description: Success
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductPage'
+        '500':
+          description: internal_error; unexpected storage or server failure.
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: validation_error; optional error.fields identifies invalid input.
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      parameters:
+      - $ref: '#/components/parameters/q'
+      - $ref: '#/components/parameters/category'
+      - $ref: '#/components/parameters/manufacturer'
+      - $ref: '#/components/parameters/brand'
+      - $ref: '#/components/parameters/collection'
+      - $ref: '#/components/parameters/series'
+      - $ref: '#/components/parameters/tag'
+      - $ref: '#/components/parameters/tags'
+      - $ref: '#/components/parameters/minPriceMinor'
+      - $ref: '#/components/parameters/maxPriceMinor'
+      - $ref: '#/components/parameters/minPrice'
+      - $ref: '#/components/parameters/maxPrice'
+      - $ref: '#/components/parameters/inStock'
+      - $ref: '#/components/parameters/sale'
+      - $ref: '#/components/parameters/newOnly'
+      - $ref: '#/components/parameters/new'
+      - $ref: '#/components/parameters/sort'
+      - $ref: '#/components/parameters/page'
+      - $ref: '#/components/parameters/limit'
+      - $ref: '#/components/parameters/size'
+  /api/catalog/facets:
+    get:
+      operationId: catalogFacets
+      summary: catalogFacets
+      description: Fully filtered facets, not disjunctive. sort/page/limit have parsing behavior described on parameters
+        but no effect on results.
+      security: []
+      responses:
+        '200':
+          description: Success
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CatalogFacets'
+        '500':
+          description: internal_error; unexpected storage or server failure.
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: validation_error; optional error.fields identifies invalid input.
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      parameters:
+      - $ref: '#/components/parameters/q'
+      - $ref: '#/components/parameters/category'
+      - $ref: '#/components/parameters/manufacturer'
+      - $ref: '#/components/parameters/brand'
+      - $ref: '#/components/parameters/collection'
+      - $ref: '#/components/parameters/series'
+      - $ref: '#/components/parameters/tag'
+      - $ref: '#/components/parameters/tags'
+      - $ref: '#/components/parameters/minPriceMinor'
+      - $ref: '#/components/parameters/maxPriceMinor'
+      - $ref: '#/components/parameters/minPrice'
+      - $ref: '#/components/parameters/maxPrice'
+      - $ref: '#/components/parameters/inStock'
+      - $ref: '#/components/parameters/sale'
+      - $ref: '#/components/parameters/newOnly'
+      - $ref: '#/components/parameters/new'
+      - $ref: '#/components/parameters/sort'
+      - $ref: '#/components/parameters/page'
+      - $ref: '#/components/parameters/limit'
+      - $ref: '#/components/parameters/size'
+  /api/products/{product}:
+    get:
+      operationId: product
+      summary: product
+      description: Lookup by ID, slug, or case-insensitive SKU; input trimmed.
+      security: []
+      responses:
+        '200':
+          description: Success
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Product'
+        '500':
+          description: internal_error; unexpected storage or server failure.
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: not_found
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      parameters:
+      - $ref: '#/components/parameters/product'
+  /api/search/suggest:
+    get:
+      operationId: suggestions
+      summary: suggestions
+      description: 'Trimmed query below two Unicode code points returns items=[]. At most 8 results: products first,
+        then manufacturer/brand/category if space remains. No collection or series suggestions. PostgreSQL uses
+        catalog popularity order for product suggestions; memory uses fixture order.'
+      security: []
+      responses:
+        '200':
+          description: Success
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Suggestions'
+        '500':
+          description: internal_error; unexpected storage or server failure.
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      parameters:
+      - $ref: '#/components/parameters/q'
+  /api/cart:
+    get:
+      operationId: cart
+      summary: cart
+      description: Full user cart, manufacturer groups and authoritative summary.
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Cart'
+        '500':
+          description: internal_error; unexpected storage or server failure.
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: 'unauthorized; malformed/missing bearer header, invalid token, expired session. All protected
+            responses have Cache-Control: no-store.'
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    delete:
+      operationId: clearCart
+      summary: clearCart
+      description: Deletes only selected lines when selectedOnly parses true; otherwise deletes every user cart
+        line.
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Cart'
+        '500':
+          description: internal_error; unexpected storage or server failure.
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: 'unauthorized; malformed/missing bearer header, invalid token, expired session. All protected
+            responses have Cache-Control: no-store.'
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      parameters:
+      - $ref: '#/components/parameters/selectedOnly'
+  /api/cart/items:
+    post:
+      operationId: setCartItem
+      summary: setCartItem
+      description: Absolute quantity assignment, not increment. selected defaults true when omitted/null. Resolves
+        product ID/slug/SKU. Quantity must be positive, <= stock, >= minimum and (quantity-minimum)%step=0. Stock
+        is rechecked under product lock; minimum/step are checked by the service before that lock. Always returns
+        201, including overwrite.
+      security:
+      - bearerAuth: []
+      responses:
+        '201':
+          description: Success
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Cart'
+        '500':
+          description: internal_error; unexpected storage or server failure.
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: 'unauthorized; malformed/missing bearer header, invalid token, expired session. All protected
+            responses have Cache-Control: no-store.'
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: not_found
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: out_of_stock or conflict
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: validation_error; optional error.fields identifies invalid input.
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CartSetInput'
+  /api/cart/items/{product}:
+    patch:
+      operationId: updateCartItem
+      summary: updateCartItem
+      description: Must supply non-null quantity or selected. Existing line required. Selection-only changes bypass
+        quantity/stock validation so unavailable lines can be deselected. Quantity plus selected revalidates quantity.
+        Resolves ID/slug/SKU in cart.
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Cart'
+        '500':
+          description: internal_error; unexpected storage or server failure.
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: 'unauthorized; malformed/missing bearer header, invalid token, expired session. All protected
+            responses have Cache-Control: no-store.'
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: not_found
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: out_of_stock or conflict
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: validation_error; optional error.fields identifies invalid input.
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CartPatchInput'
+      parameters:
+      - $ref: '#/components/parameters/product'
+    delete:
+      operationId: removeCartItem
+      summary: removeCartItem
+      description: Resolves ID/slug/SKU. Missing line or product is an idempotent no-op.
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Cart'
+        '500':
+          description: internal_error; unexpected storage or server failure.
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: 'unauthorized; malformed/missing bearer header, invalid token, expired session. All protected
+            responses have Cache-Control: no-store.'
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      parameters:
+      - $ref: '#/components/parameters/product'
+  /api/cart/selection:
+    patch:
+      operationId: selectCartItems
+      summary: selectCartItems
+      description: Missing, null or empty productIds means ALL user lines. selected defaults false. Unknown IDs
+        are ignored. PostgreSQL accepts canonical IDs only here; memory also resolves slug/SKU. Does not revalidate
+        stock or minimum/step.
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Cart'
+        '500':
+          description: internal_error; unexpected storage or server failure.
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: 'unauthorized; malformed/missing bearer header, invalid token, expired session. All protected
+            responses have Cache-Control: no-store.'
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: validation_error; optional error.fields identifies invalid input.
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CartSelectionInput'
+  /api/favorites:
+    get:
+      operationId: favorites
+      summary: favorites
+      description: Full list and manufacturer groups; items=[] and groups=[] when empty.
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Favorites'
+        '500':
+          description: internal_error; unexpected storage or server failure.
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: 'unauthorized; malformed/missing bearer header, invalid token, expired session. All protected
+            responses have Cache-Control: no-store.'
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/favorites/{product}:
+    put:
+      operationId: enableFavorite
+      summary: enableFavorite
+      description: Resolves product ID/slug/SKU; existing product required even for deletion. Idempotent membership
+        update. Body ignored.
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Favorites'
+        '500':
+          description: internal_error; unexpected storage or server failure.
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: 'unauthorized; malformed/missing bearer header, invalid token, expired session. All protected
+            responses have Cache-Control: no-store.'
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: not_found
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      parameters:
+      - $ref: '#/components/parameters/product'
+    delete:
+      operationId: disableFavorite
+      summary: disableFavorite
+      description: Resolves product ID/slug/SKU; existing product required even for deletion. Idempotent membership
+        update. Body ignored.
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Favorites'
+        '500':
+          description: internal_error; unexpected storage or server failure.
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: 'unauthorized; malformed/missing bearer header, invalid token, expired session. All protected
+            responses have Cache-Control: no-store.'
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: not_found
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      parameters:
+      - $ref: '#/components/parameters/product'
+  /api/orders:
+    get:
+      operationId: orders
+      summary: orders
+      description: All owned orders with complete items, newest first; unpaginated.
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Orders'
+        '500':
+          description: internal_error; unexpected storage or server failure.
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: 'unauthorized; malformed/missing bearer header, invalid token, expired session. All protected
+            responses have Cache-Control: no-store.'
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    post:
+      operationId: checkout
+      summary: checkout
+      description: Trimmed nonempty deliveryAddress required. Uses persisted selected cart lines only. Current stock
+        shortage on ANY selected line aborts everything with 409 out_of_stock; no selected lines returns 409 conflict.
+        Locks selected products/cart rows, snapshots current names/prices, decrements stock, deletes captured lines
+        atomically. Unselected lines remain. Does not recheck minimum/step, require prior quote, take payment or
+        provide idempotency.
+      security:
+      - bearerAuth: []
+      responses:
+        '201':
+          description: Success
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Order'
+        '500':
+          description: internal_error; unexpected storage or server failure.
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: 'unauthorized; malformed/missing bearer header, invalid token, expired session. All protected
+            responses have Cache-Control: no-store.'
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: out_of_stock or conflict
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: validation_error; optional error.fields identifies invalid input.
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CheckoutInput'
+  /api/orders/{order}:
+    get:
+      operationId: order
+      summary: order
+      description: Owned historical order; snapshots survive live product edits/deletion.
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Order'
+        '500':
+          description: internal_error; unexpected storage or server failure.
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: 'unauthorized; malformed/missing bearer header, invalid token, expired session. All protected
+            responses have Cache-Control: no-store.'
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: not_found
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      parameters:
+      - $ref: '#/components/parameters/order'
+  /api/orders/{order}/repeat/preview:
+    post:
+      operationId: repeatPreview
+      summary: repeatPreview
+      description: Read-only preview. Body optional and ignored; reads/discards at most 1024 bytes without JSON
+        validation. Does not persist review/consent evidence.
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepeatPreview'
+        '500':
+          description: internal_error; unexpected storage or server failure.
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: 'unauthorized; malformed/missing bearer header, invalid token, expired session. All protected
+            responses have Cache-Control: no-store.'
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: not_found
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      parameters:
+      - $ref: '#/components/parameters/order'
+  /api/orders/{order}/repeat/commit:
+    post:
+      operationId: repeatCommit
+      summary: repeatCommit
+      description: Regenerates preview. Missing/null/empty items (including {} and JSON null) select preview defaults.
+        Nonempty input respects only explicit entries; omitted lines are untouched, selected defaults false. Duplicate
+        or foreign product IDs return 422 even when deselected. Selected unavailable/discontinued/invalid additions
+        return 422. Validates final cart quantity; locked stock/rule changes may return 409 and missing products
+        404. All additions are atomic; cart additions do not reserve stock. No prior preview, expected price, review
+        token or idempotency required.
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepeatCommitResult'
+        '500':
+          description: internal_error; unexpected storage or server failure.
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: 'unauthorized; malformed/missing bearer header, invalid token, expired session. All protected
+            responses have Cache-Control: no-store.'
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: not_found
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: out_of_stock or conflict
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: validation_error; optional error.fields identifies invalid input.
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RepeatCommitInput'
+      parameters:
+      - $ref: '#/components/parameters/order'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: Case-insensitive Bearer scheme; exactly two whitespace-delimited header parts. Opaque token from
+        login, 30 days; no cookie authentication.
+  parameters:
+    q:
+      name: q
+      in: query
+      required: false
+      description: Trimmed query; catalog/facets reject more than 200 Unicode code points. PostgreSQL full text
+        (simple) OR substring search; % and _ retain LIKE wildcard meaning. Suggestions have no 200-character cap.
+      schema:
+        type: string
+    category:
+      name: category
+      in: query
+      required: false
+      description: Exact ID or slug. Category includes itself and direct children only.
+      schema:
+        type: string
+    manufacturer:
+      name: manufacturer
+      in: query
+      required: false
+      description: Exact ID or slug. Trimmed.
+      schema:
+        type: string
+    brand:
+      name: brand
+      in: query
+      required: false
+      description: Exact ID or slug. Trimmed.
+      schema:
+        type: string
+    collection:
+      name: collection
+      in: query
+      required: false
+      description: Exact ID or slug. Collection input is not trimmed.
+      schema:
+        type: string
+    series:
+      name: series
+      in: query
+      required: false
+      description: Case-insensitive exact series text, trimmed.
+      schema:
+        type: string
+    tag:
+      name: tag
+      in: query
+      required: false
+      description: Repeat parameter; all supplied tags must match. PostgreSQL tag matching is case-sensitive.
+      schema:
+        type: array
+        items:
+          type: string
+      style: form
+      explode: true
+    tags:
+      name: tags
+      in: query
+      required: false
+      description: Comma-separated tags; trims and discards empty elements, combines with repeated tag values.
+      schema:
+        type: string
+    minPriceMinor:
+      name: minPriceMinor
+      in: query
+      required: false
+      description: Nonnegative int64 MINOR units, including the legacy alias. Canonical nonempty parameter wins.
+        Zero means no bound; min/max ordering is not validated.
+      schema:
+        type: integer
+        format: int64
+        minimum: 0
+    maxPriceMinor:
+      name: maxPriceMinor
+      in: query
+      required: false
+      description: Nonnegative int64 MINOR units, including the legacy alias. Canonical nonempty parameter wins.
+        Zero means no bound; min/max ordering is not validated.
+      schema:
+        type: integer
+        format: int64
+        minimum: 0
+    minPrice:
+      name: minPrice
+      in: query
+      required: false
+      description: Nonnegative int64 MINOR units, including the legacy alias. Canonical nonempty parameter wins.
+        Zero means no bound; min/max ordering is not validated.
+      schema:
+        type: integer
+        format: int64
+        minimum: 0
+    maxPrice:
+      name: maxPrice
+      in: query
+      required: false
+      description: Nonnegative int64 MINOR units, including the legacy alias. Canonical nonempty parameter wins.
+        Zero means no bound; min/max ordering is not validated.
+      schema:
+        type: integer
+        format: int64
+        minimum: 0
+    inStock:
+      name: inStock
+      in: query
+      required: false
+      description: 'Accepted Go boolean strings: 1,t,T,TRUE,true,True,0,f,F,FALSE,false,False. Empty means unset;
+        invalid values return 422. false selects zero stock.'
+      schema:
+        type: string
+        enum:
+        - ''
+        - '1'
+        - t
+        - T
+        - 'TRUE'
+        - 'true'
+        - 'True'
+        - '0'
+        - f
+        - F
+        - 'FALSE'
+        - 'false'
+        - 'False'
+    sale:
+      name: sale
+      in: query
+      required: false
+      description: 'Accepted Go boolean strings: 1,t,T,TRUE,true,True,0,f,F,FALSE,false,False. Empty means unset;
+        invalid values return 422. true requires oldPriceMinor > priceMinor.'
+      schema:
+        type: string
+        enum:
+        - ''
+        - '1'
+        - t
+        - T
+        - 'TRUE'
+        - 'true'
+        - 'True'
+        - '0'
+        - f
+        - F
+        - 'FALSE'
+        - 'false'
+        - 'False'
+    newOnly:
+      name: newOnly
+      in: query
+      required: false
+      description: 'Accepted Go boolean strings: 1,t,T,TRUE,true,True,0,f,F,FALSE,false,False. Empty means unset;
+        invalid values return 422. false does not filter. newOnly takes precedence over new; matches Новинка badge.'
+      schema:
+        type: string
+        enum:
+        - ''
+        - '1'
+        - t
+        - T
+        - 'TRUE'
+        - 'true'
+        - 'True'
+        - '0'
+        - f
+        - F
+        - 'FALSE'
+        - 'false'
+        - 'False'
+    new:
+      name: new
+      in: query
+      required: false
+      description: 'Accepted Go boolean strings: 1,t,T,TRUE,true,True,0,f,F,FALSE,false,False. Empty means unset;
+        invalid values return 422. false does not filter. newOnly takes precedence over new; matches Новинка badge.'
+      schema:
+        type: string
+        enum:
+        - ''
+        - '1'
+        - t
+        - T
+        - 'TRUE'
+        - 'true'
+        - 'True'
+        - '0'
+        - f
+        - F
+        - 'FALSE'
+        - 'false'
+        - 'False'
+    sort:
+      name: sort
+      in: query
+      required: false
+      description: Catalog accepts empty/popular,new,price_asc,price_desc,rating,name. priceAsc/priceDesc are frontend
+        names, NOT HTTP aliases. Facets ignores sort. Ties have no stable ID guarantee.
+      schema:
+        type: string
+    page:
+      name: page
+      in: query
+      required: false
+      description: Integer; catalog values below 1 become 1, above 1000000 return 422. Facets ignores after integer
+        parsing.
+      schema:
+        type: integer
+        format: int32
+    limit:
+      name: limit
+      in: query
+      required: false
+      description: Integer; limit wins over size when nonempty. Catalog values below 1 become 24, above 100 become
+        100. Facets ignores after integer parsing.
+      schema:
+        type: integer
+        format: int32
+    size:
+      name: size
+      in: query
+      required: false
+      description: Integer; limit wins over size when nonempty. Catalog values below 1 become 24, above 100 become
+        100. Facets ignores after integer parsing.
+      schema:
+        type: integer
+        format: int32
+    selectedOnly:
+      name: selectedOnly
+      in: query
+      required: false
+      description: True deletes selected lines; missing, empty, FALSE and even malformed values mean false and DELETE
+        ALL cart lines. This legacy behavior is preserved.
+      schema:
+        type: string
+    product:
+      name: product
+      in: path
+      required: true
+      description: Product ID, slug, or case-insensitive SKU unless an operation states otherwise.
+      schema:
+        type: string
+    order:
+      name: order
+      in: path
+      required: true
+      description: 'Owned order ID or order number. Encode # in numbers as %23. Foreign or missing orders return
+        404.'
+      schema:
+        type: string
+  schemas:
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        email:
+          type: string
+        phone:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+      required:
+      - id
+      - name
+      - email
+      - createdAt
+      additionalProperties: false
+      description: phone omitted when empty. Password hashes are never serialized.
+    Category:
+      type: object
+      properties:
+        id:
+          type: string
+        slug:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        parentId:
+          type: string
+        icon:
+          type: string
+        productCount:
+          type: integer
+          format: int32
+      required:
+      - id
+      - slug
+      - name
+      - productCount
+      additionalProperties: false
+    Manufacturer:
+      type: object
+      properties:
+        id:
+          type: string
+        slug:
+          type: string
+        name:
+          type: string
+        country:
+          type: string
+        description:
+          type: string
+        logo:
+          type: string
+        productCount:
+          type: integer
+          format: int32
+      required:
+      - id
+      - slug
+      - name
+      - country
+      - productCount
+      additionalProperties: false
+    Brand:
+      type: object
+      properties:
+        id:
+          type: string
+        slug:
+          type: string
+        name:
+          type: string
+        manufacturerId:
+          type: string
+        manufacturer:
+          type: string
+        description:
+          type: string
+        logo:
+          type: string
+        productCount:
+          type: integer
+          format: int32
+      required:
+      - id
+      - slug
+      - name
+      - manufacturerId
+      - manufacturer
+      - productCount
+      additionalProperties: false
+    Product:
+      type: object
+      properties:
+        id:
+          type: string
+        slug:
+          type: string
+        sku:
+          type: string
+        name:
+          type: string
+        shortName:
+          type: string
+        description:
+          type: string
+        priceMinor:
+          type: integer
+          format: int64
+        oldPriceMinor:
+          type: integer
+          format: int64
+        currency:
+          type: string
+        unit:
+          type: string
+        weightGrams:
+          type: integer
+          format: int32
+        image:
+          type: string
+        gallery:
+          type: array
+          items:
+            type: string
+        category:
+          $ref: '#/components/schemas/Category'
+        manufacturer:
+          $ref: '#/components/schemas/Manufacturer'
+        brand:
+          $ref: '#/components/schemas/Brand'
+        series:
+          type: string
+        tags:
+          type: array
+          items:
+            type: string
+        badges:
+          type: array
+          items:
+            type: string
+        ingredients:
+          type: string
+        nutrition:
+          type: string
+        shelfLifeDays:
+          type: integer
+          format: int32
+        rating:
+          type: number
+          format: double
+        reviewsCount:
+          type: integer
+          format: int32
+        stock:
+          type: integer
+          format: int32
+        minimumQuantity:
+          type: integer
+          format: int32
+        quantityStep:
+          type: integer
+          format: int32
+        featured:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+      required:
+      - id
+      - slug
+      - sku
+      - name
+      - description
+      - priceMinor
+      - currency
+      - unit
+      - image
+      - category
+      - manufacturer
+      - brand
+      - rating
+      - reviewsCount
+      - stock
+      - minimumQuantity
+      - quantityStep
+      - createdAt
+      additionalProperties: false
+      description: Prices are integer currency minor units (seed currency RUB). Optional zero/empty fields are omitted.
+        Nested entity productCount is normally zero, not the directory count. A discontinued repeat item uses this
+        same shape with historical id/SKU/name/image and zero-value remaining fields, including empty nested entities,
+        zero quantity rules and a year-0001 createdAt.
+    Collection:
+      type: object
+      properties:
+        id:
+          type: string
+        slug:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        accent:
+          type: string
+        image:
+          type: string
+        productIds:
+          type: array
+          items:
+            type: string
+          nullable: true
+        productCount:
+          type: integer
+          format: int32
+        startsAt:
+          type: string
+          format: date-time
+        endsAt:
+          type: string
+          format: date-time
+      required:
+      - id
+      - slug
+      - name
+      - description
+      - accent
+      - productIds
+      - productCount
+      - startsAt
+      - endsAt
+      additionalProperties: false
+      description: Directory listing respects start/end dates. Unset timestamps serialize as 0001-01-01T00:00:00Z
+        despite omitempty. Direct catalog collection filtering ignores schedule and editorial sort order.
+    ProductPage:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Product'
+        total:
+          type: integer
+          format: int32
+        page:
+          type: integer
+          format: int32
+        limit:
+          type: integer
+          format: int32
+        totalPages:
+          type: integer
+          format: int32
+      required:
+      - items
+      - total
+      - page
+      - limit
+      - totalPages
+      additionalProperties: false
+    FacetValue:
+      type: object
+      properties:
+        id:
+          type: string
+        slug:
+          type: string
+        name:
+          type: string
+        count:
+          type: integer
+          format: int32
+      required:
+      - id
+      - slug
+      - name
+      - count
+      additionalProperties: false
+    CatalogFacets:
+      type: object
+      properties:
+        categories:
+          type: array
+          items:
+            $ref: '#/components/schemas/FacetValue'
+        manufacturers:
+          type: array
+          items:
+            $ref: '#/components/schemas/FacetValue'
+        brands:
+          type: array
+          items:
+            $ref: '#/components/schemas/FacetValue'
+        tags:
+          type: array
+          items:
+            $ref: '#/components/schemas/FacetValue'
+        series:
+          type: array
+          items:
+            $ref: '#/components/schemas/FacetValue'
+        minPriceMinor:
+          type: integer
+          format: int64
+        maxPriceMinor:
+          type: integer
+          format: int64
+      required:
+      - categories
+      - manufacturers
+      - brands
+      - tags
+      - series
+      - minPriceMinor
+      - maxPriceMinor
+      additionalProperties: false
+      description: All current filters apply to every aggregation, including the axis itself. Counts reflect directly
+        assigned product categories, not ancestor counts. Facet arrays are empty on no matches; price bounds are
+        then zero. Results are unpaginated. sort/page/limit are parsed but ignored (service catalog bounds and sort
+        allowlist are not applied here).
+    SearchSuggestion:
+      type: object
+      properties:
+        type:
+          type: string
+          enum:
+          - product
+          - manufacturer
+          - brand
+          - category
+        id:
+          type: string
+        slug:
+          type: string
+        title:
+          type: string
+        subtitle:
+          type: string
+        image:
+          type: string
+      required:
+      - type
+      - id
+      - slug
+      - title
+      additionalProperties: false
+    CartItem:
+      type: object
+      properties:
+        product:
+          $ref: '#/components/schemas/Product'
+        quantity:
+          type: integer
+          format: int32
+        selected:
+          type: boolean
+        available:
+          type: integer
+          format: int32
+        lineTotalMinor:
+          type: integer
+          format: int64
+        issue:
+          type: string
+      required:
+      - product
+      - quantity
+      - selected
+      - available
+      - lineTotalMinor
+      additionalProperties: false
+    CartGroup:
+      type: object
+      properties:
+        manufacturer:
+          $ref: '#/components/schemas/Manufacturer'
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/CartItem'
+        selectedCount:
+          type: integer
+          format: int32
+        subtotalMinor:
+          type: integer
+          format: int64
+      required:
+      - manufacturer
+      - items
+      - selectedCount
+      - subtotalMinor
+      additionalProperties: false
+      description: selectedCount counts units including unavailable selections. subtotalMinor uses current prices
+        for eligible selected lines (unlike summary subtotal, which uses list prices).
+    CartSummary:
+      type: object
+      properties:
+        itemCount:
+          type: integer
+          format: int32
+        positionCount:
+          type: integer
+          format: int32
+        selectedCount:
+          type: integer
+          format: int32
+        subtotalMinor:
+          type: integer
+          format: int64
+        discountMinor:
+          type: integer
+          format: int64
+        deliveryMinor:
+          type: integer
+          format: int64
+        totalMinor:
+          type: integer
+          format: int64
+        unavailableCount:
+          type: integer
+          format: int32
+      required:
+      - itemCount
+      - positionCount
+      - selectedCount
+      - subtotalMinor
+      - discountMinor
+      - deliveryMinor
+      - totalMinor
+      - unavailableCount
+      additionalProperties: false
+      description: itemCount and selectedCount count units (selectedCount includes selected unavailable lines).
+        positionCount and unavailableCount count lines. Subtotal uses max(priceMinor,oldPriceMinor) on selected
+        lines without stock issues; discount is the difference from current prices. Delivery is 29000 when net subtotal
+        is positive and below 350000, otherwise zero. Total = subtotal - discount + delivery. Quantity-rule changes
+        are not represented as cart issues.
+    Cart:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/CartItem'
+        groups:
+          type: array
+          items:
+            $ref: '#/components/schemas/CartGroup'
+        summary:
+          $ref: '#/components/schemas/CartSummary'
+        updatedAt:
+          type: string
+          format: date-time
+      required:
+      - items
+      - groups
+      - summary
+      - updatedAt
+      additionalProperties: false
+      description: items and groups are arrays, including when empty. Each group repeats its complete items. updatedAt
+        is the maximum surviving row timestamp, or year 0001 for empty carts; it is not a monotonic revision. Product
+        data is current, not a reserved offer.
+    FavoriteGroup:
+      type: object
+      properties:
+        manufacturer:
+          $ref: '#/components/schemas/Manufacturer'
+        products:
+          type: array
+          items:
+            $ref: '#/components/schemas/Product'
+      required:
+      - manufacturer
+      - products
+      additionalProperties: false
+    Favorites:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Product'
+        groups:
+          type: array
+          items:
+            $ref: '#/components/schemas/FavoriteGroup'
+        total:
+          type: integer
+          format: int32
+      required:
+      - items
+      - groups
+      - total
+      additionalProperties: false
+    OrderItem:
+      type: object
+      properties:
+        productId:
+          type: string
+        sku:
+          type: string
+        name:
+          type: string
+        image:
+          type: string
+        manufacturerId:
+          type: string
+        manufacturer:
+          type: string
+        quantity:
+          type: integer
+          format: int32
+        unitPriceMinor:
+          type: integer
+          format: int64
+        lineTotalMinor:
+          type: integer
+          format: int64
+      required:
+      - productId
+      - sku
+      - name
+      - image
+      - manufacturerId
+      - manufacturer
+      - quantity
+      - unitPriceMinor
+      - lineTotalMinor
+      additionalProperties: false
+    Order:
+      type: object
+      properties:
+        id:
+          type: string
+        number:
+          type: string
+        status:
+          type: string
+        statusLabel:
+          type: string
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/OrderItem'
+          nullable: true
+        itemCount:
+          type: integer
+          format: int32
+        totalMinor:
+          type: integer
+          format: int64
+        deliveryAddress:
+          type: string
+        comment:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        deliveredAt:
+          type: string
+          format: date-time
+      required:
+      - id
+      - number
+      - status
+      - statusLabel
+      - items
+      - itemCount
+      - totalMinor
+      - deliveryAddress
+      - createdAt
+      - deliveredAt
+      additionalProperties: false
+      description: Items preserve productId, SKU, name, image, manufacturer identity/name, quantity and prices independently
+        of the live product. No currency or delivery breakdown is stored on the order. Total includes delivery for
+        new checkouts. deliveredAt always serializes, with year 0001 when unset. A database order with no item rows
+        has items=[] in detail and items=null in PostgreSQL history. History is unpaginated.
+    RepeatItem:
+      type: object
+      properties:
+        product:
+          $ref: '#/components/schemas/Product'
+        requestedQuantity:
+          type: integer
+          format: int32
+        availableQuantity:
+          type: integer
+          format: int32
+        addableQuantity:
+          type: integer
+          format: int32
+        suggestedQuantity:
+          type: integer
+          format: int32
+        proposedQuantity:
+          type: integer
+          format: int32
+        alreadyInCartQuantity:
+          type: integer
+          format: int32
+        originalUnitPriceMinor:
+          type: integer
+          format: int64
+        currentUnitPriceMinor:
+          type: integer
+          format: int64
+        priceDeltaMinor:
+          type: integer
+          format: int64
+        priceChanged:
+          type: boolean
+        selected:
+          type: boolean
+        status:
+          type: string
+          enum:
+          - available
+          - limited
+          - unavailable
+          - discontinued
+        message:
+          type: string
+        replacement:
+          $ref: '#/components/schemas/Product'
+      required:
+      - product
+      - requestedQuantity
+      - availableQuantity
+      - addableQuantity
+      - suggestedQuantity
+      - proposedQuantity
+      - alreadyInCartQuantity
+      - originalUnitPriceMinor
+      - currentUnitPriceMinor
+      - priceDeltaMinor
+      - priceChanged
+      - selected
+      - status
+      additionalProperties: false
+      description: Quantities are proposed additions. availableQuantity is total stock; addableQuantity=max(stock-alreadyInCartQuantity,0).
+        Final cart quantity must be >= minimumQuantity and (final-minimumQuantity) divisible by quantityStep. Suggested
+        quantity rounds DOWN within original request/available stock. If only an addition above the request can
+        satisfy minimum, proposedQuantity holds the smallest addition, suggestedQuantity=0, selected=false, status=limited.
+        Replacement is informational; arbitrary replacement IDs cannot be committed.
+    RepeatPreview:
+      type: object
+      properties:
+        orderId:
+          type: string
+        orderNumber:
+          type: string
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/RepeatItem'
+        requestedCount:
+          type: integer
+          format: int32
+        availableCount:
+          type: integer
+          format: int32
+        limitedCount:
+          type: integer
+          format: int32
+        unavailableCount:
+          type: integer
+          format: int32
+        estimatedTotalMinor:
+          type: integer
+          format: int64
+      required:
+      - orderId
+      - orderNumber
+      - items
+      - requestedCount
+      - availableCount
+      - limitedCount
+      - unavailableCount
+      - estimatedTotalMinor
+      additionalProperties: false
+      description: requestedCount counts historical units; availableCount, limitedCount and unavailableCount count
+        lines. Estimated total uses selected suggested additions at current prices, excluding delivery. Preview
+        performs no cart writes and creates no review token.
+    RepeatCommitResult:
+      type: object
+      properties:
+        cart:
+          $ref: '#/components/schemas/Cart'
+        addedCount:
+          type: integer
+          format: int32
+        addedQuantity:
+          type: integer
+          format: int32
+        adjustedCount:
+          type: integer
+          format: int32
+        skippedCount:
+          type: integer
+          format: int32
+      required:
+      - cart
+      - addedCount
+      - addedQuantity
+      - adjustedCount
+      - skippedCount
+      additionalProperties: false
+      description: addedCount counts added lines; addedQuantity counts added units. adjustedCount counts additions
+        different from historical requested quantity. skippedCount counts explicitly deselected lines, or skipped
+        preview defaults for empty input; omitted lines in an explicit nonempty input are not counted.
+    Error:
+      type: object
+      required:
+      - error
+      additionalProperties: false
+      properties:
+        error:
+          type: object
+          required:
+          - code
+          - message
+          - requestId
+          additionalProperties: false
+          properties:
+            code:
+              type: string
+              enum:
+              - validation_error
+              - unauthorized
+              - forbidden
+              - not_found
+              - out_of_stock
+              - conflict
+              - internal_error
+            message:
+              type: string
+            requestId:
+              type: string
+            fields:
+              type: array
+              items:
+                type: object
+                required:
+                - field
+                - message
+                properties:
+                  field:
+                    type: string
+                  message:
+                    type: string
+                additionalProperties: false
+    LoginResult:
+      type: object
+      required:
+      - token
+      - expiresAt
+      - user
+      additionalProperties: false
+      properties:
+        token:
+          type: string
+        expiresAt:
+          type: string
+          format: date-time
+        user:
+          $ref: '#/components/schemas/User'
+    Health:
+      type: object
+      required:
+      - status
+      - storage
+      - time
+      additionalProperties: false
+      properties:
+        status:
+          type: string
+          enum:
+          - ok
+          - unavailable
+        storage:
+          type: string
+          enum:
+          - memory
+          - postgres
+        time:
+          type: string
+          format: date-time
+    Me:
+      type: object
+      required:
+      - user
+      additionalProperties: false
+      properties:
+        user:
+          $ref: '#/components/schemas/User'
+    Categories:
+      type: object
+      required:
+      - items
+      additionalProperties: false
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Category'
+    Manufacturers:
+      type: object
+      required:
+      - items
+      additionalProperties: false
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Manufacturer'
+    Brands:
+      type: object
+      required:
+      - items
+      additionalProperties: false
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Brand'
+    Collections:
+      type: object
+      required:
+      - items
+      additionalProperties: false
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Collection'
+    Suggestions:
+      type: object
+      required:
+      - items
+      additionalProperties: false
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/SearchSuggestion'
+    Orders:
+      type: object
+      required:
+      - items
+      additionalProperties: false
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Order'
+    LoginInput:
+      type: object
+      properties:
+        email:
+          type: string
+        password:
+          type: string
+          format: password
+      required:
+      - email
+      - password
+      additionalProperties: false
+    CartSetInput:
+      type: object
+      properties:
+        productId:
+          type: string
+        quantity:
+          type: integer
+          format: int32
+          minimum: 1
+        selected:
+          type: boolean
+          nullable: true
+          default: true
+      required:
+      - productId
+      - quantity
+      additionalProperties: false
+    CartPatchInput:
+      type: object
+      properties:
+        quantity:
+          type: integer
+          format: int32
+          nullable: true
+        selected:
+          type: boolean
+          nullable: true
+      required: []
+      additionalProperties: false
+    CartSelectionInput:
+      type: object
+      properties:
+        productIds:
+          type: array
+          items:
+            type: string
+          nullable: true
+        selected:
+          type: boolean
+          nullable: true
+          default: false
+      required: []
+      additionalProperties: false
+      nullable: true
+    RepeatSelection:
+      type: object
+      properties:
+        productId:
+          type: string
+        quantity:
+          type: integer
+          format: int32
+        selected:
+          type: boolean
+          default: false
+      required: []
+      additionalProperties: false
+      nullable: true
+    RepeatCommitInput:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/RepeatSelection'
+          nullable: true
+      required: []
+      additionalProperties: false
+      nullable: true
+    CheckoutInput:
+      type: object
+      properties:
+        deliveryAddress:
+          type: string
+        comment:
+          type: string
+          nullable: true
+      required:
+      - deliveryAddress
+      additionalProperties: false

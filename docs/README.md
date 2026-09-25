@@ -14,3 +14,7 @@ These documents are proposals, not an implemented migration or accepted producti
 - [ADR 006: Administration](adr/006-admin-architecture.md).
 
 The recommendation is to preserve the Go application and PostgreSQL, introduce a TypeScript/React storefront with Next.js, and replace complete routes incrementally. Keep the existing frontend available until each replacement meets behavioral, accessibility, security, and performance gates. Administration becomes a separate React application using authorized Go use cases.
+
+## Implementation baseline
+
+The Production Baseline and Contracts phase is recorded in [baseline.md](baseline.md), with the implemented HTTP contract in [../api/openapi.yaml](../api/openapi.yaml). The earlier audit and ADRs remain the architectural reference; future APIs described there are not implemented by this phase.
