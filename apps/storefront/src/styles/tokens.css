@@ -1,0 +1,96 @@
+:root {
+  color-scheme: light;
+
+  /* Color: warm, quiet UI lets future product photography carry the color. */
+  --color-canvas: #f6f2e9;
+  --color-surface: #fffdf8;
+  --color-surface-subtle: #ede8dc;
+  --color-surface-selected: #e4eadb;
+  --color-text: #20251f;
+  --color-text-muted: #5f655c;
+  --color-border: #d3cec2;
+  --color-border-strong: #827f75;
+  --color-accent: #4f633d;
+  --color-accent-hover: #3f5031;
+  --color-accent-pressed: #334128;
+  --color-on-accent: #ffffff;
+  --color-focus: #315c91;
+  --color-success: #346245;
+  --color-warning: #8a5b16;
+  --color-error: #9a3f38;
+  --color-info: #3f6079;
+  --color-scrim: rgb(20 24 19 / 62%);
+
+  /* Typography */
+  --font-sans: Inter, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-size-xs: 0.75rem;
+  --font-size-sm: 0.875rem;
+  --font-size-md: 1rem;
+  --font-size-lg: clamp(1.125rem, 1.05rem + 0.3vw, 1.375rem);
+  --font-size-xl: clamp(1.5rem, 1.25rem + 1vw, 2.25rem);
+  --font-size-display: clamp(2rem, 1.45rem + 2.2vw, 3.75rem);
+  --line-height-tight: 1.12;
+  --line-height-heading: 1.25;
+  --line-height-body: 1.55;
+  --weight-regular: 400;
+  --weight-medium: 550;
+  --weight-semibold: 650;
+  --weight-bold: 750;
+
+  /* Spacing */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2rem;
+  --space-7: 3rem;
+  --space-8: 4.5rem;
+
+  /* Shape and borders */
+  --radius-control: 0.375rem;
+  --radius-panel: 0.625rem;
+  --radius-overlay: 0.75rem;
+  --radius-pill: 999px;
+  --border-width: 1px;
+  --border-control: var(--border-width) solid var(--color-border);
+  --border-strong: var(--border-width) solid var(--color-border-strong);
+
+  /* Elevation belongs only to floating or overlapping layers. */
+  --shadow-sticky: 0 0.25rem 1rem rgb(32 37 31 / 8%);
+  --shadow-overlay: 0 1rem 2.5rem rgb(32 37 31 / 14%);
+
+  /* Motion */
+  --motion-immediate: 80ms;
+  --motion-short: 160ms;
+  --motion-overlay: 220ms;
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+
+  /* Containers and density */
+  --container-reading: 45rem;
+  --container-storefront: 82rem;
+  --container-catalog: 92rem;
+  --gutter: clamp(1rem, 3vw, 2rem);
+  --control-height: 2.75rem;
+  --control-height-compact: 2.25rem;
+  --row-height-comfortable: 4.5rem;
+  --row-height-compact: 3.25rem;
+
+  /* Focus and layers */
+  --focus-width: 3px;
+  --focus-offset: 3px;
+  --z-base: 0;
+  --z-sticky: 20;
+  --z-header: 30;
+  --z-dropdown: 40;
+  --z-drawer: 50;
+  --z-modal: 60;
+  --z-toast: 70;
+}
+
+@media (max-width: 47.99rem) {
+  :root {
+    --gutter: 1rem;
+    --space-8: 3.5rem;
+  }
+}

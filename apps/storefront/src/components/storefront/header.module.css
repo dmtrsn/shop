@@ -1,0 +1,124 @@
+.header {
+  position: sticky;
+  z-index: var(--z-header);
+  top: 0;
+  border-bottom: var(--border-control);
+  background: color-mix(in srgb, var(--color-canvas) 96%, transparent);
+  box-shadow: var(--shadow-sticky);
+}
+
+.desktop {
+  display: grid;
+  min-height: 4.25rem;
+  grid-template-columns: auto auto auto auto minmax(12rem, 1fr) auto auto auto;
+  align-items: center;
+  gap: clamp(0.625rem, 1.2vw, 1.25rem);
+}
+
+.logo {
+  color: var(--color-text);
+  font-size: 1.3rem;
+  font-weight: var(--weight-bold);
+  letter-spacing: -0.035em;
+  text-decoration: none;
+}
+
+.navLink,
+.utilityLink {
+  display: inline-flex;
+  min-height: var(--control-height);
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  border-radius: var(--radius-control);
+  font-size: var(--font-size-sm);
+  font-weight: var(--weight-medium);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.navLink:hover,
+.utilityLink:hover {
+  color: var(--color-accent-hover);
+  text-decoration: underline;
+  text-underline-offset: 0.3em;
+}
+
+.search {
+  min-width: 0;
+}
+
+.search label {
+  gap: 0;
+}
+
+.utilityLabel {
+  display: inline;
+}
+
+.cart {
+  padding-inline: var(--space-3);
+  border: var(--border-strong);
+  background: var(--color-surface);
+}
+
+.mobile {
+  display: none;
+  padding-block: var(--space-2) var(--space-3);
+}
+
+.mobileTop {
+  display: flex;
+  min-height: var(--control-height);
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-2);
+}
+
+.mobileCart {
+  display: inline-flex;
+  min-height: var(--control-height);
+  align-items: center;
+  gap: var(--space-2);
+  padding-inline: var(--space-3);
+  border: var(--border-strong);
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+  font-weight: var(--weight-semibold);
+  text-decoration: none;
+}
+
+@media (max-width: 78rem) {
+  .desktop {
+    grid-template-columns: auto auto auto auto minmax(10rem, 1fr) auto auto auto;
+    gap: var(--space-2);
+  }
+
+  .utilityLabel {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+  }
+
+  .utilityLink {
+    width: var(--control-height);
+  }
+
+  .cart {
+    width: auto;
+  }
+}
+
+@media (max-width: 61rem) {
+  .desktop {
+    display: none;
+  }
+
+  .mobile {
+    display: block;
+  }
+}
