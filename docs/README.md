@@ -1,27 +1,13 @@
-<<<<<<< HEAD
-# Architecture review
-
-Review date: 2026-09-25. Baseline: `7be70d7`.
-
-These documents are proposals, not an implemented migration or accepted production design. The review changes documentation only.
-
-- [Repository audit](repository-audit.md): current architecture, preserved behavior, gaps, security findings, and verification limits.
-- [Migration plan](migration-plan.md): sequence, parity gates, rollback, future structure, and anticipated file changes.
-=======
 # Architecture and product documentation
 
 Review date: 2026-09-25. Baseline: `7be70d7`.
 
-These documents are proposals, not an implemented migration or accepted production design. Documentation changes do not alter the current application.
+These documents describe the approved architectural and product direction for the project. Some documents are proposals for future migration work, while implemented baseline changes are documented separately.
 
 - [Repository audit](repository-audit.md): current architecture, preserved behavior, gaps, security findings, and verification limits.
 - [Migration plan](migration-plan.md): sequence, parity gates, rollback, future structure, and anticipated file changes.
 - [Storefront UX specification](storefront-ux-spec.md): product and interaction specification for the future React/Next.js storefront.
-<<<<<<< HEAD
->>>>>>> 982b995 (docs: define storefront UX specification)
-=======
 - [Storefront visual specification](storefront-visual-spec.md): visual system, responsive composition, homepage hierarchy, and visual guardrails for the future storefront.
->>>>>>> ee56768 (docs: define storefront visual specification)
 - [ADR 001: Target architecture](adr/001-target-architecture.md).
 - [ADR 002: Frontend migration](adr/002-frontend-migration.md).
 - [ADR 003: Information architecture](adr/003-information-architecture.md).
@@ -29,14 +15,10 @@ These documents are proposals, not an implemented migration or accepted producti
 - [ADR 005: Cart and orders](adr/005-cart-order-architecture.md).
 - [ADR 006: Administration](adr/006-admin-architecture.md).
 
-<<<<<<< HEAD
-The recommendation is to preserve the Go application and PostgreSQL, introduce a TypeScript/React storefront with Next.js, and replace complete routes incrementally. Keep the existing frontend available until each replacement meets behavioral, accessibility, security, and performance gates. Administration becomes a separate React application using authorized Go use cases.
+The architectural recommendation is to preserve the Go application and PostgreSQL, introduce a TypeScript/React storefront with Next.js, and replace complete routes incrementally. Keep the existing frontend available until each replacement meets behavioral, accessibility, security, and performance gates. Administration becomes a separate React application using authorized Go use cases.
+
+The storefront UX and visual specifications complement those architectural decisions. They define navigation, catalog, search, product, collection, responsive behavior, visual hierarchy, accessibility, homepage composition, and large-order interaction patterns. They deliberately do not redefine backend commerce contracts or the complete cart/order workflow.
 
 ## Implementation baseline
 
-The Production Baseline and Contracts phase is recorded in [baseline.md](baseline.md), with the implemented HTTP contract in [../api/openapi.yaml](../api/openapi.yaml). The earlier audit and ADRs remain the architectural reference; future APIs described there are not implemented by this phase.
-=======
-The architectural recommendation is to preserve the Go application and PostgreSQL, introduce a TypeScript/React storefront with Next.js, and replace complete routes incrementally. Keep the existing frontend available until each replacement meets behavioral, accessibility, security, and performance gates. Administration becomes a separate React application using authorized Go use cases.
-
-The storefront UX specification complements those architecture decisions. It defines navigation, catalog, search, product, collection, responsive, visual, accessibility, and large-order behavior; it deliberately does not redesign backend contracts or the complete cart/order workflow.
->>>>>>> 982b995 (docs: define storefront UX specification)
+The Production Baseline and Contracts phase is recorded in [baseline.md](baseline.md), with the implemented HTTP contract in [../api/openapi.yaml](../api/openapi.yaml). The repository audit and ADRs remain the architectural reference; future APIs described there are not implied to be implemented by the baseline phase.
