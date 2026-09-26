@@ -1,7 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 
 import type { CollectionApiError } from "./collection";
-import { getCollectionPageData, getCollections } from "./collection";
+import {
+  COLLECTION_PREVIEW_LIMIT,
+  getCollectionPageData,
+  getCollectionProducts,
+  getCollections,
+} from "./collection";
 
 const collection = {
   id: "col-gifts",
@@ -82,6 +87,31 @@ describe("collection API boundary", () => {
       expect.stringMatching(/\/api\/products\/p06$/),
       expect.stringMatching(/\/api\/products\/p07$/),
     ]);
+  });
+
+  it("loads only the first editorial products, in productIds order", async () => {
+    const fetcher = vi.fn<typeof fetch>(async (input) => {
+      const id = decodeURIComponent(String(input).split("/").at(-1) ?? "");
+      // Later IDs resolve first; the result must still follow productIds.
+      await new Promise((resolve) => setTimeout(resolve, id === "p01" ? 5 : 0));
+      return new Response(JSON.stringify(product(id)), { status: 200 });
+    });
+    const parsed = (await getCollections({
+      fetcher: vi.fn<typeof fetch>(async () =>
+        new Response(
+          JSON.stringify({
+            items: [{ ...collection, productIds: ["p01", "p09", "p03", "p07", "p05", "p02"], productCount: 6 }],
+          }),
+          { status: 200 },
+        ),
+      ),
+    }))[0];
+
+    const products = await getCollectionProducts(parsed, { fetcher });
+
+    expect(COLLECTION_PREVIEW_LIMIT).toBe(4);
+    expect(products.map((item) => item.id)).toEqual(["p01", "p09", "p03", "p07"]);
+    expect(fetcher).toHaveBeenCalledTimes(4);
   });
 
   it("returns undefined only after a successful directory response", async () => {

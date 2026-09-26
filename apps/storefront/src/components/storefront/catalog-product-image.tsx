@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import styles from "./catalog.module.css";
 
@@ -11,6 +11,13 @@ type CatalogProductImageProps = {
 
 export function CatalogProductImage({ image, name }: CatalogProductImageProps) {
   const [failed, setFailed] = useState(false);
+  const imageRef = useRef<HTMLImageElement>(null);
+
+  // A server-rendered image can fail before hydration attaches onError.
+  useEffect(() => {
+    const element = imageRef.current;
+    if (element?.complete && element.naturalWidth === 0) setFailed(true);
+  }, [image]);
 
   if (!image || failed) {
     return (
@@ -32,6 +39,7 @@ export function CatalogProductImage({ image, name }: CatalogProductImageProps) {
       className={styles.productImage}
       loading="lazy"
       onError={() => setFailed(true)}
+      ref={imageRef}
       src={image}
     />
   );

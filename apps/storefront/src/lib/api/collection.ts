@@ -154,6 +154,25 @@ function matchesIdentity(collection: Collection, identity: string): boolean {
   return collection.id === identity || collection.slug === identity;
 }
 
+export const COLLECTION_PREVIEW_LIMIT = 4;
+
+// Catalog filtering by collection does not preserve editorial order and there
+// is no ids filter, so a fixed, small number of product lookups keeps the
+// productIds order exact.
+export async function getCollectionProducts(
+  collection: Collection,
+  options: ApiRequestOptions = {},
+  limit = COLLECTION_PREVIEW_LIMIT,
+): Promise<Product[]> {
+  try {
+    return await Promise.all(
+      collection.productIds.slice(0, limit).map((productId) => getProduct(productId, options)),
+    );
+  } catch (error) {
+    throw collectionError(error);
+  }
+}
+
 export async function getCollectionPageData(
   identity: string,
   options: ApiRequestOptions = {},
@@ -163,9 +182,7 @@ export async function getCollectionPageData(
     const collection = collections.find((item) => matchesIdentity(item, identity));
     if (!collection) return undefined;
 
-    const products = await Promise.all(
-      collection.productIds.slice(0, 4).map((productId) => getProduct(productId, options)),
-    );
+    const products = await getCollectionProducts(collection, options);
     return { collection, products };
   } catch (error) {
     throw collectionError(error);

@@ -2,22 +2,14 @@ import Link from "next/link";
 
 import { Container } from "@/components/ui/container";
 import type { ManufacturerPageData } from "@/lib/api/producer";
+import { productCountText } from "@/lib/plural";
 import { producerCatalogUrl } from "@/lib/producer-navigation";
 
 import { ManufacturerDirectory } from "./manufacturer-directory";
 import styles from "./producer-navigation.module.css";
 
-function productCountText(count: number): string {
-  const modulo100 = count % 100;
-  const modulo10 = count % 10;
-  const noun = modulo100 >= 11 && modulo100 <= 14
-    ? "товаров"
-    : modulo10 === 1
-      ? "товар"
-      : modulo10 >= 2 && modulo10 <= 4
-        ? "товара"
-        : "товаров";
-  return `${count} ${noun} в каталоге`;
+function catalogCountText(count: number): string {
+  return `${productCountText(count)} в каталоге`;
 }
 
 export function ManufacturersPage({
@@ -77,7 +69,7 @@ export function ManufacturerPage({ data }: { data: ManufacturerPageData }) {
           </div>
           <dl>
             {manufacturer.country ? <div><dt>Страна</dt><dd>{manufacturer.country}</dd></div> : null}
-            <div><dt>Ассортимент</dt><dd>{productCountText(manufacturer.productCount)}</dd></div>
+            <div><dt>Ассортимент</dt><dd>{catalogCountText(manufacturer.productCount)}</dd></div>
           </dl>
           <Link className={styles.primaryLink} href={allProductsUrl}>
             Все товары производителя
@@ -106,7 +98,7 @@ export function ManufacturerPage({ data }: { data: ManufacturerPageData }) {
                       <div>
                         <h3>{brand.name}</h3>
                         {brand.description ? <p>{brand.description}</p> : null}
-                        <span>{productCountText(brand.productCount)}</span>
+                        <span>{catalogCountText(brand.productCount)}</span>
                       </div>
                       <Link href={brandUrl}>Товары бренда →</Link>
                     </div>

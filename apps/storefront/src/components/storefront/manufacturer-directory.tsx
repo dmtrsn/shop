@@ -4,21 +4,13 @@ import Link from "next/link";
 import { useMemo, useRef, useState } from "react";
 
 import type { Manufacturer } from "@/lib/api/catalog";
+import { productCountText } from "@/lib/plural";
 import { groupManufacturers } from "@/lib/producer-navigation";
 
 import styles from "./producer-navigation.module.css";
 
 function productCountLabel(count: number): string {
-  const modulo100 = count % 100;
-  const modulo10 = count % 10;
-  const noun = modulo100 >= 11 && modulo100 <= 14
-    ? "товаров"
-    : modulo10 === 1
-      ? "товар"
-      : modulo10 >= 2 && modulo10 <= 4
-        ? "товара"
-        : "товаров";
-  return `${count} ${noun} в каталоге`;
+  return `${productCountText(count)} в каталоге`;
 }
 
 export function ManufacturerDirectory({

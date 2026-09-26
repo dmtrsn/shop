@@ -3,6 +3,7 @@ import Link from "next/link";
 import { Container } from "@/components/ui/container";
 import type { Category } from "@/lib/api/catalog";
 import type { CategoryPageData } from "@/lib/api/category";
+import { pluralRu, productCountText } from "@/lib/plural";
 import {
   buildCategoryTree,
   categoryCatalogUrl,
@@ -15,37 +16,19 @@ export const DIRECTORY_CHILD_LIMIT = 8;
 
 // productCount follows the current catalog contract (the category plus its
 // direct children), so it is labelled neutrally rather than as a subtree total.
-function productCountText(count: number): string {
+export function categoryCountText(count: number): string {
   if (count === 0) return "Пока нет товаров";
-  const modulo100 = count % 100;
-  const modulo10 = count % 10;
-  const noun = modulo100 >= 11 && modulo100 <= 14
-    ? "товаров"
-    : modulo10 === 1
-      ? "товар"
-      : modulo10 >= 2 && modulo10 <= 4
-        ? "товара"
-        : "товаров";
-  return `${count} ${noun} в каталоге`;
+  return `${productCountText(count)} в каталоге`;
 }
 
 function subcategoryCountText(count: number): string {
-  const modulo100 = count % 100;
-  const modulo10 = count % 10;
-  const noun = modulo100 >= 11 && modulo100 <= 14
-    ? "подкатегорий"
-    : modulo10 === 1
-      ? "подкатегория"
-      : modulo10 >= 2 && modulo10 <= 4
-        ? "подкатегории"
-        : "подкатегорий";
-  return `${count} ${noun}`;
+  return `${count} ${pluralRu(count, ["подкатегория", "подкатегории", "подкатегорий"])}`;
 }
 
 function Count({ count }: { count: number }) {
   return (
     <span className={count ? styles.count : styles.countEmpty}>
-      {productCountText(count)}
+      {categoryCountText(count)}
     </span>
   );
 }
@@ -187,7 +170,7 @@ export function CategoryPage({ data }: { data: CategoryPageData }) {
             {category.description ? <p className={styles.description}>{category.description}</p> : null}
           </div>
           <dl>
-            <div><dt>Ассортимент</dt><dd>{productCountText(category.productCount)}</dd></div>
+            <div><dt>Ассортимент</dt><dd>{categoryCountText(category.productCount)}</dd></div>
             {children.length ? (
               <div><dt>Подкатегории</dt><dd>{subcategoryCountText(children.length)}</dd></div>
             ) : null}

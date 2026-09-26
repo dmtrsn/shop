@@ -2,25 +2,13 @@ import Link from "next/link";
 
 import { Container } from "@/components/ui/container";
 import type { Collection, CollectionPageData } from "@/lib/api/collection";
+import { productCountText } from "@/lib/plural";
 
 import { CatalogProductImage } from "./catalog-product-image";
 import { ProductCard } from "./product-card";
 import styles from "./collection-navigation.module.css";
 
-function productCountText(count: number): string {
-  const modulo100 = count % 100;
-  const modulo10 = count % 10;
-  const noun = modulo100 >= 11 && modulo100 <= 14
-    ? "товаров"
-    : modulo10 === 1
-      ? "товар"
-      : modulo10 >= 2 && modulo10 <= 4
-        ? "товара"
-        : "товаров";
-  return `${count} ${noun}`;
-}
-
-function collectionUrl(collection: Pick<Collection, "slug">): string {
+export function collectionUrl(collection: Pick<Collection, "slug">): string {
   return `/collections/${encodeURIComponent(collection.slug)}`;
 }
 
