@@ -14,6 +14,10 @@ describe("StorefrontHeader", () => {
       "href",
       "/manufacturers",
     );
+    expect(screen.getByRole("link", { name: "Подборки" })).toHaveAttribute(
+      "href",
+      "/collections",
+    );
     expect(screen.getAllByRole("link", { name: "Корзина" })).toHaveLength(2);
   });
 });

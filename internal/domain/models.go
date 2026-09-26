@@ -110,6 +110,13 @@ type Collection struct {
 	EndsAt       time.Time `json:"endsAt,omitempty"`
 }
 
+// CollectionVisibleAt mirrors the existing PostgreSQL collection schedule:
+// open boundaries are visible, and configured start/end instants are inclusive.
+func CollectionVisibleAt(collection Collection, now time.Time) bool {
+	return (collection.StartsAt.IsZero() || !collection.StartsAt.After(now)) &&
+		(collection.EndsAt.IsZero() || !collection.EndsAt.Before(now))
+}
+
 type ProductFilter struct {
 	Query         string
 	Category      string

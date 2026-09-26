@@ -1420,7 +1420,8 @@ components:
       name: collection
       in: query
       required: false
-      description: Exact ID or slug. Collection input is not trimmed.
+      description: Exact ID or slug. Collection input is not trimmed. A collection outside its inclusive start/end
+        schedule matches no products.
       schema:
         type: string
     series:
@@ -1874,8 +1875,9 @@ components:
       - startsAt
       - endsAt
       additionalProperties: false
-      description: Directory listing respects start/end dates. Unset timestamps serialize as 0001-01-01T00:00:00Z
-        despite omitempty. Direct catalog collection filtering ignores schedule and editorial sort order.
+      description: Directory listing and direct catalog filtering respect the same inclusive start/end schedule.
+        Unset timestamps serialize as 0001-01-01T00:00:00Z despite omitempty. Catalog filtering does not preserve
+        editorial sort order.
     ProductPage:
       type: object
       properties:

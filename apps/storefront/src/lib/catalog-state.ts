@@ -14,6 +14,7 @@ export type CatalogState = {
   category?: string;
   manufacturer?: string;
   brand?: string;
+  collection?: string;
   series?: string;
   tags: string[];
   minPriceMinor?: number;
@@ -99,6 +100,7 @@ export function parseCatalogState(params: CatalogSearchParams): CatalogState {
     category: text(params.category, 200),
     manufacturer: text(params.manufacturer, 200),
     brand: text(params.brand, 200),
+    collection: text(params.collection, 200),
     series: text(params.series, 200),
     tags: tags(params.tag),
     minPriceMinor,
@@ -127,6 +129,7 @@ export function catalogUrl(
   if (next.category) params.set("category", next.category);
   if (next.manufacturer) params.set("manufacturer", next.manufacturer);
   if (next.brand) params.set("brand", next.brand);
+  if (next.collection) params.set("collection", next.collection);
   if (next.series) params.set("series", next.series);
   for (const tag of next.tags) params.append("tag", tag);
   if (next.minPriceMinor) params.set("min", formatCatalogPrice(next.minPriceMinor));
@@ -152,6 +155,7 @@ export function catalogHiddenFields(
   if (state.category && !excludedSet.has("category")) entries.push(["category", state.category]);
   if (state.manufacturer && !excludedSet.has("manufacturer")) entries.push(["manufacturer", state.manufacturer]);
   if (state.brand && !excludedSet.has("brand")) entries.push(["brand", state.brand]);
+  if (state.collection && !excludedSet.has("collection")) entries.push(["collection", state.collection]);
   if (state.series && !excludedSet.has("series")) entries.push(["series", state.series]);
   if (!excludedSet.has("tags")) {
     for (const tag of state.tags) entries.push(["tag", tag]);

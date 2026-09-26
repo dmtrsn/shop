@@ -68,6 +68,7 @@ describe("catalog API boundary", () => {
       category: "candy",
       manufacturer: "maker",
       brand: "brand",
+      collection: "gifts-under-2000",
       series: "Noir",
       tag: ["орехи", "подарок"],
       min: "250.50",
@@ -83,6 +84,7 @@ describe("catalog API boundary", () => {
     expect(query).toContain("minPriceMinor=25050");
     expect(query).toContain("maxPriceMinor=90000");
     expect(query).toContain("inStock=true");
+    expect(query).toContain("collection=gifts-under-2000");
     expect(query).toContain("newOnly=true");
     expect(query).toContain("tag=%D0%BE%D1%80%D0%B5%D1%85%D0%B8");
     expect(query).toContain("limit=48");

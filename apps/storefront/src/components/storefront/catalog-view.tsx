@@ -2,7 +2,6 @@ import Link from "next/link";
 
 import { Container } from "@/components/ui/container";
 import type { CatalogData } from "@/lib/api/catalog";
-import type { Product } from "@/lib/api/product";
 import {
   catalogHiddenFields,
   catalogUrl,
@@ -10,7 +9,7 @@ import {
 } from "@/lib/catalog-state";
 
 import { CatalogFilterForm } from "./catalog-filter-form";
-import { CatalogProductImage } from "./catalog-product-image";
+import { CompactProductCard, ProductCard } from "./product-card";
 import styles from "./catalog.module.css";
 
 type CatalogViewProps = {
@@ -41,108 +40,6 @@ function pluralProducts(total: number): string {
   return "товаров";
 }
 
-function stockLabel(product: Product): string {
-  if (product.stock <= 0) return "Нет в наличии";
-  if (product.stock < product.minimumQuantity) return "Меньше минимального количества";
-  return "В наличии";
-}
-
-function productLineage(product: Product): string {
-  const values = [product.manufacturer.name];
-  if (product.brand.name && product.brand.name !== product.manufacturer.name) {
-    values.push(product.brand.name);
-  }
-  if (product.series) values.push(product.series);
-  return values.join(" · ");
-}
-
-function ProductMedia({ product }: { product: Product }) {
-  return (
-    <Link
-      aria-label={`Открыть товар: ${product.name}`}
-      className={styles.productMedia}
-      href={`/products/${product.slug}`}
-    >
-      <CatalogProductImage image={product.image} name={product.name} />
-      {product.badges.length ? (
-        <span className={styles.badges}>
-          {product.badges.slice(0, 2).map((badge) => (
-            <span key={badge}>{badge}</span>
-          ))}
-        </span>
-      ) : null}
-    </Link>
-  );
-}
-
-function ProductPrice({ product }: { product: Product }) {
-  const hasOldPrice = Boolean(
-    product.oldPriceMinor && product.oldPriceMinor > product.priceMinor,
-  );
-  return (
-    <p aria-label="Цена" className={styles.price}>
-      <strong>{formatMoney(product.priceMinor, product.currency)}</strong>
-      {hasOldPrice ? (
-        <del>{formatMoney(product.oldPriceMinor as number, product.currency)}</del>
-      ) : null}
-    </p>
-  );
-}
-
-function ComfortableProduct({ product }: { product: Product }) {
-  return (
-    <article className={styles.productCard}>
-      <ProductMedia product={product} />
-      <div className={styles.cardBody}>
-        <p className={styles.lineage}>{productLineage(product)}</p>
-        <h2 className={styles.productName}>
-          <Link href={`/products/${product.slug}`}>{product.name}</Link>
-        </h2>
-        <p className={styles.productMeta}>
-          <span>Арт. {product.sku}</span>
-          <span>{product.unit}</span>
-        </p>
-        <p className={product.stock >= product.minimumQuantity ? styles.inStock : styles.outOfStock}>
-          <span aria-hidden="true" />
-          {stockLabel(product)}
-        </p>
-        <div className={styles.cardFooter}>
-          <ProductPrice product={product} />
-          <Link className={styles.productLink} href={`/products/${product.slug}`}>
-            Подробнее
-          </Link>
-        </div>
-      </div>
-    </article>
-  );
-}
-
-function CompactProduct({ product }: { product: Product }) {
-  return (
-    <article className={styles.compactProduct}>
-      <div className={styles.compactImage}>
-        <ProductMedia product={product} />
-      </div>
-      <div className={styles.compactIdentity}>
-        <h2>
-          <Link href={`/products/${product.slug}`}>{product.name}</Link>
-        </h2>
-        <span>Арт. {product.sku}</span>
-      </div>
-      <p className={styles.compactLineage}>{productLineage(product)}</p>
-      <p className={styles.compactUnit}>{product.unit}</p>
-      <p className={product.stock >= product.minimumQuantity ? styles.inStock : styles.outOfStock}>
-        <span aria-hidden="true" />
-        {stockLabel(product)}
-      </p>
-      <ProductPrice product={product} />
-      <Link className={styles.compactOpen} href={`/products/${product.slug}`}>
-        Открыть
-      </Link>
-    </article>
-  );
-}
-
 function ActiveFilters({ data, state }: CatalogViewProps) {
   const category = data.categories.find(
     (item) => item.id === state.category || item.slug === state.category,
@@ -158,6 +55,7 @@ function ActiveFilters({ data, state }: CatalogViewProps) {
   if (state.category) filters.push({ key: "category", label: category?.name ?? state.category, href: catalogUrl(state, { category: undefined }) });
   if (state.manufacturer) filters.push({ key: "manufacturer", label: manufacturer?.name ?? state.manufacturer, href: catalogUrl(state, { manufacturer: undefined, brand: undefined, series: undefined }) });
   if (state.brand) filters.push({ key: "brand", label: brand?.name ?? state.brand, href: catalogUrl(state, { brand: undefined, series: undefined }) });
+  if (state.collection) filters.push({ key: "collection", label: `Подборка: ${state.collection}`, href: catalogUrl(state, { collection: undefined }) });
   if (state.series) filters.push({ key: "series", label: `Серия: ${state.series}`, href: catalogUrl(state, { series: undefined }) });
   state.tags.forEach((tag) => filters.push({ key: `tag-${tag}`, label: tag, href: catalogUrl(state, { tags: state.tags.filter((item) => item !== tag) }) }));
   if (state.minPriceMinor) filters.push({ key: "min", label: `От ${formatMoney(state.minPriceMinor, "RUB")}`, href: catalogUrl(state, { minPriceMinor: undefined }) });
@@ -172,6 +70,7 @@ function ActiveFilters({ data, state }: CatalogViewProps) {
     category: undefined,
     manufacturer: undefined,
     brand: undefined,
+    collection: undefined,
     series: undefined,
     tags: [],
     minPriceMinor: undefined,
@@ -234,6 +133,7 @@ export function CatalogView({ data, state }: CatalogViewProps) {
     state.category,
     state.manufacturer,
     state.brand,
+    state.collection,
     state.series,
     ...state.tags,
     state.minPriceMinor,
@@ -333,7 +233,7 @@ export function CatalogView({ data, state }: CatalogViewProps) {
                 <ol className={state.view === "compact" ? styles.compactList : styles.productGrid}>
                 {data.page.items.map((product) => (
                   <li key={product.id}>
-                    {state.view === "compact" ? <CompactProduct product={product} /> : <ComfortableProduct product={product} />}
+                    {state.view === "compact" ? <CompactProductCard product={product} /> : <ProductCard product={product} />}
                   </li>
                 ))}
                 </ol>
@@ -345,7 +245,7 @@ export function CatalogView({ data, state }: CatalogViewProps) {
                 <p>Уберите один или несколько фильтров или измените поисковый запрос.</p>
                 <Link href={catalogUrl(state, {
                   query: undefined, category: undefined, manufacturer: undefined,
-                  brand: undefined, series: undefined, tags: [], minPriceMinor: undefined,
+                  brand: undefined, collection: undefined, series: undefined, tags: [], minPriceMinor: undefined,
                   maxPriceMinor: undefined, inStock: false, onSale: false, newOnly: false,
                 })}>Очистить фильтры</Link>
               </div>

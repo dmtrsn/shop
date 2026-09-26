@@ -84,14 +84,24 @@ func TestPostgresCatalog(t *testing.T) {
 	if err != nil || len(collections) != 4 {
 		t.Fatalf("collections: %v", err)
 	}
+	d.exec(t, "UPDATE collections SET starts_at=now() - interval '24 hours' WHERE id='col-gifts'")
+	active, err := d.service.Catalog(d.ctx, domain.ProductFilter{Collection: "gifts-under-2000"})
+	if err != nil || active.Total != 5 {
+		t.Fatalf("active collection filter: page=%+v err=%v", active, err)
+	}
 	d.exec(t, "UPDATE collections SET ends_at='2000-01-01' WHERE id='col-new'")
+	d.exec(t, "UPDATE collections SET starts_at=now() + interval '24 hours' WHERE id='col-bestsellers'")
 	collections, err = d.service.Collections(d.ctx)
-	if err != nil || len(collections) != 3 {
+	if err != nil || len(collections) != 2 {
 		t.Fatalf("collection schedule: %v", err)
 	}
 	page, err := d.service.Catalog(d.ctx, domain.ProductFilter{Collection: "new"})
-	if err != nil || page.Total != 4 {
-		t.Fatalf("direct collection filter currently ignores schedule: %v", err)
+	if err != nil || page.Total != 0 {
+		t.Fatalf("expired collection filter: page=%+v err=%v", page, err)
+	}
+	page, err = d.service.Catalog(d.ctx, domain.ProductFilter{Collection: "bestsellers"})
+	if err != nil || page.Total != 0 {
+		t.Fatalf("future collection filter: page=%+v err=%v", page, err)
 	}
 	suggestions, err := d.service.Suggestions(d.ctx, "CHA-701")
 	if err != nil || len(suggestions) != 1 || suggestions[0].ID != "p01" {

@@ -222,7 +222,7 @@ func productWhere(filter domain.ProductFilter) (string, []any) {
 	}
 	if filter.Collection != "" {
 		p := add(filter.Collection)
-		conditions = append(conditions, "EXISTS(SELECT 1 FROM collection_products cp JOIN collections co ON co.id=cp.collection_id WHERE cp.product_id=p.id AND (co.id="+p+" OR co.slug="+p+"))")
+		conditions = append(conditions, "EXISTS(SELECT 1 FROM collection_products cp JOIN collections co ON co.id=cp.collection_id WHERE cp.product_id=p.id AND (co.id="+p+" OR co.slug="+p+") AND (co.starts_at IS NULL OR co.starts_at<=now()) AND (co.ends_at IS NULL OR co.ends_at>=now()))")
 	}
 	if filter.Series != "" {
 		p := add(strings.ToLower(filter.Series))

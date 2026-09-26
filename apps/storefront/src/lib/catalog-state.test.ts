@@ -8,6 +8,7 @@ describe("catalog URL state", () => {
     const state = parseCatalogState({
       q: "  шоколад  ",
       category: "bars",
+      collection: "gifts-under-2000",
       min: "900",
       max: "500.50",
       page: "-4",
@@ -21,6 +22,7 @@ describe("catalog URL state", () => {
     expect(state).toMatchObject({
       query: "шоколад",
       category: "bars",
+      collection: "gifts-under-2000",
       minPriceMinor: 50_050,
       maxPriceMinor: 90_000,
       page: 1,
@@ -35,6 +37,7 @@ describe("catalog URL state", () => {
   it("serializes stable state and resets pagination for filter changes", () => {
     const state = parseCatalogState({
       manufacturer: "choco-atelier",
+      collection: "gifts-under-2000",
       page: "3",
       size: "48",
       sort: "price_desc",
@@ -42,10 +45,10 @@ describe("catalog URL state", () => {
     });
 
     expect(catalogUrl(state, { brand: "atelier-noir" })).toBe(
-      "/catalog?manufacturer=choco-atelier&brand=atelier-noir&sort=price_desc&size=48&view=compact",
+      "/catalog?manufacturer=choco-atelier&brand=atelier-noir&collection=gifts-under-2000&sort=price_desc&size=48&view=compact",
     );
     expect(catalogUrl(state, { page: 2 }, { resetPage: false })).toBe(
-      "/catalog?manufacturer=choco-atelier&sort=price_desc&page=2&size=48&view=compact",
+      "/catalog?manufacturer=choco-atelier&collection=gifts-under-2000&sort=price_desc&page=2&size=48&view=compact",
     );
   });
 

@@ -197,6 +197,7 @@ export function serializeCatalogRequest(state: CatalogState): string {
   if (state.category) params.set("category", state.category);
   if (state.manufacturer) params.set("manufacturer", state.manufacturer);
   if (state.brand) params.set("brand", state.brand);
+  if (state.collection) params.set("collection", state.collection);
   if (state.series) params.set("series", state.series);
   for (const tag of state.tags) params.append("tag", tag);
   if (state.minPriceMinor) params.set("minPriceMinor", String(state.minPriceMinor));

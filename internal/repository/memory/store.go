@@ -287,7 +287,14 @@ func (s *Store) ListBrands(context.Context) ([]domain.Brand, error) {
 func (s *Store) ListCollections(context.Context) ([]domain.Collection, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return cloneCollections(s.collections), nil
+	now := time.Now()
+	visible := make([]domain.Collection, 0, len(s.collections))
+	for _, collection := range s.collections {
+		if domain.CollectionVisibleAt(collection, now) {
+			visible = append(visible, collection)
+		}
+	}
+	return cloneCollections(visible), nil
 }
 
 func (s *Store) ListProducts(_ context.Context, filter domain.ProductFilter) (domain.ProductPage, error) {
@@ -605,8 +612,9 @@ func (s *Store) filteredProducts(filter domain.ProductFilter) []domain.Product {
 	q := strings.ToLower(filter.Query)
 	collectionIDs := map[string]bool{}
 	if filter.Collection != "" {
+		now := time.Now()
 		for _, c := range s.collections {
-			if c.ID == filter.Collection || c.Slug == filter.Collection {
+			if domain.CollectionVisibleAt(c, now) && (c.ID == filter.Collection || c.Slug == filter.Collection) {
 				for _, id := range c.ProductIDs {
 					collectionIDs[id] = true
 				}
