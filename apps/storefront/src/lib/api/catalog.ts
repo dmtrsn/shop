@@ -20,6 +20,8 @@ export type Manufacturer = {
   slug: string;
   name: string;
   country: string;
+  description?: string;
+  logo?: string;
   productCount: number;
 };
 
@@ -29,6 +31,8 @@ export type Brand = {
   name: string;
   manufacturerId: string;
   manufacturer: string;
+  description?: string;
+  logo?: string;
   productCount: number;
 };
 
@@ -126,18 +130,20 @@ function parseCategory(value: unknown): Category {
   };
 }
 
-function parseManufacturer(value: unknown): Manufacturer {
+export function parseManufacturer(value: unknown): Manufacturer {
   if (!isRecord(value)) throw new Error("manufacturer must be an object");
   return {
     id: requiredString(value, "id"),
     slug: requiredString(value, "slug"),
     name: requiredString(value, "name"),
     country: requiredString(value, "country"),
+    description: optionalString(value, "description"),
+    logo: optionalString(value, "logo"),
     productCount: integer(value, "productCount"),
   };
 }
 
-function parseBrand(value: unknown): Brand {
+export function parseBrand(value: unknown): Brand {
   if (!isRecord(value)) throw new Error("brand must be an object");
   return {
     id: requiredString(value, "id"),
@@ -145,6 +151,8 @@ function parseBrand(value: unknown): Brand {
     name: requiredString(value, "name"),
     manufacturerId: requiredString(value, "manufacturerId"),
     manufacturer: requiredString(value, "manufacturer"),
+    description: optionalString(value, "description"),
+    logo: optionalString(value, "logo"),
     productCount: integer(value, "productCount"),
   };
 }
