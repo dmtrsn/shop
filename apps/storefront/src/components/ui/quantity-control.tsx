@@ -5,6 +5,7 @@ import { useId, type ChangeEvent } from "react";
 import styles from "./ui.module.css";
 
 export type QuantityControlProps = {
+  describedBy?: string;
   disabled?: boolean;
   label?: string;
   min?: number;
@@ -14,6 +15,7 @@ export type QuantityControlProps = {
 };
 
 export function QuantityControl({
+  describedBy,
   disabled = false,
   label = "Количество",
   min = 0,
@@ -47,6 +49,7 @@ export function QuantityControl({
         <span aria-hidden="true">−</span>
       </button>
       <input
+        aria-describedby={describedBy}
         aria-label={label}
         className={styles.quantityInput}
         disabled={disabled}

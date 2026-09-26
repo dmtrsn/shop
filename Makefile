@@ -6,6 +6,7 @@ WEB_DIR ?= web
 MIGRATIONS_DIR ?= migrations
 RUN_MIGRATIONS ?= true
 DOCKER_COMPOSE ?= docker compose
+FIRST_PARTY_GO_PACKAGES := ./cmd/... ./internal/... ./api/... ./tests/...
 
 .DEFAULT_GOAL := help
 
@@ -29,13 +30,13 @@ build: ## Собрать production-бинарник в bin/
 	CGO_ENABLED=0 $(GO) build -buildvcs=false -trimpath -ldflags="-s -w" -o "$(BIN_DIR)/$(APP_NAME)" ./cmd/server
 
 test: ## Запустить unit- и integration-style тесты без внешней БД
-	$(GO) test ./...
+	$(GO) test $(FIRST_PARTY_GO_PACKAGES)
 
 test-race: ## Запустить тесты с детектором гонок
-	$(GO) test -race ./...
+	$(GO) test -race $(FIRST_PARTY_GO_PACKAGES)
 
 vet: ## Выполнить статическую проверку go vet
-	$(GO) vet ./...
+	$(GO) vet $(FIRST_PARTY_GO_PACKAGES)
 
 fmt: ## Отформатировать Go-код
 	$(GOFMT) -w cmd internal api tests

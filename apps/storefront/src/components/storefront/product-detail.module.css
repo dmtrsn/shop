@@ -1,0 +1,342 @@
+.main {
+  padding-block: var(--space-5) var(--space-8);
+}
+
+.breadcrumbs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-bottom: var(--space-5);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.breadcrumbs a:hover {
+  color: var(--color-accent-hover);
+}
+
+.productGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) minmax(20rem, 0.8fr);
+  gap: clamp(2rem, 5vw, 5rem);
+  align-items: start;
+}
+
+.gallery {
+  min-width: 0;
+}
+
+.imageFrame,
+.imageMissing {
+  display: grid;
+  aspect-ratio: 1 / 1;
+  overflow: hidden;
+  place-items: center;
+  border: var(--border-control);
+  border-radius: var(--radius-panel);
+  background: var(--color-surface-subtle);
+}
+
+.mainImage {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.imageMissing {
+  padding: var(--space-6);
+  color: var(--color-text-muted);
+  text-align: center;
+}
+
+.thumbnails {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+}
+
+.thumbnail {
+  width: 4.5rem;
+  height: 4.5rem;
+  padding: var(--space-1);
+  overflow: hidden;
+  border: var(--border-control);
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+  cursor: pointer;
+}
+
+.thumbnail[aria-pressed="true"] {
+  border-color: var(--color-accent);
+  box-shadow: inset 0 -3px var(--color-accent);
+}
+
+.thumbnail img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.productInfo {
+  padding-top: var(--space-2);
+}
+
+.lineage,
+.identity {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-3);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.lineage {
+  margin: 0 0 var(--space-3);
+  color: var(--color-accent-hover);
+  font-weight: var(--weight-medium);
+}
+
+.productInfo h1 {
+  max-width: 18ch;
+  margin: 0 0 var(--space-3);
+  font-size: var(--font-size-xl);
+  line-height: var(--line-height-tight);
+}
+
+.identity {
+  margin-bottom: var(--space-6);
+  font-variant-numeric: tabular-nums;
+}
+
+.priceGroup {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.price {
+  font-size: clamp(1.75rem, 1.5rem + 1vw, 2.5rem);
+  font-weight: var(--weight-bold);
+  line-height: 1;
+}
+
+.oldPrice {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-lg);
+}
+
+.stockAvailable,
+.stockUnavailable {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-5);
+  font-weight: var(--weight-semibold);
+}
+
+.stockAvailable {
+  color: var(--color-success);
+}
+
+.stockUnavailable {
+  color: var(--color-error);
+}
+
+.stockMarker {
+  width: 0.65rem;
+  height: 0.65rem;
+  flex: 0 0 auto;
+  border: 2px solid currentColor;
+  border-radius: 50%;
+}
+
+.purchaseControls {
+  display: grid;
+  max-width: 24rem;
+  gap: var(--space-3);
+  padding-top: var(--space-5);
+  border-top: var(--border-control);
+}
+
+.purchaseControls > button {
+  width: 100%;
+}
+
+.quantityRules {
+  margin: 0 0 var(--space-2);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.readOnlyNote {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+}
+
+.details {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(20rem, 0.9fr);
+  gap: clamp(2rem, 5vw, 5rem);
+  margin-top: var(--space-8);
+  padding-top: var(--space-7);
+  border-top: var(--border-control);
+}
+
+.details h2 {
+  margin: 0 0 var(--space-4);
+  font-size: var(--font-size-lg);
+}
+
+.description p {
+  max-width: var(--container-reading);
+  margin: 0;
+}
+
+.attributes dl {
+  margin: 0;
+}
+
+.attributes dl > div {
+  display: grid;
+  grid-template-columns: minmax(8rem, 0.7fr) minmax(0, 1fr);
+  gap: var(--space-4);
+  padding-block: var(--space-3);
+  border-top: var(--border-control);
+}
+
+.attributes dt {
+  color: var(--color-text-muted);
+}
+
+.attributes dd {
+  margin: 0;
+}
+
+.statePage {
+  min-height: 60vh;
+  padding-block: var(--space-7);
+}
+
+.stateContent {
+  max-width: 36rem;
+}
+
+.stateContent h1 {
+  margin-top: 0;
+  font-size: var(--font-size-xl);
+}
+
+.stateActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin-top: var(--space-5);
+}
+
+.stateLink,
+.retryButton {
+  display: inline-flex;
+  min-height: var(--control-height);
+  align-items: center;
+  justify-content: center;
+  padding-inline: var(--space-4);
+  border: var(--border-strong);
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+  color: var(--color-text);
+  cursor: pointer;
+  font-weight: var(--weight-semibold);
+  text-decoration: none;
+}
+
+.retryButton {
+  border-color: var(--color-accent);
+  background: var(--color-accent);
+  color: var(--color-on-accent);
+}
+
+.reference {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+}
+
+.loadingGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) minmax(20rem, 0.8fr);
+  gap: clamp(2rem, 5vw, 5rem);
+}
+
+.skeletonImage,
+.skeletonLine,
+.skeletonLineShort,
+.skeletonControl {
+  border-radius: var(--radius-control);
+  background: var(--color-surface-subtle);
+}
+
+.skeletonImage {
+  aspect-ratio: 1 / 1;
+}
+
+.skeletonInfo {
+  display: grid;
+  align-content: start;
+  gap: var(--space-4);
+  padding-top: var(--space-5);
+}
+
+.skeletonLine {
+  width: 100%;
+  height: 2rem;
+}
+
+.skeletonLineShort {
+  width: 55%;
+  height: 1rem;
+}
+
+.skeletonControl {
+  width: min(100%, 24rem);
+  height: var(--control-height);
+}
+
+@media (max-width: 48rem) {
+  .main {
+    padding-top: var(--space-4);
+  }
+
+  .productGrid,
+  .loadingGrid,
+  .details {
+    grid-template-columns: 1fr;
+  }
+
+  .productGrid,
+  .loadingGrid {
+    gap: var(--space-5);
+  }
+
+  .productInfo {
+    padding-top: 0;
+  }
+
+  .productInfo h1 {
+    max-width: none;
+  }
+
+  .details {
+    margin-top: var(--space-7);
+    padding-top: var(--space-6);
+  }
+
+  .attributes dl > div {
+    grid-template-columns: 1fr;
+    gap: var(--space-1);
+  }
+}
