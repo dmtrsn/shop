@@ -1,8 +1,8 @@
 import type { NextConfig } from "next";
 
-import { getOptionalAssetRewriteBaseUrl } from "./src/lib/api/config";
+import { getStorefrontRewrites } from "./src/lib/api/rewrites";
 
-const assetRewriteBaseUrl = getOptionalAssetRewriteBaseUrl();
+const rewrites = getStorefrontRewrites();
 
 const nextConfig: NextConfig = {
   experimental: {
@@ -11,13 +11,7 @@ const nextConfig: NextConfig = {
   },
   poweredByHeader: false,
   async rewrites() {
-    if (!assetRewriteBaseUrl) return [];
-    return [
-      {
-        source: "/assets/:path*",
-        destination: `${assetRewriteBaseUrl}/assets/:path*`,
-      },
-    ];
+    return rewrites;
   },
 };
 

@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { getOptionalAssetRewriteBaseUrl, getRequiredApiBaseUrl } from "./config";
+import {
+  getDevelopmentApiProxyBaseUrl,
+  getOptionalAssetRewriteBaseUrl,
+  getRequiredApiBaseUrl,
+} from "./config";
 
 describe("API base configuration", () => {
   it("validates and normalizes an explicitly configured value", () => {
@@ -42,5 +46,29 @@ describe("API base configuration", () => {
     expect(() => getOptionalAssetRewriteBaseUrl(environment)).toThrow(
       "STOREFRONT_API_BASE_URL must use HTTP or HTTPS",
     );
+  });
+
+  it("derives the development API proxy target only in development", () => {
+    expect(getDevelopmentApiProxyBaseUrl({ NODE_ENV: "development" })).toBe("http://127.0.0.1:8080");
+    expect(
+      getDevelopmentApiProxyBaseUrl({
+        NODE_ENV: "development",
+        STOREFRONT_API_BASE_URL: "http://go.internal:8080/",
+      }),
+    ).toBe("http://go.internal:8080");
+    for (const NODE_ENV of ["production", "test", undefined]) {
+      expect(getDevelopmentApiProxyBaseUrl({ NODE_ENV })).toBeUndefined();
+      expect(
+        getDevelopmentApiProxyBaseUrl({ NODE_ENV, STOREFRONT_API_BASE_URL: "https://api.example.test" }),
+      ).toBeUndefined();
+    }
+  });
+
+  it("rejects malformed configuration for the development proxy like other consumers", () => {
+    for (const STOREFRONT_API_BASE_URL of ["not a url", "ftp://go.internal", "http://go.internal/?q=1"]) {
+      expect(() =>
+        getDevelopmentApiProxyBaseUrl({ NODE_ENV: "development", STOREFRONT_API_BASE_URL }),
+      ).toThrow(/STOREFRONT_API_BASE_URL/);
+    }
   });
 });

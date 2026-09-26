@@ -1,6 +1,6 @@
 const DEFAULT_API_BASE_URL = "http://127.0.0.1:8080";
 
-type ApiBaseEnvironment = {
+export type ApiBaseEnvironment = {
   NODE_ENV?: string;
   STOREFRONT_API_BASE_URL?: string;
 };
@@ -43,4 +43,14 @@ export function getOptionalAssetRewriteBaseUrl(
   const configuredValue = configuredApiBaseUrl(environment);
   if (configuredValue) return configuredValue;
   return environment.NODE_ENV === "development" ? DEFAULT_API_BASE_URL : undefined;
+}
+
+// Development-only target for proxying browser /api/* calls to Go through the
+// Next dev server, so browser requests stay same-origin with the session cookie.
+// Production never proxies: the public edge routes /api/* to Go directly.
+export function getDevelopmentApiProxyBaseUrl(
+  environment: ApiBaseEnvironment = process.env,
+): string | undefined {
+  if (environment.NODE_ENV !== "development") return undefined;
+  return getRequiredApiBaseUrl(environment);
 }

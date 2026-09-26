@@ -11,6 +11,6 @@ import (
 )
 
 func TestCurrentHTTPContract(t *testing.T) {
-	handler := httpapi.New(application.New(memory.NewDemo()), slog.New(slog.NewTextHandler(io.Discard, nil)), "../web", "memory")
+	handler := httpapi.New(application.New(memory.NewDemo(), application.Options{AllowDemoAccount: true}), slog.New(slog.NewTextHandler(io.Discard, nil)), "../web", "memory", contract.SessionConfig())
 	contract.Run(t, handler)
 }

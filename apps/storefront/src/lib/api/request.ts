@@ -26,6 +26,9 @@ export class ApiRequestError extends Error {
 
 export type ApiRequestOptions = {
   fetcher?: typeof fetch;
+  // Sent only when a caller passes them explicitly; nothing from the incoming
+  // browser request (cookies, Authorization, Origin) is forwarded implicitly.
+  headers?: Readonly<Record<string, string>>;
   signal?: AbortSignal;
   timeoutMs?: number;
 };
@@ -38,6 +41,13 @@ function responseRequestId(response: Response, body: unknown): string | undefine
   const header = response.headers.get("x-request-id") || undefined;
   if (!isRecord(body) || !isRecord(body.error)) return header;
   return typeof body.error.requestId === "string" ? body.error.requestId : header;
+}
+
+// Caller headers first, then Accept, so the JSON contract cannot be overridden.
+function requestHeaders(extra: ApiRequestOptions["headers"]): Headers {
+  const headers = new Headers(extra);
+  headers.set("Accept", "application/json");
+  return headers;
 }
 
 export type ApiJsonResponse = {
@@ -69,7 +79,7 @@ export async function requestApiJsonWithMeta(
   try {
     response = await fetcher(`${baseUrl}${path}`, {
       cache: "no-store",
-      headers: { Accept: "application/json" },
+      headers: requestHeaders(options.headers),
       signal,
     });
   } catch (error) {
@@ -86,6 +96,7 @@ export async function requestApiJsonWithMeta(
   } catch (error) {
     throw new ApiRequestError("invalid-response", "The API service returned invalid JSON", {
       cause: error,
+      requestId: response.headers.get("x-request-id") || undefined,
       status: response.status,
     });
   }
