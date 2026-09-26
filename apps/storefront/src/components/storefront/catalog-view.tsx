@@ -7,6 +7,13 @@ import {
   catalogUrl,
   type CatalogState,
 } from "@/lib/catalog-state";
+import {
+  ancestorsOf,
+  buildCategoryTree,
+  categoryUrl,
+  findCategoryNode,
+  rootOf,
+} from "@/lib/category-tree";
 
 import { CatalogFilterForm } from "./catalog-filter-form";
 import { CompactProductCard, ProductCard } from "./product-card";
@@ -125,9 +132,9 @@ function Pagination({ state, total, totalPages }: { state: CatalogState; total: 
 }
 
 export function CatalogView({ data, state }: CatalogViewProps) {
-  const category = data.categories.find(
-    (item) => item.id === state.category || item.slug === state.category,
-  );
+  const categoryTree = buildCategoryTree(data.categories);
+  const categoryNode = findCategoryNode(categoryTree, state.category);
+  const category = categoryNode?.category;
   const activeFilterCount = [
     state.query,
     state.category,
@@ -142,14 +149,27 @@ export function CatalogView({ data, state }: CatalogViewProps) {
     state.onSale,
     state.newOnly,
   ].filter(Boolean).length;
-  const topCategories = data.categories.filter((item) => !item.parentId);
-  const activeTopCategoryId = category?.parentId || category?.id;
+  const topCategories = categoryTree.roots.map((node) => node.category);
+  const activeTopCategoryId = categoryNode ? rootOf(categoryNode).category.id : undefined;
 
   return (
     <main className={styles.main} id="main-content">
       <Container className={styles.container}>
         <nav aria-label="Хлебные крошки" className={styles.breadcrumbs}>
-          <Link href="/">Главная</Link><span aria-hidden="true">/</span><span aria-current="page">Каталог</span>
+          <Link href="/">Главная</Link><span aria-hidden="true">/</span>
+          {categoryNode ? (
+            <>
+              <Link href="/catalog">Каталог</Link>
+              {ancestorsOf(categoryNode).map(({ category: ancestor }) => (
+                <span className={styles.crumb} key={ancestor.id}>
+                  <span aria-hidden="true">/</span>
+                  <Link href={categoryUrl(ancestor.slug)}>{ancestor.name}</Link>
+                </span>
+              ))}
+              <span aria-hidden="true">/</span>
+              <span aria-current="page">{categoryNode.category.name}</span>
+            </>
+          ) : <span aria-current="page">Каталог</span>}
         </nav>
 
         <header className={styles.heading}>
@@ -163,6 +183,10 @@ export function CatalogView({ data, state }: CatalogViewProps) {
           </p>
         </header>
 
+        <div className={styles.categoryHeading}>
+          <span aria-hidden="true">Категории</span>
+          <Link href="/categories">Все категории<span aria-hidden="true"> →</span></Link>
+        </div>
         {topCategories.length ? (
           <nav aria-label="Основные категории" className={styles.categoryNavigation}>
             <Link aria-current={!state.category ? "page" : undefined} href={catalogUrl(state, { category: undefined })}>Все товары</Link>

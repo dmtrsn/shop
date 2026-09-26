@@ -72,6 +72,15 @@ func TestPostgresCatalog(t *testing.T) {
 	if err != nil || len(categories) != 10 {
 		t.Fatalf("categories: %v", err)
 	}
+	// The storefront shows productCount next to links into the catalog filter.
+	for _, category := range categories {
+		for _, identity := range []string{category.ID, category.Slug} {
+			page, err := d.service.Catalog(d.ctx, domain.ProductFilter{Category: identity})
+			if err != nil || page.Total != category.ProductCount {
+				t.Fatalf("category %s: productCount=%d page=%+v err=%v", identity, category.ProductCount, page, err)
+			}
+		}
+	}
 	manufacturers, err := d.service.Manufacturers(d.ctx)
 	if err != nil || len(manufacturers) != 8 {
 		t.Fatalf("manufacturers: %v", err)

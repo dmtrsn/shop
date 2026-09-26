@@ -50,3 +50,28 @@ func TestCollectionScheduleAppliesToListingAndCatalogFiltering(t *testing.T) {
 		}
 	}
 }
+
+// The storefront shows productCount next to links into /catalog?category=…,
+// so both must use the same category semantics.
+func TestCategoryProductCountMatchesUnfilteredCatalogTotal(t *testing.T) {
+	store := NewDemo()
+	ctx := context.Background()
+	categories, err := store.ListCategories(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(categories) == 0 {
+		t.Fatal("demo categories are missing")
+	}
+	for _, category := range categories {
+		for _, identity := range []string{category.ID, category.Slug} {
+			page, err := store.ListProducts(ctx, domain.ProductFilter{Category: identity})
+			if err != nil {
+				t.Fatalf("category %s: %v", identity, err)
+			}
+			if page.Total != category.ProductCount {
+				t.Fatalf("category %s: productCount=%d catalog total=%d", identity, category.ProductCount, page.Total)
+			}
+		}
+	}
+}

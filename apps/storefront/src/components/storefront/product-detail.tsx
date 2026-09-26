@@ -1,7 +1,9 @@
 import Link from "next/link";
+import type { ReactNode } from "react";
 
 import { Container } from "@/components/ui/container";
 import type { Product } from "@/lib/api/product";
+import { categoryUrl } from "@/lib/category-tree";
 
 import { ProductGallery } from "./product-gallery";
 import { ProductPurchase } from "./product-purchase";
@@ -26,8 +28,8 @@ export function ProductDetail({ product }: ProductDetailProps) {
   const isAvailable = product.stock >= product.minimumQuantity;
   const oldPriceIsReal =
     product.oldPriceMinor !== undefined && product.oldPriceMinor > product.priceMinor;
-  const attributes = [
-    ["Категория", product.category.name],
+  const attributes: Array<[string, ReactNode] | undefined> = [
+    ["Категория", <Link href={categoryUrl(product.category.slug)} key="category">{product.category.name}</Link>],
     ["Производитель", product.manufacturer.name],
     ["Бренд", product.brand.name],
     product.series ? ["Серия", product.series] : undefined,
@@ -35,7 +37,10 @@ export function ProductDetail({ product }: ProductDetailProps) {
     product.nutrition ? ["Пищевая ценность", product.nutrition] : undefined,
     product.shelfLifeDays ? ["Срок хранения", `${product.shelfLifeDays} дней`] : undefined,
     product.tags.length ? ["Характеристики", product.tags.join(", ")] : undefined,
-  ].filter((entry): entry is string[] => entry !== undefined);
+  ];
+  const presentAttributes = attributes.filter(
+    (entry): entry is [string, ReactNode] => entry !== undefined,
+  );
 
   return (
     <main className={styles.main} id="main-content">
@@ -107,11 +112,11 @@ export function ProductDetail({ product }: ProductDetailProps) {
               </section>
             ) : null}
 
-            {attributes.length ? (
+            {presentAttributes.length ? (
               <section aria-labelledby="attributes-heading" className={styles.attributes}>
                 <h2 id="attributes-heading">О товаре</h2>
                 <dl>
-                  {attributes.map(([label, value]) => (
+                  {presentAttributes.map(([label, value]) => (
                     <div key={label}>
                       <dt>{label}</dt>
                       <dd>{value}</dd>

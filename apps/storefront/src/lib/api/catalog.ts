@@ -11,6 +11,7 @@ export type Category = {
   id: string;
   slug: string;
   name: string;
+  description?: string;
   parentId?: string;
   productCount: number;
 };
@@ -119,12 +120,13 @@ function envelopeItems(value: unknown, key: string): unknown[] {
   return array(value.items, `${key}.items`);
 }
 
-function parseCategory(value: unknown): Category {
+export function parseCategory(value: unknown): Category {
   if (!isRecord(value)) throw new Error("category must be an object");
   return {
     id: requiredString(value, "id"),
     slug: requiredString(value, "slug"),
     name: requiredString(value, "name"),
+    description: optionalString(value, "description"),
     parentId: optionalString(value, "parentId"),
     productCount: integer(value, "productCount"),
   };

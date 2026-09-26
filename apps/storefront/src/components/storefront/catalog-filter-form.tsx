@@ -9,6 +9,7 @@ import {
   formatCatalogPrice,
   type CatalogState,
 } from "@/lib/catalog-state";
+import { buildCategoryTree, flattenCategoryTree } from "@/lib/category-tree";
 
 import styles from "./catalog.module.css";
 import { ProducerDependencyGuard } from "./producer-dependency-guard";
@@ -103,9 +104,9 @@ export function CatalogFilterForm({
         <label htmlFor={`${prefix}-category`}>Категория</label>
         <select defaultValue={state.category ?? ""} id={`${prefix}-category`} name="category">
           <option value="">Все категории</option>
-          {categories.map((category) => (
+          {flattenCategoryTree(buildCategoryTree(categories)).map(({ category, depth }) => (
             <option key={category.id} value={category.slug}>
-              {category.parentId ? "— " : ""}{category.name}
+              {"— ".repeat(depth)}{category.name}
             </option>
           ))}
         </select>

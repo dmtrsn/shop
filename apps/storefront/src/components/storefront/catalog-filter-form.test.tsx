@@ -52,6 +52,33 @@ describe("CatalogFilterForm producer hierarchy", () => {
     expect(screen.queryByRole("option", { name: /6006|4004|2002/ })).not.toBeInTheDocument();
   });
 
+  it("indents category options by tree depth in hierarchy order", () => {
+    render(
+      <CatalogFilterForm
+        brands={brands}
+        categories={[
+          { id: "cat-dark", slug: "dark", name: "Тёмный", parentId: "cat-bars", productCount: 1 },
+          { id: "cat-bars", slug: "chocolate-bars", name: "Плиточный", parentId: "cat-chocolate", productCount: 4 },
+          ...categories,
+        ]}
+        facets={facets}
+        manufacturers={manufacturers}
+        prefix="test-filter"
+        state={parseCatalogState({})}
+      />,
+    );
+
+    const options = Array.from(
+      (screen.getByLabelText("Категория") as HTMLSelectElement).options,
+    ).map((option) => [option.value, option.textContent]);
+    expect(options).toEqual([
+      ["", "Все категории"],
+      ["chocolate", "Шоколад"],
+      ["chocolate-bars", "— Плиточный"],
+      ["dark", "— — Тёмный"],
+    ]);
+  });
+
   it("clears and stages brand and series after manufacturer changes", async () => {
     const user = userEvent.setup();
     renderForm({ manufacturer: "choco-atelier", brand: "atelier-noir", series: "Origins" });

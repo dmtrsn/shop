@@ -64,6 +64,15 @@ describe("ProductDetail", () => {
     expect(screen.getByText(/не резервирует товар/i)).toBeInTheDocument();
   });
 
+  it("links the product category to its canonical category page", () => {
+    render(<ProductDetail product={product} />);
+
+    expect(screen.getByRole("link", { name: "Плиточный шоколад" })).toHaveAttribute(
+      "href",
+      "/categories/chocolate-bars",
+    );
+  });
+
   it("omits absent optional attributes and provides a missing-image state", () => {
     render(
       <ProductDetail

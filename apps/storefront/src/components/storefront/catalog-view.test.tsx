@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import type { CatalogData } from "@/lib/api/catalog";
@@ -68,6 +68,38 @@ describe("CatalogView", () => {
 
     expect(screen.getByRole("heading", { name: "Ничего не найдено" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Очистить фильтры" })).toHaveAttribute("href", "/catalog");
+  });
+
+  it("keeps a deep category's root active and links its ancestors to category pages", () => {
+    const deep = data();
+    deep.categories = [
+      { id: "cat-chocolate", slug: "chocolate", name: "Шоколад", productCount: 6 },
+      { id: "cat-bars", slug: "chocolate-bars", name: "Плиточный шоколад", parentId: "cat-chocolate", productCount: 4 },
+      { id: "cat-dark", slug: "dark", name: "Тёмный шоколад", parentId: "cat-bars", productCount: 1 },
+      { id: "cat-gifts", slug: "gift-boxes", name: "Подарочные наборы", productCount: 0 },
+    ];
+    render(<CatalogView data={deep} state={parseCatalogState({ category: "dark" })} />);
+
+    const topCategories = screen.getByRole("navigation", { name: "Основные категории" });
+    expect(within(topCategories).getByRole("link", { name: "Шоколад" })).toHaveAttribute("aria-current", "page");
+    expect(within(topCategories).getByRole("link", { name: "Подарочные наборы" })).not.toHaveAttribute("aria-current");
+    expect(within(topCategories).queryByRole("link", { name: "Тёмный шоколад" })).not.toBeInTheDocument();
+    expect(within(topCategories).queryByRole("link", { name: /Все категории/ })).not.toBeInTheDocument();
+
+    const breadcrumbs = screen.getByRole("navigation", { name: "Хлебные крошки" });
+    expect(within(breadcrumbs).getByRole("link", { name: "Каталог" })).toHaveAttribute("href", "/catalog");
+    expect(within(breadcrumbs).getByRole("link", { name: "Шоколад" })).toHaveAttribute("href", "/categories/chocolate");
+    expect(within(breadcrumbs).getByRole("link", { name: "Плиточный шоколад" })).toHaveAttribute("href", "/categories/chocolate-bars");
+    expect(within(breadcrumbs).getByText("Тёмный шоколад")).toHaveAttribute("aria-current", "page");
+  });
+
+  it("shows the category directory link outside the scrolling category row", () => {
+    render(<CatalogView data={data()} state={parseCatalogState({})} />);
+
+    const directoryLinks = screen.getAllByRole("link", { name: "Все категории" });
+    expect(directoryLinks).toHaveLength(1);
+    expect(directoryLinks[0]).toHaveAttribute("href", "/categories");
+    expect(screen.getByRole("navigation", { name: "Основные категории" })).not.toContainElement(directoryLinks[0]);
   });
 
   it("preserves catalog state in pagination links", () => {
