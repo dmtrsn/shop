@@ -7,8 +7,15 @@ import (
 
 type Repository interface {
 	FindUserByEmail(context.Context, string) (UserCredential, error)
-	CreateSession(context.Context, string, string, time.Time) error
-	UserBySession(context.Context, string, time.Time) (User, error)
+	// CreateSession inserts the session, purges the user's expired sessions and
+	// removes NewSession.ReplacesTokenHash (cookie transport only) atomically.
+	// A duplicate token hash is an error and changes nothing.
+	CreateSession(context.Context, NewSession, time.Time) error
+	// SessionByTokenHash returns ErrUnauthorized unless an unexpired session with
+	// the hash exists for the given transport.
+	SessionByTokenHash(context.Context, string, SessionTransport, time.Time) (SessionRecord, error)
+	// DeleteSession is idempotent.
+	DeleteSession(context.Context, string, SessionTransport) error
 
 	ListCategories(context.Context) ([]Category, error)
 	ListManufacturers(context.Context) ([]Manufacturer, error)

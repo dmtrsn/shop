@@ -18,17 +18,31 @@ import (
 
 const sessionLifetime = 30 * 24 * time.Hour
 
+// dummyPasswordHash is a cost-10 bcrypt hash (the cost of the seeded demo
+// hash) of random bytes that were discarded when it was generated. It verifies
+// nothing: comparing unknown-user logins against it keeps their timing close to
+// a real verification without generating a hash on the request path.
+const dummyPasswordHash = "$2y$10$.Z8RfBkxY8dDZHsM3d1cEOsMLuni6G0e3UmKkwQNVZFwi5jmhODzO"
+
+// Options holds deployment policy for the service.
+type Options struct {
+	// AllowDemoAccount permits the seeded demo principal to sign in and use its
+	// sessions. It must be false in production.
+	AllowDemoAccount bool
+}
+
 type Service struct {
-	repo domain.Repository
-	now  func() time.Time
+	repo    domain.Repository
+	now     func() time.Time
+	options Options
 }
 
 type readinessRepository interface {
 	Ping(context.Context) error
 }
 
-func New(repo domain.Repository) *Service {
-	return &Service{repo: repo, now: time.Now}
+func New(repo domain.Repository, options Options) *Service {
+	return &Service{repo: repo, now: time.Now, options: options}
 }
 
 func (s *Service) Ready(ctx context.Context) error {
@@ -38,13 +52,28 @@ func (s *Service) Ready(ctx context.Context) error {
 	return nil
 }
 
+// DemoLoginAllowed reports whether the seeded demo principal may sign in.
+func (s *Service) DemoLoginAllowed() bool { return s.options.AllowDemoAccount }
+
 type LoginResult struct {
 	Token     string      `json:"token"`
 	ExpiresAt time.Time   `json:"expiresAt"`
 	User      domain.User `json:"user"`
 }
 
+// Login is the legacy bearer login; its contract is unchanged.
 func (s *Service) Login(ctx context.Context, email, password string) (LoginResult, error) {
+	return s.login(ctx, email, password, domain.SessionBearer, "")
+}
+
+// StartCookieSession creates a cookie-transport session. When previousToken is
+// the raw value of a cookie the client presented, that cookie session is
+// replaced atomically with the new one.
+func (s *Service) StartCookieSession(ctx context.Context, email, password, previousToken string) (LoginResult, error) {
+	return s.login(ctx, email, password, domain.SessionCookie, previousToken)
+}
+
+func (s *Service) login(ctx context.Context, email, password string, transport domain.SessionTransport, previousToken string) (LoginResult, error) {
 	email = strings.ToLower(strings.TrimSpace(email))
 	if email == "" || password == "" {
 		return LoginResult{}, &domain.ValidationError{Fields: []domain.FieldError{{Field: "email", Message: "Укажите email"}, {Field: "password", Message: "Укажите пароль"}}}
@@ -52,6 +81,7 @@ func (s *Service) Login(ctx context.Context, email, password string) (LoginResul
 	credential, err := s.repo.FindUserByEmail(ctx, email)
 	if err != nil {
 		if errors.Is(err, domain.ErrNotFound) {
+			_ = bcrypt.CompareHashAndPassword([]byte(dummyPasswordHash), []byte(password))
 			return LoginResult{}, domain.ErrUnauthorized
 		}
 		return LoginResult{}, err
@@ -59,22 +89,61 @@ func (s *Service) Login(ctx context.Context, email, password string) (LoginResul
 	if bcrypt.CompareHashAndPassword([]byte(credential.PasswordHash), []byte(password)) != nil {
 		return LoginResult{}, domain.ErrUnauthorized
 	}
+	if err := s.allowPrincipal(credential.User.ID); err != nil {
+		return LoginResult{}, err
+	}
 	token, err := randomToken(32)
 	if err != nil {
 		return LoginResult{}, fmt.Errorf("create session token: %w", err)
 	}
-	expires := s.now().UTC().Add(sessionLifetime)
-	if err := s.repo.CreateSession(ctx, credential.User.ID, tokenHash(token), expires); err != nil {
+	now := s.now().UTC()
+	// PostgreSQL stores microseconds; report exactly the instant that is enforced.
+	expires := now.Add(sessionLifetime).Truncate(time.Microsecond)
+	session := domain.NewSession{UserID: credential.User.ID, TokenHash: tokenHash(token), Transport: transport, ExpiresAt: expires}
+	if transport == domain.SessionCookie && previousToken != "" {
+		session.ReplacesTokenHash = tokenHash(previousToken)
+	}
+	if err := s.repo.CreateSession(ctx, session, now); err != nil {
 		return LoginResult{}, err
 	}
-	return LoginResult{Token: token, ExpiresAt: expires, User: credential.User}, nil
+	return LoginResult{Token: token, ExpiresAt: session.ExpiresAt, User: credential.User}, nil
 }
 
+// Authenticate validates a legacy bearer token.
 func (s *Service) Authenticate(ctx context.Context, token string) (domain.User, error) {
-	if token == "" {
-		return domain.User{}, domain.ErrUnauthorized
+	record, err := s.AuthenticateSession(ctx, token, domain.SessionBearer)
+	return record.User, err
+}
+
+// AuthenticateSession validates a raw token presented through transport.
+func (s *Service) AuthenticateSession(ctx context.Context, token string, transport domain.SessionTransport) (domain.SessionRecord, error) {
+	if token == "" || !transport.Valid() {
+		return domain.SessionRecord{}, domain.ErrUnauthorized
 	}
-	return s.repo.UserBySession(ctx, tokenHash(token), s.now().UTC())
+	record, err := s.repo.SessionByTokenHash(ctx, tokenHash(token), transport, s.now().UTC())
+	if err != nil {
+		return domain.SessionRecord{}, err
+	}
+	if err := s.allowPrincipal(record.User.ID); err != nil {
+		return domain.SessionRecord{}, err
+	}
+	return record, nil
+}
+
+// Logout revokes the session identified by the raw token and transport. It is
+// idempotent.
+func (s *Service) Logout(ctx context.Context, token string, transport domain.SessionTransport) error {
+	if token == "" || !transport.Valid() {
+		return nil
+	}
+	return s.repo.DeleteSession(ctx, tokenHash(token), transport)
+}
+
+func (s *Service) allowPrincipal(userID string) error {
+	if userID == domain.DemoUserID && !s.options.AllowDemoAccount {
+		return domain.ErrDemoAccountDisabled
+	}
+	return nil
 }
 
 func (s *Service) Categories(ctx context.Context) ([]domain.Category, error) {

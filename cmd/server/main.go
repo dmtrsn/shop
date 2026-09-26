@@ -28,14 +28,24 @@ func main() {
 	slog.SetDefault(logger)
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
+	mode, err := appMode()
+	if err != nil {
+		logger.Error("invalid configuration", "error", err)
+		os.Exit(1)
+	}
+	sessions, err := sessionConfig(mode)
+	if err != nil {
+		logger.Error("invalid session configuration", "error", err)
+		os.Exit(1)
+	}
 	repo, storage, cleanup, err := repository(ctx, logger)
 	if err != nil {
 		logger.Error("initialize repository", "error", err)
 		os.Exit(1)
 	}
 	defer cleanup()
-	service := application.New(repo)
-	handler := httpapi.New(service, logger, env("WEB_DIR", "web"), storage)
+	service := application.New(repo, application.Options{AllowDemoAccount: mode != "production"})
+	handler := httpapi.New(service, logger, env("WEB_DIR", "web"), storage, sessions)
 	server := &http.Server{Addr: env("HTTP_ADDR", ":"+env("PORT", "8080")), Handler: handler, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 75 * time.Second, MaxHeaderBytes: 1 << 20}
 	go func() {
 		<-ctx.Done()
@@ -45,7 +55,11 @@ func main() {
 			logger.Error("graceful shutdown", "error", err)
 		}
 	}()
-	logger.Info("sweetshop server started", "address", server.Addr, "storage", storage, "demoEmail", "demo@sugar.ru")
+	if mode == "production" {
+		logger.Info("sweetshop server started", "address", server.Addr, "storage", storage, "mode", mode)
+	} else {
+		logger.Info("sweetshop server started", "address", server.Addr, "storage", storage, "mode", mode, "demoEmail", "demo@sugar.ru")
+	}
 	err = server.ListenAndServe()
 	if err != nil && !errors.Is(err, http.ErrServerClosed) {
 		logger.Error("http server stopped", "error", err)
@@ -55,9 +69,9 @@ func main() {
 
 func repository(ctx context.Context, logger *slog.Logger) (domain.Repository, string, func(), error) {
 	url := strings.TrimSpace(os.Getenv("DATABASE_URL"))
-	mode := env("APP_MODE", "production")
-	if mode != "production" && mode != "development" && mode != "demo" {
-		return nil, "", func() {}, errors.New("APP_MODE must be production, development, or demo")
+	mode, err := appMode()
+	if err != nil {
+		return nil, "", func() {}, err
 	}
 	if url == "" {
 		if mode == "production" {
@@ -94,6 +108,49 @@ func repository(ctx context.Context, logger *slog.Logger) (domain.Repository, st
 		}
 	}
 	return postgresrepo.New(pool), "postgres", cleanup, nil
+}
+
+func appMode() (string, error) {
+	mode := env("APP_MODE", "production")
+	if mode != "production" && mode != "development" && mode != "demo" {
+		return "", errors.New("APP_MODE must be production, development, or demo")
+	}
+	return mode, nil
+}
+
+// developmentTrustedOrigins covers the Go server and the Next dev server on
+// loopback; production has no default and must configure https origins.
+const developmentTrustedOrigins = "http://127.0.0.1:8080,http://localhost:8080,http://127.0.0.1:3000,http://localhost:3000"
+
+// sessionConfig fails closed in production: TRUSTED_ORIGINS is required and
+// https-only, and SESSION_COOKIE_SECURE cannot be disabled.
+func sessionConfig(mode string) (httpapi.SessionConfig, error) {
+	production := mode == "production"
+	secure := production
+	switch raw := os.Getenv("SESSION_COOKIE_SECURE"); raw {
+	case "":
+	case "true":
+		secure = true
+	case "false":
+		if production {
+			return httpapi.SessionConfig{}, errors.New("SESSION_COOKIE_SECURE=false is not allowed in production")
+		}
+		secure = false
+	default:
+		return httpapi.SessionConfig{}, errors.New("SESSION_COOKIE_SECURE must be true or false")
+	}
+	raw := os.Getenv("TRUSTED_ORIGINS")
+	if strings.TrimSpace(raw) == "" {
+		if production {
+			return httpapi.SessionConfig{}, errors.New("TRUSTED_ORIGINS is required in production mode")
+		}
+		raw = developmentTrustedOrigins
+	}
+	origins, err := httpapi.ParseTrustedOrigins(raw, production)
+	if err != nil {
+		return httpapi.SessionConfig{}, err
+	}
+	return httpapi.SessionConfig{Secure: secure, TrustedOrigins: origins}, nil
 }
 
 func env(key, fallback string) string {

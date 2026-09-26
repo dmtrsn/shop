@@ -34,6 +34,38 @@ type UserCredential struct {
 	PasswordHash string
 }
 
+// DemoUserID is the stable principal seeded by migration 002 and the memory
+// demo store. Production refuses it by identity, whatever its password.
+const DemoUserID = "usr-demo"
+
+// SessionTransport binds a session to the channel that issued it; a token is
+// accepted only through the same transport.
+type SessionTransport string
+
+const (
+	SessionBearer SessionTransport = "bearer"
+	SessionCookie SessionTransport = "cookie"
+)
+
+func (t SessionTransport) Valid() bool { return t == SessionBearer || t == SessionCookie }
+
+// NewSession is inserted atomically together with the purge of the user's
+// expired sessions and, for cookie logins, removal of the replaced session.
+type NewSession struct {
+	UserID            string
+	TokenHash         string
+	Transport         SessionTransport
+	ExpiresAt         time.Time
+	ReplacesTokenHash string
+}
+
+// SessionRecord deliberately carries no credential material.
+type SessionRecord struct {
+	User      User
+	ExpiresAt time.Time
+	Transport SessionTransport
+}
+
 type Category struct {
 	ID           string `json:"id"`
 	Slug         string `json:"slug"`

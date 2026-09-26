@@ -12,6 +12,6 @@ import (
 
 func TestPostgresHTTPContract(t *testing.T) {
 	d := newDatabase(t, true)
-	handler := httpapi.New(d.service, slog.New(slog.NewTextHandler(io.Discard, nil)), "../../web", "postgres")
+	handler := httpapi.New(d.service, slog.New(slog.NewTextHandler(io.Discard, nil)), "../../web", "postgres", contract.SessionConfig())
 	contract.Run(t, handler)
 }

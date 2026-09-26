@@ -8,7 +8,9 @@ info:
     is not enforced. Go accepts case-insensitive JSON member names and null as zero/unset values; schemas describe
     canonical spellings and usable requests. No independent batch item-count limit. HTTP server MaxHeaderBytes=1048576,
     ReadHeaderTimeout=5s, ReadTimeout=15s, WriteTimeout=30s. Every GET also accepts HEAD through Go ServeMux (network
-    HEAD has no response body). Protected responses and login use no-store. Unmatched /api routes/methods reach
+    HEAD has no response body). Protected responses, login and /api/auth/session use no-store. Protected operations accept
+    a legacy bearer token or the HttpOnly session cookie; cookie-authenticated POST/PUT/PATCH/DELETE also require a
+    trusted Origin and X-CSRF-Token (403 csrf_failed otherwise). No CORS headers are sent. Unmatched /api routes/methods reach
     the static fallback and return 404 in the deployed configuration; no standardized 405 envelope. Generic error
     mapper also supports forbidden=403, though no current use case emits it. Public collections/entity lists and
     order history have no pagination. No promise of JavaScript-safe bounds for int64 money.
@@ -60,9 +62,10 @@ paths:
     post:
       operationId: login
       summary: login
-      description: Lowercases and trims email; password is not trimmed. Returns random bearer token and 30-day expiry;
-        only SHA-256 token hash is stored. No logout/revocation endpoint. Missing/empty credentials return 422;
-        wrong or unknown credentials return 401.
+      description: Legacy bearer login, kept for the compatibility window. Lowercases and trims email; password
+        is not trimmed. Returns random bearer token and 30-day expiry; only the SHA-256 token hash is stored. Sets
+        no cookie. Revoke with DELETE /api/auth/session. Missing/empty credentials return 422; wrong or unknown
+        credentials, and the seeded demo principal in production mode, return the same 401.
       security: []
       responses:
         '200':
@@ -120,6 +123,183 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/LoginInput'
+  /api/auth/session:
+    get:
+      operationId: sessionState
+      summary: sessionState
+      description: Reports the cookie session only; Authorization is ignored. Always 200. Signed out, missing,
+        invalid or expired cookies return authenticated=false (an invalid cookie is cleared). demoLogin reports
+        whether the seeded demo principal may sign in in this deployment.
+      security: []
+      responses:
+        '200':
+          description: Success
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+            Set-Cookie:
+              description: Present only to clear an invalid session cookie (Max-Age=0).
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionState'
+        '500':
+          description: internal_error; unexpected storage or server failure.
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    post:
+      operationId: startSession
+      summary: startSession
+      description: Browser login. Requires an Origin header equal to a configured trusted origin (403 csrf_failed
+        otherwise). Same credential rules and generic 401 as /api/auth/login. Creates a cookie-transport session,
+        sets the HttpOnly session cookie and never returns the token in the body. A session cookie presented with a
+        successful login is revoked atomically with creating the new session; a failed login leaves it unchanged.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginInput'
+      responses:
+        '200':
+          description: Success
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+            Set-Cookie:
+              description: The session cookie (see sessionCookie).
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CookieSession'
+        '403':
+          description: csrf_failed; missing or untrusted Origin.
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: validation_error; optional error.fields identifies invalid input.
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: unauthorized; incorrect credentials or the demo principal in production mode.
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: internal_error; unexpected storage or server failure.
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    delete:
+      operationId: endSession
+      summary: endSession
+      description: Server-side logout; idempotent. With an Authorization header, revokes only that bearer session
+        and leaves any cookie untouched (no CSRF check). Otherwise, with a session cookie, requires a trusted Origin
+        and X-CSRF-Token (403 csrf_failed, nothing changed), revokes the cookie session and clears the cookie. Without
+        credentials, clears the cookie. A revoked token is rejected afterwards.
+      security: []
+      responses:
+        '204':
+          description: Revoked or nothing to revoke.
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+            Set-Cookie:
+              description: Clears the session cookie (Max-Age=0) unless a bearer token was presented.
+              schema:
+                type: string
+        '401':
+          description: unauthorized; malformed or repeated Authorization header, or repeated session cookies.
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: csrf_failed; cookie logout without a trusted Origin or a valid X-CSRF-Token.
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: internal_error; unexpected storage or server failure.
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /api/me:
     get:
       operationId: currentUser
@@ -127,6 +307,7 @@ paths:
       description: Authenticated user.
       security:
       - bearerAuth: []
+      - sessionCookie: []
       responses:
         '200':
           description: Success
@@ -156,8 +337,9 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
         '401':
-          description: 'unauthorized; malformed/missing bearer header, invalid token, expired session. All protected
-            responses have Cache-Control: no-store.'
+          description: 'unauthorized; missing, malformed, repeated or conflicting credentials, invalid token, expired
+            or revoked session, or the demo principal in production mode. An invalid session cookie, or a cookie that
+            conflicts with the bearer identity, is cleared. All protected responses have Cache-Control: no-store.'
           headers:
             X-Request-ID:
               description: Echoed X-Request-ID or server-generated identifier.
@@ -503,6 +685,7 @@ paths:
       description: Full user cart, manufacturer groups and authoritative summary.
       security:
       - bearerAuth: []
+      - sessionCookie: []
       responses:
         '200':
           description: Success
@@ -532,8 +715,9 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
         '401':
-          description: 'unauthorized; malformed/missing bearer header, invalid token, expired session. All protected
-            responses have Cache-Control: no-store.'
+          description: 'unauthorized; missing, malformed, repeated or conflicting credentials, invalid token, expired
+            or revoked session, or the demo principal in production mode. An invalid session cookie, or a cookie that
+            conflicts with the bearer identity, is cleared. All protected responses have Cache-Control: no-store.'
           headers:
             X-Request-ID:
               description: Echoed X-Request-ID or server-generated identifier.
@@ -550,6 +734,7 @@ paths:
         line.
       security:
       - bearerAuth: []
+      - sessionCookie: []
       responses:
         '200':
           description: Success
@@ -578,9 +763,22 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        '403':
+          description: csrf_failed; cookie-authenticated request without a trusted Origin or a valid X-CSRF-Token.
+            Bearer requests are exempt.
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         '401':
-          description: 'unauthorized; malformed/missing bearer header, invalid token, expired session. All protected
-            responses have Cache-Control: no-store.'
+          description: 'unauthorized; missing, malformed, repeated or conflicting credentials, invalid token, expired
+            or revoked session, or the demo principal in production mode. An invalid session cookie, or a cookie that
+            conflicts with the bearer identity, is cleared. All protected responses have Cache-Control: no-store.'
           headers:
             X-Request-ID:
               description: Echoed X-Request-ID or server-generated identifier.
@@ -602,6 +800,7 @@ paths:
         201, including overwrite.
       security:
       - bearerAuth: []
+      - sessionCookie: []
       responses:
         '201':
           description: Success
@@ -630,9 +829,22 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        '403':
+          description: csrf_failed; cookie-authenticated request without a trusted Origin or a valid X-CSRF-Token.
+            Bearer requests are exempt.
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         '401':
-          description: 'unauthorized; malformed/missing bearer header, invalid token, expired session. All protected
-            responses have Cache-Control: no-store.'
+          description: 'unauthorized; missing, malformed, repeated or conflicting credentials, invalid token, expired
+            or revoked session, or the demo principal in production mode. An invalid session cookie, or a cookie that
+            conflicts with the bearer identity, is cleared. All protected responses have Cache-Control: no-store.'
           headers:
             X-Request-ID:
               description: Echoed X-Request-ID or server-generated identifier.
@@ -690,6 +902,7 @@ paths:
         Resolves ID/slug/SKU in cart.
       security:
       - bearerAuth: []
+      - sessionCookie: []
       responses:
         '200':
           description: Success
@@ -718,9 +931,22 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        '403':
+          description: csrf_failed; cookie-authenticated request without a trusted Origin or a valid X-CSRF-Token.
+            Bearer requests are exempt.
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         '401':
-          description: 'unauthorized; malformed/missing bearer header, invalid token, expired session. All protected
-            responses have Cache-Control: no-store.'
+          description: 'unauthorized; missing, malformed, repeated or conflicting credentials, invalid token, expired
+            or revoked session, or the demo principal in production mode. An invalid session cookie, or a cookie that
+            conflicts with the bearer identity, is cleared. All protected responses have Cache-Control: no-store.'
           headers:
             X-Request-ID:
               description: Echoed X-Request-ID or server-generated identifier.
@@ -777,6 +1003,7 @@ paths:
       description: Resolves ID/slug/SKU. Missing line or product is an idempotent no-op.
       security:
       - bearerAuth: []
+      - sessionCookie: []
       responses:
         '200':
           description: Success
@@ -805,9 +1032,22 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        '403':
+          description: csrf_failed; cookie-authenticated request without a trusted Origin or a valid X-CSRF-Token.
+            Bearer requests are exempt.
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         '401':
-          description: 'unauthorized; malformed/missing bearer header, invalid token, expired session. All protected
-            responses have Cache-Control: no-store.'
+          description: 'unauthorized; missing, malformed, repeated or conflicting credentials, invalid token, expired
+            or revoked session, or the demo principal in production mode. An invalid session cookie, or a cookie that
+            conflicts with the bearer identity, is cleared. All protected responses have Cache-Control: no-store.'
           headers:
             X-Request-ID:
               description: Echoed X-Request-ID or server-generated identifier.
@@ -828,6 +1068,7 @@ paths:
         stock or minimum/step.
       security:
       - bearerAuth: []
+      - sessionCookie: []
       responses:
         '200':
           description: Success
@@ -856,9 +1097,22 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        '403':
+          description: csrf_failed; cookie-authenticated request without a trusted Origin or a valid X-CSRF-Token.
+            Bearer requests are exempt.
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         '401':
-          description: 'unauthorized; malformed/missing bearer header, invalid token, expired session. All protected
-            responses have Cache-Control: no-store.'
+          description: 'unauthorized; missing, malformed, repeated or conflicting credentials, invalid token, expired
+            or revoked session, or the demo principal in production mode. An invalid session cookie, or a cookie that
+            conflicts with the bearer identity, is cleared. All protected responses have Cache-Control: no-store.'
           headers:
             X-Request-ID:
               description: Echoed X-Request-ID or server-generated identifier.
@@ -892,6 +1146,7 @@ paths:
       description: Full list and manufacturer groups; items=[] and groups=[] when empty.
       security:
       - bearerAuth: []
+      - sessionCookie: []
       responses:
         '200':
           description: Success
@@ -921,8 +1176,9 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
         '401':
-          description: 'unauthorized; malformed/missing bearer header, invalid token, expired session. All protected
-            responses have Cache-Control: no-store.'
+          description: 'unauthorized; missing, malformed, repeated or conflicting credentials, invalid token, expired
+            or revoked session, or the demo principal in production mode. An invalid session cookie, or a cookie that
+            conflicts with the bearer identity, is cleared. All protected responses have Cache-Control: no-store.'
           headers:
             X-Request-ID:
               description: Echoed X-Request-ID or server-generated identifier.
@@ -940,6 +1196,7 @@ paths:
         update. Body ignored.
       security:
       - bearerAuth: []
+      - sessionCookie: []
       responses:
         '200':
           description: Success
@@ -968,9 +1225,22 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        '403':
+          description: csrf_failed; cookie-authenticated request without a trusted Origin or a valid X-CSRF-Token.
+            Bearer requests are exempt.
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         '401':
-          description: 'unauthorized; malformed/missing bearer header, invalid token, expired session. All protected
-            responses have Cache-Control: no-store.'
+          description: 'unauthorized; missing, malformed, repeated or conflicting credentials, invalid token, expired
+            or revoked session, or the demo principal in production mode. An invalid session cookie, or a cookie that
+            conflicts with the bearer identity, is cleared. All protected responses have Cache-Control: no-store.'
           headers:
             X-Request-ID:
               description: Echoed X-Request-ID or server-generated identifier.
@@ -1000,6 +1270,7 @@ paths:
         update. Body ignored.
       security:
       - bearerAuth: []
+      - sessionCookie: []
       responses:
         '200':
           description: Success
@@ -1028,9 +1299,22 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        '403':
+          description: csrf_failed; cookie-authenticated request without a trusted Origin or a valid X-CSRF-Token.
+            Bearer requests are exempt.
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         '401':
-          description: 'unauthorized; malformed/missing bearer header, invalid token, expired session. All protected
-            responses have Cache-Control: no-store.'
+          description: 'unauthorized; missing, malformed, repeated or conflicting credentials, invalid token, expired
+            or revoked session, or the demo principal in production mode. An invalid session cookie, or a cookie that
+            conflicts with the bearer identity, is cleared. All protected responses have Cache-Control: no-store.'
           headers:
             X-Request-ID:
               description: Echoed X-Request-ID or server-generated identifier.
@@ -1060,6 +1344,7 @@ paths:
       description: All owned orders with complete items, newest first; unpaginated.
       security:
       - bearerAuth: []
+      - sessionCookie: []
       responses:
         '200':
           description: Success
@@ -1089,8 +1374,9 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
         '401':
-          description: 'unauthorized; malformed/missing bearer header, invalid token, expired session. All protected
-            responses have Cache-Control: no-store.'
+          description: 'unauthorized; missing, malformed, repeated or conflicting credentials, invalid token, expired
+            or revoked session, or the demo principal in production mode. An invalid session cookie, or a cookie that
+            conflicts with the bearer identity, is cleared. All protected responses have Cache-Control: no-store.'
           headers:
             X-Request-ID:
               description: Echoed X-Request-ID or server-generated identifier.
@@ -1110,6 +1396,7 @@ paths:
         provide idempotency.
       security:
       - bearerAuth: []
+      - sessionCookie: []
       responses:
         '201':
           description: Success
@@ -1138,9 +1425,22 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        '403':
+          description: csrf_failed; cookie-authenticated request without a trusted Origin or a valid X-CSRF-Token.
+            Bearer requests are exempt.
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         '401':
-          description: 'unauthorized; malformed/missing bearer header, invalid token, expired session. All protected
-            responses have Cache-Control: no-store.'
+          description: 'unauthorized; missing, malformed, repeated or conflicting credentials, invalid token, expired
+            or revoked session, or the demo principal in production mode. An invalid session cookie, or a cookie that
+            conflicts with the bearer identity, is cleared. All protected responses have Cache-Control: no-store.'
           headers:
             X-Request-ID:
               description: Echoed X-Request-ID or server-generated identifier.
@@ -1185,6 +1485,7 @@ paths:
       description: Owned historical order; snapshots survive live product edits/deletion.
       security:
       - bearerAuth: []
+      - sessionCookie: []
       responses:
         '200':
           description: Success
@@ -1214,8 +1515,9 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
         '401':
-          description: 'unauthorized; malformed/missing bearer header, invalid token, expired session. All protected
-            responses have Cache-Control: no-store.'
+          description: 'unauthorized; missing, malformed, repeated or conflicting credentials, invalid token, expired
+            or revoked session, or the demo principal in production mode. An invalid session cookie, or a cookie that
+            conflicts with the bearer identity, is cleared. All protected responses have Cache-Control: no-store.'
           headers:
             X-Request-ID:
               description: Echoed X-Request-ID or server-generated identifier.
@@ -1246,6 +1548,7 @@ paths:
         validation. Does not persist review/consent evidence.
       security:
       - bearerAuth: []
+      - sessionCookie: []
       responses:
         '200':
           description: Success
@@ -1274,9 +1577,22 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        '403':
+          description: csrf_failed; cookie-authenticated request without a trusted Origin or a valid X-CSRF-Token.
+            Bearer requests are exempt.
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         '401':
-          description: 'unauthorized; malformed/missing bearer header, invalid token, expired session. All protected
-            responses have Cache-Control: no-store.'
+          description: 'unauthorized; missing, malformed, repeated or conflicting credentials, invalid token, expired
+            or revoked session, or the demo principal in production mode. An invalid session cookie, or a cookie that
+            conflicts with the bearer identity, is cleared. All protected responses have Cache-Control: no-store.'
           headers:
             X-Request-ID:
               description: Echoed X-Request-ID or server-generated identifier.
@@ -1311,6 +1627,7 @@ paths:
         token or idempotency required.
       security:
       - bearerAuth: []
+      - sessionCookie: []
       responses:
         '200':
           description: Success
@@ -1339,9 +1656,22 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        '403':
+          description: csrf_failed; cookie-authenticated request without a trusted Origin or a valid X-CSRF-Token.
+            Bearer requests are exempt.
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         '401':
-          description: 'unauthorized; malformed/missing bearer header, invalid token, expired session. All protected
-            responses have Cache-Control: no-store.'
+          description: 'unauthorized; missing, malformed, repeated or conflicting credentials, invalid token, expired
+            or revoked session, or the demo principal in production mode. An invalid session cookie, or a cookie that
+            conflicts with the bearer identity, is cleared. All protected responses have Cache-Control: no-store.'
           headers:
             X-Request-ID:
               description: Echoed X-Request-ID or server-generated identifier.
@@ -1397,8 +1727,20 @@ components:
     bearerAuth:
       type: http
       scheme: bearer
-      description: Case-insensitive Bearer scheme; exactly two whitespace-delimited header parts. Opaque token from
-        login, 30 days; no cookie authentication.
+      description: Legacy transport. Case-insensitive Bearer scheme; exactly two whitespace-delimited header parts;
+        one Authorization header. Opaque token from POST /api/auth/login, 30 days; accepted only for bearer-issued
+        sessions. Exempt from Origin/CSRF checks. When a session cookie is also present both must resolve to the same
+        user, otherwise 401.
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: __Host-sweetshop_session
+      description: 'Opaque token from POST /api/auth/session in an HttpOnly, SameSite=Lax, host-only, Path=/ cookie
+        with Max-Age equal to the remaining 30-day session. Named __Host-sweetshop_session with Secure (always in
+        production); sweetshop_session without Secure only when a development/demo deployment disables Secure.
+        Accepted only for cookie-issued sessions. POST/PUT/PATCH/DELETE require an Origin equal to a configured
+        trusted origin and X-CSRF-Token equal to base64url(SHA-256("sweetshop/csrf/v1\0" + session token)), as
+        returned by the session endpoints.'
   parameters:
     q:
       name: q
@@ -2389,6 +2731,7 @@ components:
               - not_found
               - out_of_stock
               - conflict
+              - csrf_failed
               - internal_error
             message:
               type: string
@@ -2422,6 +2765,40 @@ components:
           format: date-time
         user:
           $ref: '#/components/schemas/User'
+    CookieSession:
+      type: object
+      required:
+      - user
+      - expiresAt
+      - csrfToken
+      additionalProperties: false
+      properties:
+        user:
+          $ref: '#/components/schemas/User'
+        expiresAt:
+          type: string
+          format: date-time
+        csrfToken:
+          type: string
+          description: Send as X-CSRF-Token on cookie-authenticated POST/PUT/PATCH/DELETE. Not a credential by itself.
+    SessionState:
+      type: object
+      required:
+      - authenticated
+      - demoLogin
+      additionalProperties: false
+      properties:
+        authenticated:
+          type: boolean
+        user:
+          $ref: '#/components/schemas/User'
+        expiresAt:
+          type: string
+          format: date-time
+        csrfToken:
+          type: string
+        demoLogin:
+          type: boolean
     Health:
       type: object
       required:

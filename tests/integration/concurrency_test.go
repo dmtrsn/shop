@@ -173,7 +173,7 @@ func TestRepeatConcurrentCheckout(t *testing.T) {
 	d.set(t, "buyer", "p07", 4, true)
 	before := d.cart(t, "usr-demo")
 	gate := &gatedRepeat{Repository: d.store, entered: make(chan struct{}), resume: make(chan struct{})}
-	repeat := application.New(gate)
+	repeat := application.New(gate, application.Options{AllowDemoAccount: true})
 	repeated := make(chan error, 1)
 	go func() {
 		_, err := repeat.CommitRepeat(d.ctx, "usr-demo", "ord-2026-002", []domain.RepeatSelection{{ProductID: "p01", Quantity: 1, Selected: true}, {ProductID: "p07", Quantity: 4, Selected: true}})

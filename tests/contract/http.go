@@ -16,7 +16,20 @@ import (
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/getkin/kin-openapi/openapi3filter"
 	"github.com/getkin/kin-openapi/routers/legacy"
+
+	"sweetshop/internal/delivery/httpapi"
 )
+
+// TrustedOrigin is the only browser origin the contract handler trusts.
+const TrustedOrigin = "https://shop.example"
+
+// SessionConfig is the production-shaped session policy used by the suite:
+// Secure (__Host-) cookie and a single https origin.
+func SessionConfig() httpapi.SessionConfig {
+	return httpapi.SessionConfig{Secure: true, TrustedOrigins: []string{TrustedOrigin}}
+}
+
+const sessionCookieName = "__Host-sweetshop_session"
 
 func document(t *testing.T) *openapi3.T {
 	t.Helper()
@@ -65,13 +78,13 @@ func Run(t *testing.T, handler http.Handler) {
 	}
 	covered := map[string]bool{}
 	token := ""
-	request := func(method, path, body string, status int, auth bool) map[string]any {
+	send := func(method, path, body string, status int, headers map[string]string) (map[string]any, *httptest.ResponseRecorder) {
 		t.Helper()
 		req := httptest.NewRequest(method, path, strings.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("X-Request-ID", "contract-test")
-		if auth {
-			req.Header.Set("Authorization", "bEaReR "+token)
+		for key, value := range headers {
+			req.Header.Set(key, value)
 		}
 		route, params, err := router.FindRoute(req)
 		if err != nil {
@@ -89,12 +102,12 @@ func Run(t *testing.T, handler http.Handler) {
 		rec := httptest.NewRecorder()
 		handler.ServeHTTP(rec, req)
 		if rec.Code != status {
-			t.Fatalf("%s %s status=%d want=%d", method, path, rec.Code, status)
+			t.Fatalf("%s %s status=%d want=%d body=%s", method, path, rec.Code, status, rec.Body.String())
 		}
 		if rec.Header().Get("X-Request-ID") != "contract-test" {
 			t.Fatal("missing request ID")
 		}
-		if auth || path == "/api/auth/login" {
+		if headers["Authorization"] != "" || headers["Cookie"] != "" || path == "/api/auth/login" || strings.HasPrefix(path, "/api/auth/session") {
 			if rec.Header().Get("Cache-Control") != "no-store" {
 				t.Fatal("private response missing no-store")
 			}
@@ -106,6 +119,12 @@ func Run(t *testing.T, handler http.Handler) {
 		if status < 300 {
 			covered[route.Operation.OperationID] = true
 		}
+		if rec.Code == http.StatusNoContent {
+			if rec.Body.Len() != 0 {
+				t.Fatal("204 response has a body")
+			}
+			return nil, rec
+		}
 		var result map[string]any
 		if err := json.Unmarshal(rec.Body.Bytes(), &result); err != nil {
 			t.Fatal(err)
@@ -116,6 +135,15 @@ func Run(t *testing.T, handler http.Handler) {
 				t.Fatal("error request ID")
 			}
 		}
+		return result, rec
+	}
+	request := func(method, path, body string, status int, auth bool) map[string]any {
+		t.Helper()
+		headers := map[string]string{}
+		if auth {
+			headers["Authorization"] = "bEaReR " + token
+		}
+		result, _ := send(method, path, body, status, headers)
 		return result
 	}
 	request("GET", "/api/health", "", 200, false)
@@ -217,6 +245,10 @@ func Run(t *testing.T, handler http.Handler) {
 	if len(cart["items"].([]any)) != 0 || len(cart["groups"].([]any)) != 0 {
 		t.Fatal("empty cart arrays")
 	}
+	runCookieSessions(t, send)
+	// Bearer logout revokes only the presented bearer session.
+	request("DELETE", "/api/auth/session", "", 204, true)
+	request("GET", "/api/cart", "", 401, true)
 	for path, item := range doc.Paths.Map() {
 		for method, operation := range item.Operations() {
 			if !covered[operation.OperationID] {
@@ -238,4 +270,69 @@ func assertLine(t *testing.T, cart map[string]any, id string, quantity int, sele
 		}
 	}
 	t.Fatalf("missing cart line %s", id)
+}
+
+type sender func(method, path, body string, status int, headers map[string]string) (map[string]any, *httptest.ResponseRecorder)
+
+// runCookieSessions exercises the browser session contract: login CSRF, cookie
+// attributes, safe/unsafe requests, CSRF rejection and server-side logout.
+func runCookieSessions(t *testing.T, send sender) {
+	t.Helper()
+	const credentials = `{"email":"demo@sugar.ru","password":"Sweet2026!"}`
+	anonymous, _ := send("GET", "/api/auth/session", "", 200, nil)
+	if anonymous["authenticated"] != false || anonymous["demoLogin"] != true || anonymous["csrfToken"] != nil {
+		t.Fatal("anonymous session state")
+	}
+	send("POST", "/api/auth/session", credentials, 403, nil)
+	send("POST", "/api/auth/session", credentials, 403, map[string]string{"Origin": "https://evil.example"})
+	send("POST", "/api/auth/session", `{"email":"demo@sugar.ru","password":"wrong"}`, 401, map[string]string{"Origin": TrustedOrigin})
+	login, rec := send("POST", "/api/auth/session", credentials, 200, map[string]string{"Origin": TrustedOrigin})
+	var cookie *http.Cookie
+	for _, c := range rec.Result().Cookies() {
+		if c.Name == sessionCookieName {
+			cookie = c
+		}
+	}
+	if cookie == nil || cookie.Value == "" || !cookie.HttpOnly || !cookie.Secure || cookie.SameSite != http.SameSiteLaxMode || cookie.Path != "/" || cookie.Domain != "" || cookie.MaxAge <= 0 {
+		t.Fatalf("session cookie attributes: %#v", cookie)
+	}
+	if login["token"] != nil || strings.Contains(rec.Body.String(), cookie.Value) {
+		t.Fatal("cookie login exposed the session token")
+	}
+	csrf, _ := login["csrfToken"].(string)
+	if csrf == "" {
+		t.Fatal("missing csrf token")
+	}
+	jar := map[string]string{"Cookie": sessionCookieName + "=" + cookie.Value}
+	with := func(extra map[string]string) map[string]string {
+		headers := map[string]string{}
+		for k, v := range jar {
+			headers[k] = v
+		}
+		for k, v := range extra {
+			headers[k] = v
+		}
+		return headers
+	}
+	state, _ := send("GET", "/api/auth/session", "", 200, jar)
+	if state["authenticated"] != true || state["csrfToken"] != csrf {
+		t.Fatal("cookie session state")
+	}
+	send("GET", "/api/me", "", 200, jar)
+	send("GET", "/api/cart", "", 200, jar)
+	send("PUT", "/api/favorites/p02", "", 403, jar)
+	send("PUT", "/api/favorites/p02", "", 403, with(map[string]string{"Origin": TrustedOrigin}))
+	send("PUT", "/api/favorites/p02", "", 403, with(map[string]string{"Origin": "https://evil.example", "X-CSRF-Token": csrf}))
+	send("PUT", "/api/favorites/p02", "", 200, with(map[string]string{"Origin": TrustedOrigin, "X-CSRF-Token": csrf}))
+	send("DELETE", "/api/auth/session", "", 403, jar)
+	_, rec = send("DELETE", "/api/auth/session", "", 204, with(map[string]string{"Origin": TrustedOrigin, "X-CSRF-Token": csrf}))
+	cleared := rec.Result().Cookies()
+	if len(cleared) != 1 || cleared[0].Name != sessionCookieName || cleared[0].MaxAge >= 0 || cleared[0].Value != "" {
+		t.Fatal("logout did not clear the session cookie")
+	}
+	send("GET", "/api/cart", "", 401, jar)
+	gone, _ := send("GET", "/api/auth/session", "", 200, jar)
+	if gone["authenticated"] != false {
+		t.Fatal("revoked cookie still authenticated")
+	}
 }

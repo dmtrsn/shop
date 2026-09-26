@@ -44,29 +44,51 @@ func (s *Store) FindUserByEmail(ctx context.Context, email string) (domain.UserC
 	return credential, nil
 }
 
-func (s *Store) CreateSession(ctx context.Context, userID, hash string, expires time.Time) error {
+// CreateSession is one statement, so the purge/replacement DELETE and the
+// INSERT commit or roll back together; a single DELETE avoids two
+// sub-statements touching the same row.
+func (s *Store) CreateSession(ctx context.Context, session domain.NewSession, now time.Time) error {
+	if !session.Transport.Valid() {
+		return fmt.Errorf("create session: invalid transport %q", session.Transport)
+	}
+	if session.ReplacesTokenHash != "" && session.Transport != domain.SessionCookie {
+		return errors.New("create session: only cookie sessions can replace a session")
+	}
 	_, err := s.pool.Exec(ctx, `
-		INSERT INTO sessions(token_hash, user_id, expires_at) VALUES ($1,$2,$3)
-		ON CONFLICT (token_hash) DO UPDATE SET user_id=EXCLUDED.user_id, expires_at=EXCLUDED.expires_at`, hash, userID, expires)
+		WITH removed AS (
+			DELETE FROM sessions
+			WHERE (user_id = $1 AND expires_at <= $6)
+			   OR ($5 <> '' AND token_hash = $5 AND transport = 'cookie'))
+		INSERT INTO sessions(token_hash, user_id, transport, expires_at) VALUES ($2,$1,$3,$4)`,
+		session.UserID, session.TokenHash, string(session.Transport), session.ExpiresAt, session.ReplacesTokenHash, now)
 	if err != nil {
 		return fmt.Errorf("create session: %w", err)
 	}
 	return nil
 }
 
-func (s *Store) UserBySession(ctx context.Context, hash string, now time.Time) (domain.User, error) {
-	var user domain.User
+func (s *Store) SessionByTokenHash(ctx context.Context, hash string, transport domain.SessionTransport, now time.Time) (domain.SessionRecord, error) {
+	record := domain.SessionRecord{Transport: transport}
 	err := s.pool.QueryRow(ctx, `
-		SELECT u.id, u.name, u.email, u.phone, u.created_at
+		SELECT u.id, u.name, u.email, u.phone, u.created_at, s.expires_at
 		FROM sessions s JOIN users u ON u.id=s.user_id
-		WHERE s.token_hash=$1 AND s.expires_at>$2`, hash, now).Scan(&user.ID, &user.Name, &user.Email, &user.Phone, &user.CreatedAt)
+		WHERE s.token_hash=$1 AND s.transport=$2 AND s.expires_at>$3`, hash, string(transport), now).Scan(
+		&record.User.ID, &record.User.Name, &record.User.Email, &record.User.Phone, &record.User.CreatedAt, &record.ExpiresAt)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return domain.User{}, domain.ErrUnauthorized
+		return domain.SessionRecord{}, domain.ErrUnauthorized
 	}
 	if err != nil {
-		return domain.User{}, fmt.Errorf("load session: %w", err)
+		return domain.SessionRecord{}, fmt.Errorf("load session: %w", err)
 	}
-	return user, nil
+	record.ExpiresAt = record.ExpiresAt.UTC()
+	return record, nil
+}
+
+func (s *Store) DeleteSession(ctx context.Context, hash string, transport domain.SessionTransport) error {
+	if _, err := s.pool.Exec(ctx, `DELETE FROM sessions WHERE token_hash=$1 AND transport=$2`, hash, string(transport)); err != nil {
+		return fmt.Errorf("delete session: %w", err)
+	}
+	return nil
 }
 
 func (s *Store) ListCategories(ctx context.Context) ([]domain.Category, error) {

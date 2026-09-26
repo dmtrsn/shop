@@ -18,7 +18,7 @@ func TestMigrationsAndDemoFixture(t *testing.T) {
 	if err := postgres.Migrate(d.ctx, d.pool, "../../migrations"); err != nil {
 		t.Fatal(err)
 	}
-	for table, want := range map[string]int64{"schema_migrations": 4, "users": 1, "categories": 10, "manufacturers": 8, "brands": 12, "products": 24, "collections": 4, "collection_products": 18, "cart_items": 4, "favorites": 5, "orders": 1, "order_items": 4} {
+	for table, want := range map[string]int64{"schema_migrations": 5, "users": 1, "categories": 10, "manufacturers": 8, "brands": 12, "products": 24, "collections": 4, "collection_products": 18, "cart_items": 4, "favorites": 5, "orders": 1, "order_items": 4} {
 		if got := d.number(t, "SELECT count(*) FROM "+table); got != want {
 			t.Errorf("%s count=%d want=%d", table, got, want)
 		}
@@ -58,7 +58,7 @@ func TestMigrationsAndDemoFixture(t *testing.T) {
 	if err := rows.Err(); err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(versions, []string{"001_init", "002_demo_seed", "003_catalog_scale_indexes", "004_brand_manufacturer_integrity"}) {
+	if !reflect.DeepEqual(versions, []string{"001_init", "002_demo_seed", "003_catalog_scale_indexes", "004_brand_manufacturer_integrity", "005_session_transport"}) {
 		t.Fatal(versions)
 	}
 }

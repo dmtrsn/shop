@@ -11,7 +11,9 @@ import (
 	"sweetshop/internal/repository/memory"
 )
 
-func newService() *application.Service { return application.New(memory.NewDemo()) }
+func newService() *application.Service {
+	return application.New(memory.NewDemo(), application.Options{AllowDemoAccount: true})
+}
 
 func login(t *testing.T, service *application.Service) application.LoginResult {
 	t.Helper()
@@ -210,4 +212,122 @@ func containsStringFold(values []string, wanted string) bool {
 		}
 	}
 	return false
+}
+
+func TestCookieSessionsAreTransportBoundAndRevocable(t *testing.T) {
+	ctx := context.Background()
+	service := newService()
+	cookie, err := service.StartCookieSession(ctx, " DEMO@sugar.ru ", "Sweet2026!", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	record, err := service.AuthenticateSession(ctx, cookie.Token, domain.SessionCookie)
+	if err != nil || record.User.ID != domain.DemoUserID || record.Transport != domain.SessionCookie || !record.ExpiresAt.Equal(cookie.ExpiresAt) {
+		t.Fatalf("cookie session: %#v %v", record, err)
+	}
+	if _, err := service.AuthenticateSession(ctx, cookie.Token, domain.SessionBearer); !errors.Is(err, domain.ErrUnauthorized) {
+		t.Fatalf("cookie token accepted as bearer: %v", err)
+	}
+	if _, err := service.Authenticate(ctx, cookie.Token); !errors.Is(err, domain.ErrUnauthorized) {
+		t.Fatalf("legacy Authenticate accepted a cookie token: %v", err)
+	}
+	if err := service.Logout(ctx, cookie.Token, domain.SessionBearer); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.AuthenticateSession(ctx, cookie.Token, domain.SessionCookie); err != nil {
+		t.Fatal("logout through the wrong transport revoked the session")
+	}
+	if err := service.Logout(ctx, cookie.Token, domain.SessionCookie); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.AuthenticateSession(ctx, cookie.Token, domain.SessionCookie); !errors.Is(err, domain.ErrUnauthorized) {
+		t.Fatalf("revoked session: %v", err)
+	}
+	if err := service.Logout(ctx, cookie.Token, domain.SessionCookie); err != nil {
+		t.Fatal("logout must be idempotent")
+	}
+	if _, err := service.AuthenticateSession(ctx, "", domain.SessionCookie); !errors.Is(err, domain.ErrUnauthorized) {
+		t.Fatal("empty token")
+	}
+}
+
+func TestCookieLoginReplacesPresentedSessionOnlyOnSuccess(t *testing.T) {
+	ctx := context.Background()
+	service := newService()
+	first, err := service.StartCookieSession(ctx, "demo@sugar.ru", "Sweet2026!", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.StartCookieSession(ctx, "demo@sugar.ru", "wrong", first.Token); !errors.Is(err, domain.ErrUnauthorized) {
+		t.Fatal(err)
+	}
+	if _, err := service.AuthenticateSession(ctx, first.Token, domain.SessionCookie); err != nil {
+		t.Fatal("failed login removed the presented session")
+	}
+	second, err := service.StartCookieSession(ctx, "demo@sugar.ru", "Sweet2026!", first.Token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.AuthenticateSession(ctx, first.Token, domain.SessionCookie); !errors.Is(err, domain.ErrUnauthorized) {
+		t.Fatal("replaced session still authenticates")
+	}
+	if _, err := service.AuthenticateSession(ctx, second.Token, domain.SessionCookie); err != nil {
+		t.Fatal(err)
+	}
+	// Bearer logins never replace a session.
+	bearer := login(t, service)
+	if _, err := service.StartCookieSession(ctx, "demo@sugar.ru", "Sweet2026!", bearer.Token); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.Authenticate(ctx, bearer.Token); err != nil {
+		t.Fatal("cookie login replaced a bearer session")
+	}
+}
+
+func TestProductionRefusesDemoPrincipalAndItsSessions(t *testing.T) {
+	ctx := context.Background()
+	store := memory.NewDemo()
+	demo := application.New(store, application.Options{AllowDemoAccount: true})
+	production := application.New(store, application.Options{})
+	if !demo.DemoLoginAllowed() || production.DemoLoginAllowed() {
+		t.Fatal("DemoLoginAllowed")
+	}
+	bearer, err := demo.Login(ctx, "demo@sugar.ru", "Sweet2026!")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cookie, err := demo.StartCookieSession(ctx, "demo@sugar.ru", "Sweet2026!", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, attempt := range []func() error{
+		func() error { _, err := production.Login(ctx, "demo@sugar.ru", "Sweet2026!"); return err },
+		func() error {
+			_, err := production.StartCookieSession(ctx, "demo@sugar.ru", "Sweet2026!", "")
+			return err
+		},
+		func() error { _, err := production.Authenticate(ctx, bearer.Token); return err },
+		func() error {
+			_, err := production.AuthenticateSession(ctx, cookie.Token, domain.SessionCookie)
+			return err
+		},
+	} {
+		if err := attempt(); !errors.Is(err, domain.ErrDemoAccountDisabled) || !errors.Is(err, domain.ErrUnauthorized) {
+			t.Fatalf("demo principal not refused: %v", err)
+		}
+	}
+	// A wrong password is still reported as an ordinary failure (the password is
+	// checked before the principal policy).
+	if _, err := production.Login(ctx, "demo@sugar.ru", "wrong"); !errors.Is(err, domain.ErrUnauthorized) || errors.Is(err, domain.ErrDemoAccountDisabled) {
+		t.Fatalf("wrong password: %v", err)
+	}
+	if _, err := demo.Authenticate(ctx, bearer.Token); err != nil {
+		t.Fatal("refusal must not revoke sessions")
+	}
+}
+
+func TestUnknownEmailIsUnauthorized(t *testing.T) {
+	if _, err := newService().Login(context.Background(), "nobody@example.test", "Sweet2026!"); !errors.Is(err, domain.ErrUnauthorized) {
+		t.Fatalf("unknown email: %v", err)
+	}
 }

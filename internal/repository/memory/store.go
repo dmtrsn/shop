@@ -17,6 +17,7 @@ const demoPasswordHash = "$2y$10$QTEU/WwQc6q9ngaHUfFn7uon8VZnVmK5Q6osIfgo.qFoxqL
 type session struct {
 	userID    string
 	expiresAt time.Time
+	transport domain.SessionTransport
 }
 
 type cartRow struct {
@@ -58,7 +59,7 @@ func NewDemo() *Store {
 
 func (s *Store) seed() {
 	created := time.Date(2025, 11, 4, 10, 0, 0, 0, time.UTC)
-	user := domain.User{ID: "usr-demo", Name: "Алексей Морозов", Email: "demo@sugar.ru", Phone: "+7 999 123-45-67", CreatedAt: created}
+	user := domain.User{ID: domain.DemoUserID, Name: "Алексей Морозов", Email: "demo@sugar.ru", Phone: "+7 999 123-45-67", CreatedAt: created}
 	s.usersByEmail[user.Email] = domain.UserCredential{User: user, PasswordHash: demoPasswordHash}
 	s.usersByID[user.ID] = user
 
@@ -242,28 +243,56 @@ func (s *Store) FindUserByEmail(_ context.Context, email string) (domain.UserCre
 	return u, nil
 }
 
-func (s *Store) CreateSession(_ context.Context, userID, hash string, expires time.Time) error {
+// CreateSession mirrors the PostgreSQL statement: every check runs before any
+// mutation under one lock, so a failure leaves all sessions unchanged.
+func (s *Store) CreateSession(_ context.Context, ns domain.NewSession, now time.Time) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if _, ok := s.usersByID[userID]; !ok {
+	if !ns.Transport.Valid() {
+		return fmt.Errorf("create session: invalid transport %q", ns.Transport)
+	}
+	if ns.ReplacesTokenHash != "" && ns.Transport != domain.SessionCookie {
+		return fmt.Errorf("create session: only cookie sessions can replace a session")
+	}
+	if _, ok := s.usersByID[ns.UserID]; !ok {
 		return domain.ErrNotFound
 	}
-	s.sessions[hash] = session{userID: userID, expiresAt: expires}
+	if _, exists := s.sessions[ns.TokenHash]; exists {
+		return fmt.Errorf("create session: %w", domain.ErrConflict)
+	}
+	for hash, existing := range s.sessions {
+		if existing.userID == ns.UserID && !existing.expiresAt.After(now) {
+			delete(s.sessions, hash)
+		}
+	}
+	if replaced, ok := s.sessions[ns.ReplacesTokenHash]; ok && ns.ReplacesTokenHash != "" && replaced.transport == domain.SessionCookie {
+		delete(s.sessions, ns.ReplacesTokenHash)
+	}
+	s.sessions[ns.TokenHash] = session{userID: ns.UserID, expiresAt: ns.ExpiresAt, transport: ns.Transport}
 	return nil
 }
 
-func (s *Store) UserBySession(_ context.Context, hash string, now time.Time) (domain.User, error) {
+func (s *Store) SessionByTokenHash(_ context.Context, hash string, transport domain.SessionTransport, now time.Time) (domain.SessionRecord, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	sess, ok := s.sessions[hash]
-	if !ok || !sess.expiresAt.After(now) {
-		return domain.User{}, domain.ErrUnauthorized
+	if !ok || sess.transport != transport || !sess.expiresAt.After(now) {
+		return domain.SessionRecord{}, domain.ErrUnauthorized
 	}
 	u, ok := s.usersByID[sess.userID]
 	if !ok {
-		return domain.User{}, domain.ErrUnauthorized
+		return domain.SessionRecord{}, domain.ErrUnauthorized
 	}
-	return u, nil
+	return domain.SessionRecord{User: u, ExpiresAt: sess.expiresAt, Transport: sess.transport}, nil
+}
+
+func (s *Store) DeleteSession(_ context.Context, hash string, transport domain.SessionTransport) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if sess, ok := s.sessions[hash]; ok && sess.transport == transport {
+		delete(s.sessions, hash)
+	}
+	return nil
 }
 
 func (s *Store) ListCategories(context.Context) ([]domain.Category, error) {

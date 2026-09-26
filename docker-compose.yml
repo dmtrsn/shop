@@ -36,6 +36,8 @@ services:
       APP_MODE: ${APP_MODE:-production}
       DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL in .env}
       RUN_MIGRATIONS: ${RUN_MIGRATIONS:-true}
+      TRUSTED_ORIGINS: ${TRUSTED_ORIGINS:-}
+      SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-}
       WEB_DIR: ${WEB_DIR:-/app/web}
       MIGRATIONS_DIR: ${MIGRATIONS_DIR:-/app/migrations}
       DB_MAX_CONNS: ${DB_MAX_CONNS:-16}

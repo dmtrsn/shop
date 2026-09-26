@@ -22,7 +22,7 @@ type unhealthyRepository struct{ domain.Repository }
 func (unhealthyRepository) Ping(context.Context) error { return errors.New("database unavailable") }
 
 func testServer() http.Handler {
-	return httpapi.New(application.New(memory.NewDemo()), slog.New(slog.NewTextHandler(io.Discard, nil)), "", "memory")
+	return httpapi.New(application.New(memory.NewDemo(), application.Options{AllowDemoAccount: true}), slog.New(slog.NewTextHandler(io.Discard, nil)), "", "memory", testSessions)
 }
 
 func TestCatalogAndProtectedCart(t *testing.T) {
@@ -60,7 +60,7 @@ func TestCatalogAndProtectedCart(t *testing.T) {
 }
 
 func TestHealthReportsUnavailableRepository(t *testing.T) {
-	handler := httpapi.New(application.New(unhealthyRepository{}), slog.New(slog.NewTextHandler(io.Discard, nil)), "", "postgres")
+	handler := httpapi.New(application.New(unhealthyRepository{}, application.Options{}), slog.New(slog.NewTextHandler(io.Discard, nil)), "", "postgres", testSessions)
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/health", nil))
 	if response.Code != http.StatusServiceUnavailable {

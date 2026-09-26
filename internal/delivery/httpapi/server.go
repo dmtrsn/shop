@@ -24,22 +24,39 @@ import (
 type contextKey string
 
 const (
-	requestIDKey contextKey = "request-id"
-	userKey      contextKey = "user"
+	requestIDKey   contextKey = "request-id"
+	userKey        contextKey = "user"
+	requestInfoKey contextKey = "request-info"
 )
 
 type Server struct {
-	service   *application.Service
-	logger    *slog.Logger
-	staticDir string
-	storage   string
+	service        *application.Service
+	logger         *slog.Logger
+	staticDir      string
+	storage        string
+	cookieName     string
+	secureCookie   bool
+	trustedOrigins map[string]bool
 }
 
-func New(service *application.Service, logger *slog.Logger, staticDir, storage string) http.Handler {
-	s := &Server{service: service, logger: logger, staticDir: staticDir, storage: storage}
+func New(service *application.Service, logger *slog.Logger, staticDir, storage string, sessions SessionConfig) http.Handler {
+	s := &Server{service: service, logger: logger, staticDir: staticDir, storage: storage, secureCookie: sessions.Secure, cookieName: insecureSessionCookieName, trustedOrigins: map[string]bool{}}
+	if sessions.Secure {
+		s.cookieName = secureSessionCookieName
+	}
+	for _, origin := range sessions.TrustedOrigins {
+		if normalized, err := ParseOrigin(origin, false); err == nil && normalized == origin {
+			s.trustedOrigins[origin] = true
+		} else {
+			logger.Error("ignoring trusted origin that is not normalized")
+		}
+	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/health", s.health)
 	mux.HandleFunc("POST /api/auth/login", s.login)
+	mux.HandleFunc("POST /api/auth/session", s.startSession)
+	mux.HandleFunc("GET /api/auth/session", s.sessionState)
+	mux.HandleFunc("DELETE /api/auth/session", s.endSession)
 	mux.Handle("GET /api/me", s.auth(http.HandlerFunc(s.me)))
 	mux.HandleFunc("GET /api/categories", s.categories)
 	mux.HandleFunc("GET /api/manufacturers", s.manufacturers)
@@ -90,6 +107,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	}
 	result, err := s.service.Login(r.Context(), input.Email, input.Password)
 	if err != nil {
+		s.logAuthFailure(r, err)
 		s.writeError(w, r, err)
 		return
 	}
@@ -442,23 +460,6 @@ func (s *Server) repeatCommit(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, result)
 }
 
-func (s *Server) auth(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Cache-Control", "no-store")
-		header := r.Header.Get("Authorization")
-		parts := strings.Fields(header)
-		if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
-			s.writeError(w, r, domain.ErrUnauthorized)
-			return
-		}
-		user, err := s.service.Authenticate(r.Context(), parts[1])
-		if err != nil {
-			s.writeError(w, r, err)
-			return
-		}
-		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), userKey, user)))
-	})
-}
 func currentUser(r *http.Request) domain.User {
 	user, _ := r.Context().Value(userKey).(domain.User)
 	return user
@@ -479,13 +480,14 @@ func (s *Server) middleware(next http.Handler) http.Handler {
 		w.Header().Set("Cross-Origin-Opener-Policy", "same-origin")
 		w.Header().Set("Cross-Origin-Resource-Policy", "same-origin")
 		w.Header().Set("Content-Security-Policy", "default-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; object-src 'none'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; font-src 'self' data:; connect-src 'self'")
-		ctx := context.WithValue(r.Context(), requestIDKey, requestID)
+		info := &requestInfo{auth: "none"}
+		ctx := context.WithValue(context.WithValue(r.Context(), requestIDKey, requestID), requestInfoKey, info)
 		defer func() {
 			if recovered := recover(); recovered != nil {
 				s.logger.Error("panic in HTTP handler", "requestId", requestID, "panic", recovered, "stack", string(debug.Stack()))
 				s.writeError(w, r.WithContext(ctx), fmt.Errorf("panic: %v", recovered))
 			}
-			s.logger.Info("http request", "method", r.Method, "path", r.URL.Path, "duration", time.Since(started), "requestId", requestID)
+			s.logger.Info("http request", "method", r.Method, "path", r.URL.Path, "duration", time.Since(started), "requestId", requestID, "auth", info.auth)
 		}()
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
@@ -509,6 +511,8 @@ func (s *Server) writeError(w http.ResponseWriter, r *http.Request, err error) {
 		status, code, message = http.StatusUnauthorized, "unauthorized", "Неверные данные для входа или сессия истекла"
 	case errors.Is(err, domain.ErrForbidden):
 		status, code, message = http.StatusForbidden, "forbidden", "Недостаточно прав"
+	case errors.Is(err, errCSRF):
+		status, code, message = http.StatusForbidden, "csrf_failed", "Запрос отклонён: обновите страницу и повторите действие"
 	case errors.Is(err, domain.ErrNotFound):
 		status, code, message = http.StatusNotFound, "not_found", "Ничего не найдено"
 	case errors.Is(err, domain.ErrOutOfStock):

@@ -72,7 +72,8 @@ func newDatabase(t *testing.T, migrate bool) *database {
 	}
 	t.Cleanup(pool.Close)
 	store := postgres.New(pool)
-	db := &database{ctx, pool, store, application.New(store)}
+	// Demo options preserve the fixture login; production policy is tested explicitly.
+	db := &database{ctx, pool, store, application.New(store, application.Options{AllowDemoAccount: true})}
 	if migrate {
 		if err := postgres.Migrate(ctx, pool, "../../migrations"); err != nil {
 			t.Fatal(err)
