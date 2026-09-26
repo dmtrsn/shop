@@ -2,6 +2,9 @@
   "use strict";
 
   const API_BASE = "/api";
+  // Pre-cookie builds stored a bearer token here. It is only read once at startup
+  // to delete and revoke it; authentication now uses the HttpOnly session cookie.
+  const LEGACY_TOKEN_KEY = "sloy:token";
   const CATALOG_LIMIT = 24;
   const qs = (selector, scope = document) => scope.querySelector(selector);
   const qsa = (selector, scope = document) => [...scope.querySelectorAll(selector)];
@@ -79,7 +82,11 @@
     cart: safeParse("sloy:cart", defaultCart),
     orders: [],
     user: null,
-    token: localStorage.getItem("sloy:token") || "",
+    // In-memory only. The session token itself lives in an HttpOnly cookie that
+    // scripts cannot read; csrfToken is never persisted. `known` stays false
+    // until GET /api/auth/session answers, and `generation` changes whenever the
+    // signed-in identity changes so late responses cannot affect a newer session.
+    session: { authenticated: false, csrfToken: "", demoLogin: false, known: false, generation: 0 },
     apiOnline: false,
     loading: true,
     route: "home",
@@ -106,22 +113,29 @@
 
   const API = {
     async request(path, options = {}) {
-      const { timeout = 5000, signal: externalSignal, ...requestOptions } = options;
+      const { timeout = 5000, signal: externalSignal, handleUnauthorized = true, ...requestOptions } = options;
       const controller = new AbortController();
       const abortFromExternal = () => controller.abort();
       if (externalSignal?.aborted) controller.abort();
       else externalSignal?.addEventListener("abort", abortFromExternal, { once: true });
       const timer = setTimeout(() => controller.abort(), timeout);
+      const method = String(requestOptions.method || "GET").toUpperCase();
       const headers = { Accept: "application/json", ...(requestOptions.body ? { "Content-Type": "application/json" } : {}), ...(requestOptions.headers || {}) };
-      if (state.token) headers.Authorization = `Bearer ${state.token}`;
+      if (state.session.csrfToken && method !== "GET" && method !== "HEAD") headers["X-CSRF-Token"] = state.session.csrfToken;
+      const generation = state.session.generation;
+      const sentAuthenticated = state.session.authenticated;
       try {
-        const response = await fetch(`${API_BASE}${path}`, { ...requestOptions, headers, signal: controller.signal });
+        const response = await fetch(`${API_BASE}${path}`, { ...requestOptions, headers, credentials: "same-origin", signal: controller.signal });
         if (!response.ok) {
           let payload = null;
           try { payload = await response.json(); } catch { /* response has no JSON body */ }
           const error = new Error(payload?.error?.message || `HTTP ${response.status}`);
           error.status = response.status;
+          error.code = payload?.error?.code || "";
           error.payload = payload;
+          if (response.status === 401 && handleUnauthorized && sentAuthenticated) handleSessionLost(generation);
+          // Never replay the mutation: refresh the session state and let the caller report the failure.
+          else if (response.status === 403 && error.code === "csrf_failed") await recoverFromCsrfFailure();
           throw error;
         }
         if (response.status === 204) return null;
@@ -132,11 +146,120 @@
       }
     },
     get(path, options = {}) { return this.request(path, options); },
-    post(path, body) { return this.request(path, { method: "POST", body: JSON.stringify(body) }); },
+    post(path, body, options = {}) { return this.request(path, { ...options, method: "POST", body: JSON.stringify(body) }); },
     put(path, body = {}) { return this.request(path, { method: "PUT", body: JSON.stringify(body) }); },
     patch(path, body) { return this.request(path, { method: "PATCH", body: JSON.stringify(body) }); },
-    delete(path) { return this.request(path, { method: "DELETE" }); }
+    delete(path, options = {}) { return this.request(path, { ...options, method: "DELETE" }); }
   };
+
+  function startAuthenticatedSession(user, csrfToken) {
+    state.session.generation += 1;
+    Object.assign(state.session, { authenticated: true, csrfToken, known: true });
+    state.user = user;
+  }
+
+  // Clears the signed-in identity and its account data, as logout always has.
+  function endAuthenticatedSession() {
+    state.session.generation += 1;
+    Object.assign(state.session, { authenticated: false, csrfToken: "" });
+    state.user = null;
+    state.orders = [];
+    state.cart = [];
+    state.favorites = [];
+    persist();
+  }
+
+  function handleSessionLost(generation) {
+    if (generation !== state.session.generation || !state.session.authenticated) return;
+    endAuthenticatedSession();
+    render();
+    showToast("Сессия завершена. Войдите снова");
+  }
+
+  // Reads the cookie session from Go. Throws when the answer is unavailable or
+  // malformed, so callers never mistake an outage for a signed-out browser.
+  async function refreshSession() {
+    const data = await API.get("/auth/session");
+    if (typeof data?.authenticated !== "boolean") throw new Error("Некорректный ответ сессии");
+    if (data.authenticated && (typeof data.csrfToken !== "string" || !data.csrfToken || !data.user?.id)) throw new Error("Некорректный ответ сессии");
+    state.session.known = true;
+    state.session.demoLogin = data.demoLogin === true;
+    if (!data.authenticated) {
+      if (state.session.authenticated) endAuthenticatedSession();
+      return;
+    }
+    const identityChanged = state.session.authenticated && String(state.user?.id) !== String(data.user.id);
+    if (identityChanged) endAuthenticatedSession();
+    if (!state.session.authenticated) startAuthenticatedSession(data.user, data.csrfToken);
+    else { state.session.csrfToken = data.csrfToken; state.user = data.user; }
+    if (identityChanged) await loadAccountData();
+  }
+
+  // Sends the CSRF token that is still in memory; local state is cleared only
+  // once the server confirms the session is gone.
+  async function logout() {
+    try {
+      await API.delete("/auth/session", { handleUnauthorized: false });
+    } catch (error) {
+      if (error?.status !== 401) {
+        if (state.session.authenticated && error?.code !== "csrf_failed") showToast("Не удалось выйти. Проверьте соединение и попробуйте ещё раз");
+        if (!state.session.authenticated) render();
+        return;
+      }
+    }
+    if (state.session.authenticated) endAuthenticatedSession();
+    render();
+    showToast("Вы вышли из профиля");
+  }
+
+  let csrfRecovery = null;
+  function recoverFromCsrfFailure() {
+    if (!csrfRecovery) {
+      csrfRecovery = (async () => {
+        const wasAuthenticated = state.session.authenticated;
+        try {
+          await refreshSession();
+          if (wasAuthenticated && !state.session.authenticated) {
+            render();
+            showToast("Действие не выполнено: сессия завершена. Войдите и повторите");
+          } else showToast("Действие не выполнено: защита сессии обновлена. Повторите действие");
+        } catch {
+          showToast("Действие не выполнено, и проверить сессию не удалось. Обновите страницу");
+        } finally {
+          csrfRecovery = null;
+        }
+      })();
+    }
+    return csrfRecovery;
+  }
+
+  // One-time removal of a bearer token persisted by pre-cookie builds. It is
+  // deleted from storage before the best-effort revocation and is never used
+  // for any other request, whatever the revocation outcome.
+  async function revokeLegacyToken() {
+    let legacyToken = "";
+    try {
+      legacyToken = localStorage.getItem(LEGACY_TOKEN_KEY) || "";
+      localStorage.removeItem(LEGACY_TOKEN_KEY);
+    } catch { /* storage unavailable: nothing to migrate */ }
+    if (!legacyToken) return;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 5000);
+    try {
+      await fetch(`${API_BASE}/auth/session`, { method: "DELETE", credentials: "same-origin", headers: { Accept: "application/json", Authorization: `Bearer ${legacyToken}` }, signal: controller.signal });
+    } catch { /* best effort: the token is already removed from storage */ }
+    finally { clearTimeout(timer); }
+  }
+
+  async function initializeSession() {
+    await revokeLegacyToken();
+    try {
+      await refreshSession();
+    } catch (error) {
+      // Leave `known` false: neither signed in nor signed out is confirmed.
+      console.info("Слой: не удалось проверить сессию", error?.message || error);
+    }
+  }
 
   function unpack(data, keys = []) {
     if (Array.isArray(data)) return data;
@@ -233,10 +356,12 @@
   }
 
   async function loadInitialData() {
+    const sessionReady = initializeSession();
     try {
       const [catalog, categories, manufacturers, collections] = await Promise.all([
         API.get(`/catalog?limit=${CATALOG_LIMIT}`), API.get("/categories"), API.get("/manufacturers"), API.get("/collections")
       ]);
+      await sessionReady;
       const products = unpack(catalog, ["products"]);
       const categoryItems = unpack(categories, ["categories"]);
       const manufacturerItems = unpack(manufacturers, ["manufacturers"]);
@@ -244,7 +369,8 @@
       if (products.length) {
         const initialProducts = mergeProductRegistry(products);
         state.homeProductIds = initialProducts.map(product => product.id);
-        if (!state.token) {
+        // Guest reconciliation only for a confirmed signed-out browser.
+        if (state.session.known && !state.session.authenticated) {
           const apiProductIds = new Set(initialProducts.map(product => String(product.id)));
           const validCart = state.cart.filter(item => apiProductIds.has(String(item.productId)));
           state.cart = validCart.length ? validCart : initialProducts.slice(0, 12).map((product, index) => ({ id: product.id, productId: product.id, quantity: [3,2,4,2,1,3,1,2,1,2,5,2][index] || 1, selected: product.stock > 0 }));
@@ -258,11 +384,12 @@
       if (collectionItems.length) state.collections = collectionItems.map((item, index) => ({ ...normalizeNamed(item, DEMO.collections[index] || DEMO.collections[0]), productIds: item.productIds ?? item.product_ids ?? DEMO.collections[index]?.productIds ?? [], color: collectionColor(item, DEMO.collections[index]) }));
       if (!state.categories.some(category => category.id === state.megaCategory)) state.megaCategory = state.categories.find(category => !category.parentId && productsForCategory(category.id).length)?.id || state.categories.find(category => productsForCategory(category.id).length)?.id || state.categories[0]?.id;
       state.apiOnline = true;
-      if (state.token) await loadAccountData();
+      if (state.session.authenticated) await loadAccountData();
     } catch (error) {
       state.apiOnline = false;
       console.info("Слой: API пока недоступен, включены локальные данные.", error?.message || error);
     } finally {
+      await sessionReady;
       state.loading = false;
       render();
       renderMegaMenu();
@@ -282,16 +409,8 @@
       persist();
       return true;
     } catch (error) {
-      if (error?.status === 401) {
-        state.token = "";
-        state.user = null;
-        state.orders = [];
-		state.cart = [];
-		state.favorites = [];
-        localStorage.removeItem("sloy:token");
-		persist();
-      }
-      console.info("Не удалось синхронизировать профиль", error);
+      // A 401 has already ended the session in API.request.
+      console.info("Не удалось синхронизировать профиль", error?.message || error);
       return false;
     }
   }
@@ -963,7 +1082,9 @@
   }
 
   function renderLogin() {
-    return `<div class="login-layout"><form class="login-card" id="login-form"><h1>Вход в профиль</h1><p>Заказы, избранное и адреса будут доступны на любом устройстве.</p><div class="field"><label for="login-email">Электронная почта</label><input id="login-email" name="email" type="email" autocomplete="email" value="demo@sugar.ru" required></div><div class="field"><label for="login-password">Пароль</label><input id="login-password" name="password" type="password" autocomplete="current-password" value="Sweet2026!" required></div><p class="login-error" id="login-error" hidden></p><button class="button-dark button-wide" type="submit">Войти</button><div class="demo-credentials">Тестовый аккаунт: <strong>demo@sugar.ru</strong><br>Пароль: <strong>Sweet2026!</strong></div></form></div>`;
+    // The published demo credential is shown only when Go reports demoLogin.
+    const demo = state.session.demoLogin;
+    return `<div class="login-layout"><form class="login-card" id="login-form"><h1>Вход в профиль</h1><p>Заказы, избранное и адреса будут доступны на любом устройстве.</p><div class="field"><label for="login-email">Электронная почта</label><input id="login-email" name="email" type="email" autocomplete="email"${demo ? ' value="demo@sugar.ru"' : ""} required></div><div class="field"><label for="login-password">Пароль</label><input id="login-password" name="password" type="password" autocomplete="current-password"${demo ? ' value="Sweet2026!"' : ""} required></div><p class="login-error" id="login-error" hidden></p><button class="button-dark button-wide" type="submit">Войти</button>${demo ? '<div class="demo-credentials">Тестовый аккаунт: <strong>demo@sugar.ru</strong><br>Пароль: <strong>Sweet2026!</strong></div>' : ""}</form></div>`;
   }
 
   function renderDelivery() {
@@ -1096,7 +1217,7 @@
   async function openRepeatOrder(orderId) {
     const order = state.orders.find(item => String(item.id) === String(orderId));
     if (!order) return;
-    if (!state.token) {
+    if (!state.session.authenticated) {
       navigate("profile");
       showToast("Войдите, чтобы повторить заказ");
       return;
@@ -1192,7 +1313,7 @@
     const previous = [...state.favorites];
     if (adding) state.favorites.push(productId); else state.favorites.splice(index, 1);
     persist();
-    if (state.token) {
+    if (state.session.authenticated) {
       try {
         const response = adding ? await API.put(`/favorites/${encodeURIComponent(productId)}`, {}) : await API.delete(`/favorites/${encodeURIComponent(productId)}`);
         applyFavoritesResponse(response);
@@ -1220,7 +1341,7 @@
       showToast("В корзине уже весь доступный остаток");
       return;
     }
-    if (state.token) {
+    if (state.session.authenticated) {
       try {
         const response = await API.post("/cart/items", { productId, quantity: nextQuantity, selected: item?.selected !== false });
         applyCartResponse(response);
@@ -1254,7 +1375,7 @@
     const aligned = minimum + Math.round((requested - minimum) / step) * step;
     const maximum = minimum + Math.floor(Math.max(0, product.stock - minimum) / step) * step;
     const quantity = Math.min(Math.max(minimum, aligned), maximum);
-    if (state.token) {
+    if (state.session.authenticated) {
       try {
         const response = await API.patch(`/cart/items/${encodeURIComponent(item.productId)}`, { quantity });
         applyCartResponse(response);
@@ -1275,7 +1396,7 @@
     const index = state.cart.findIndex(entry => String(entry.id) === String(itemId));
     if (index < 0) return;
     const snapshot = { ...state.cart[index] };
-    if (state.token) {
+    if (state.session.authenticated) {
       try {
         const response = await API.delete(`/cart/items/${encodeURIComponent(snapshot.productId)}`);
         applyCartResponse(response);
@@ -1296,7 +1417,7 @@
     if (!removedCartItem) return;
     const removed = removedCartItem;
     removedCartItem = null;
-    if (state.token) {
+    if (state.session.authenticated) {
       try {
         const response = await API.post("/cart/items", { productId: removed.item.productId, quantity: removed.item.quantity, selected: removed.item.selected });
         applyCartResponse(response);
@@ -1322,7 +1443,7 @@
       return;
     }
     let added = products.length;
-    if (state.token) {
+    if (state.session.authenticated) {
       const results = await Promise.allSettled(products.map(product => API.post("/cart/items", {
         productId: product.id,
         quantity: Math.max(1, Number(product.minimumQuantity || 1)),
@@ -1343,7 +1464,7 @@
     const selectedProducts = [...new Set(state.cart.filter(item => item.selected).map(item => item.productId))];
     const additions = selectedProducts.filter(id => !state.favorites.some(favoriteId => String(favoriteId) === String(id)));
 	let saved = additions.length;
-    if (state.token) {
+    if (state.session.authenticated) {
 	  const results = await Promise.allSettled(additions.map(id => API.put(`/favorites/${encodeURIComponent(id)}`, {})));
 	  saved = results.filter(result => result.status === "fulfilled").length;
       try { applyFavoritesResponse(await API.get("/favorites")); }
@@ -1359,7 +1480,7 @@
   async function deleteSelectedCartItems() {
     const count = state.cart.filter(item => item.selected).length;
     if (!count) return;
-    if (state.token) {
+    if (state.session.authenticated) {
       try { applyCartResponse(await API.delete("/cart?selectedOnly=true")); }
       catch { showToast("Не удалось удалить выбранные позиции"); return; }
     } else {
@@ -1371,7 +1492,7 @@
   }
 
   async function setAllCartSelection(productIds, selected) {
-    if (state.token) {
+    if (state.session.authenticated) {
       try { applyCartResponse(await API.patch("/cart/selection", { productIds, selected })); }
       catch { showToast("Не удалось изменить выбор товаров"); render(); return; }
     } else {
@@ -1383,7 +1504,7 @@
   }
 
   async function setCartItemSelection(item, selected) {
-    if (state.token) {
+    if (state.session.authenticated) {
       try { applyCartResponse(await API.patch(`/cart/items/${encodeURIComponent(item.productId)}`, { selected })); }
       catch { showToast("Не удалось изменить выбор товара"); render(); return; }
     } else {
@@ -1460,7 +1581,7 @@
       else if (action === "clear-favorite-search") { state.favoriteQuery = ""; render(); }
       else if (action === "clear-cart-search") { state.cartQuery = ""; render(); }
       else if (action === "checkout") {
-        if (!state.token || !state.user) { navigate("profile"); showToast("Войдите в тестовый аккаунт для оформления заказа"); }
+        if (!state.session.authenticated || !state.user) { navigate("profile"); showToast(state.session.demoLogin ? "Войдите в тестовый аккаунт для оформления заказа" : "Войдите, чтобы оформить заказ"); }
         else openCheckout();
       }
       else if (action === "apply-promo") showToast(qs("#promo-code")?.value.trim() ? "Промокод проверен" : "Введите промокод");
@@ -1469,7 +1590,7 @@
       else if (action === "delete-selected") deleteSelectedCartItems();
       else if (action === "auto-fix-repeat") { state.repeatDraft.items.forEach(item => { if (item.selected) item.quantity = Math.max(1, Math.min(item.quantity, item.available)); }); renderRepeatModal(); }
       else if (action === "commit-repeat") commitRepeat();
-      else if (action === "logout") { state.token = ""; state.user = null; state.orders = []; state.cart = []; state.favorites = []; localStorage.removeItem("sloy:token"); persist(); render(); showToast("Вы вышли из профиля"); }
+      else if (action === "logout") logout();
       else if (action === "edit-profile") openEditProfile();
       else if (action === "edit-address") openEditAddress();
       else if (action === "set-city") openCityPicker();
@@ -1604,20 +1725,20 @@
       button.disabled = true; button.textContent = "Входим…"; errorBox.hidden = true;
       const body = Object.fromEntries(new FormData(form));
       try {
-        const response = await API.post("/auth/login", body);
-        state.token = response.token ?? response.accessToken ?? response.access_token;
-        if (!state.token) throw new Error("Сервер не вернул токен");
-        localStorage.setItem("sloy:token", state.token);
-        state.apiOnline = true;
-        if (!await loadAccountData() || !state.user) throw new Error("Не удалось загрузить профиль");
-        render(); showToast("Вы вошли в тестовый аккаунт");
+        // Go sets the HttpOnly session cookie; the body carries only user and csrfToken.
+        const response = await API.post("/auth/session", body, { handleUnauthorized: false });
+        if (typeof response?.csrfToken !== "string" || !response.csrfToken || !response.user?.id) throw new Error("Некорректный ответ сервера");
+        startAuthenticatedSession(response.user, response.csrfToken);
       } catch (error) {
-        state.token = "";
-        state.user = null;
-        localStorage.removeItem("sloy:token");
         errorBox.textContent = "Не удалось войти. Проверьте, что API запущен, и повторите."; errorBox.hidden = false;
         button.disabled = false; button.textContent = "Войти";
+        return;
       }
+      state.apiOnline = true;
+      const loaded = await loadAccountData();
+      render();
+      if (!state.session.authenticated) return;
+      showToast(loaded ? (state.session.demoLogin ? "Вы вошли в тестовый аккаунт" : "Вы вошли в профиль") : "Вы вошли, но данные профиля не загрузились. Обновите страницу");
     } else if (event.target.id === "checkout-form") {
       event.preventDefault();
       const form = event.target;
