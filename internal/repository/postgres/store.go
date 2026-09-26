@@ -256,21 +256,24 @@ func productWhere(filter domain.ProductFilter) (string, []any) {
 	return " WHERE " + strings.Join(conditions, " AND "), args
 }
 
+// sortSQL ends every allowlisted order with the unique product ID so OFFSET pages are deterministic.
 func sortSQL(sortBy string) string {
+	var order string
 	switch sortBy {
 	case "price_asc":
-		return "p.price_minor ASC,p.name ASC"
+		order = "p.price_minor ASC,p.name ASC"
 	case "price_desc":
-		return "p.price_minor DESC,p.name ASC"
+		order = "p.price_minor DESC,p.name ASC"
 	case "rating":
-		return "p.rating DESC,p.reviews_count DESC"
+		order = "p.rating DESC,p.reviews_count DESC"
 	case "name":
-		return "p.name ASC"
+		order = "p.name ASC"
 	case "new":
-		return "p.created_at DESC"
+		order = "p.created_at DESC"
 	default:
-		return "p.featured DESC,p.reviews_count DESC,p.rating DESC"
+		order = "p.featured DESC,p.reviews_count DESC,p.rating DESC"
 	}
+	return order + ",p.id ASC"
 }
 
 func (s *Store) queryProducts(ctx context.Context, filter domain.ProductFilter, paginate bool) ([]domain.Product, error) {

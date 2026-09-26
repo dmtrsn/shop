@@ -123,6 +123,26 @@ func TestCatalogFilterAndPagination(t *testing.T) {
 	}
 }
 
+func TestSuggestionsApplySharedQueryBounds(t *testing.T) {
+	service := newService()
+	short, err := service.Suggestions(context.Background(), " ш ")
+	if err != nil || short == nil || len(short) != 0 {
+		t.Fatalf("short suggestions = %#v, %v", short, err)
+	}
+	items, err := service.Suggestions(context.Background(), "CHA-701")
+	if err != nil || len(items) == 0 {
+		t.Fatalf("two-or-more rune query must reach the repository: %#v, %v", items, err)
+	}
+	if _, err := service.Suggestions(context.Background(), strings.Repeat("ш", 200)); err != nil {
+		t.Fatalf("200 runes must be accepted: %v", err)
+	}
+	_, err = service.Suggestions(context.Background(), strings.Repeat("ш", 201))
+	var validation *domain.ValidationError
+	if !errors.Is(err, domain.ErrValidation) || !errors.As(err, &validation) || len(validation.Fields) != 1 || validation.Fields[0].Field != "q" {
+		t.Fatalf("201 runes error = %v", err)
+	}
+}
+
 func TestCatalogSaleAndNewFilters(t *testing.T) {
 	service := newService()
 	sale, err := service.Catalog(context.Background(), domain.ProductFilter{OnSale: true, Page: 1, Limit: 100})

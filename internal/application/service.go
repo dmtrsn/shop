@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"golang.org/x/crypto/bcrypt"
 
@@ -94,8 +95,8 @@ func (s *Service) Collections(ctx context.Context) ([]domain.Collection, error) 
 
 func (s *Service) Catalog(ctx context.Context, filter domain.ProductFilter) (domain.ProductPage, error) {
 	filter.Query = strings.TrimSpace(filter.Query)
-	if len([]rune(filter.Query)) > 200 {
-		return domain.ProductPage{}, &domain.ValidationError{Fields: []domain.FieldError{{Field: "q", Message: "Поисковый запрос не должен быть длиннее 200 символов"}}}
+	if err := validateSearchQuery(filter.Query); err != nil {
+		return domain.ProductPage{}, err
 	}
 	filter.Category = strings.TrimSpace(filter.Category)
 	filter.Manufacturer = strings.TrimSpace(filter.Manufacturer)
@@ -122,8 +123,8 @@ func (s *Service) Catalog(ctx context.Context, filter domain.ProductFilter) (dom
 
 func (s *Service) Facets(ctx context.Context, filter domain.ProductFilter) (domain.CatalogFacets, error) {
 	filter.Query = strings.TrimSpace(filter.Query)
-	if len([]rune(filter.Query)) > 200 {
-		return domain.CatalogFacets{}, &domain.ValidationError{Fields: []domain.FieldError{{Field: "q", Message: "Поисковый запрос не должен быть длиннее 200 символов"}}}
+	if err := validateSearchQuery(filter.Query); err != nil {
+		return domain.CatalogFacets{}, err
 	}
 	filter.Category = strings.TrimSpace(filter.Category)
 	filter.Manufacturer = strings.TrimSpace(filter.Manufacturer)
@@ -138,10 +139,26 @@ func (s *Service) Product(ctx context.Context, idOrSlug string) (domain.Product,
 
 func (s *Service) Suggestions(ctx context.Context, query string) ([]domain.SearchSuggestion, error) {
 	query = strings.TrimSpace(query)
-	if len([]rune(query)) < 2 {
+	if err := validateSearchQuery(query); err != nil {
+		return nil, err
+	}
+	if utf8.RuneCountInString(query) < minSuggestionQueryRunes {
 		return []domain.SearchSuggestion{}, nil
 	}
 	return s.repo.Suggestions(ctx, query, 8)
+}
+
+const (
+	maxSearchQueryRunes     = 200
+	minSuggestionQueryRunes = 2
+)
+
+// validateSearchQuery applies the shared length bound for catalog, facets and suggestions.
+func validateSearchQuery(query string) error {
+	if utf8.RuneCountInString(query) > maxSearchQueryRunes {
+		return &domain.ValidationError{Fields: []domain.FieldError{{Field: "q", Message: "Поисковый запрос не должен быть длиннее 200 символов"}}}
+	}
+	return nil
 }
 
 func (s *Service) Cart(ctx context.Context, userID string) (domain.Cart, error) {

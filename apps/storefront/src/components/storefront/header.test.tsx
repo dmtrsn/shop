@@ -1,5 +1,10 @@
 import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+vi.mock("next/navigation", () => ({
+  usePathname: () => "/",
+  useRouter: () => ({ push: vi.fn() }),
+}));
 
 import { StorefrontHeader } from "./header";
 
@@ -8,7 +13,14 @@ describe("StorefrontHeader", () => {
     render(<StorefrontHeader />);
 
     expect(screen.getAllByRole("search")).toHaveLength(2);
-    expect(screen.getAllByRole("searchbox", { name: "Поиск по магазину" })).toHaveLength(2);
+    const comboboxes = screen.getAllByRole("combobox", { name: "Поиск по магазину" });
+    expect(comboboxes).toHaveLength(2);
+    expect(comboboxes[0].getAttribute("aria-controls")).not.toBe(
+      comboboxes[1].getAttribute("aria-controls"),
+    );
+    for (const form of screen.getAllByRole("search")) {
+      expect(form).toHaveAttribute("action", "/catalog");
+    }
     expect(screen.getByRole("link", { name: "Каталог" })).toHaveAttribute("href", "/catalog");
     expect(screen.getByRole("link", { name: "Производители" })).toHaveAttribute(
       "href",

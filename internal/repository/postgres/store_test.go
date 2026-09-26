@@ -41,3 +41,11 @@ func TestSortSQLIsAllowlisted(t *testing.T) {
 		t.Fatalf("unsafe sort SQL: %s", got)
 	}
 }
+
+func TestSortSQLEndsWithUniqueTieBreaker(t *testing.T) {
+	for _, sortBy := range []string{"", "popular", "new", "price_asc", "price_desc", "rating", "name", "unknown"} {
+		if got := sortSQL(sortBy); !strings.HasSuffix(got, ",p.id ASC") {
+			t.Fatalf("sort %q lacks a unique tie-breaker: %s", sortBy, got)
+		}
+	}
+}

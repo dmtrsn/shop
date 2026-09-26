@@ -55,6 +55,12 @@ describe("CatalogView", () => {
     expect(screen.queryByText(/6006|4004|2002/)).not.toBeInTheDocument();
   });
 
+  it("names search results by the query unless a category heading applies", () => {
+    render(<CatalogView data={data()} state={parseCatalogState({ q: "шоколад" })} />);
+
+    expect(screen.getByRole("heading", { level: 1, name: "Поиск: «шоколад»" })).toBeInTheDocument();
+  });
+
   it("renders compact mode as a work list with stable fields", () => {
     render(<CatalogView data={data()} state={parseCatalogState({ view: "compact" })} />);
 

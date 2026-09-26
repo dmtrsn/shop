@@ -48,10 +48,6 @@
   min-width: 0;
 }
 
-.search label {
-  gap: 0;
-}
-
 .utilityLabel {
   display: inline;
 }

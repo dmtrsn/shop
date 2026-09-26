@@ -289,7 +289,8 @@ paths:
       summary: catalog
       description: All filter axes combine with AND. Defaults page=1, limit=24, sort=popular. No matches return
         items=[], total=0, totalPages=0. Beyond last page returns empty items with requested page. Count and items
-        are separate queries and not a consistent snapshot under concurrent writes.
+        are separate queries and not a consistent snapshot under concurrent writes. PostgreSQL ends every sort with
+        product id ascending as a unique tie-breaker; memory keeps stable fixture order for ties.
       security: []
       responses:
         '200':
@@ -454,9 +455,10 @@ paths:
     get:
       operationId: suggestions
       summary: suggestions
-      description: 'Trimmed query below two Unicode code points returns items=[]. At most 8 results: products first,
-        then manufacturer/brand/category if space remains. No collection or series suggestions. PostgreSQL uses
-        catalog popularity order for product suggestions; memory uses fixture order.'
+      description: 'Trimmed query below two Unicode code points returns items=[]; above 200 code points returns
+        422 validation_error. At most 8 results: products first, then manufacturer/brand/category if space remains.
+        No collection or series suggestions. PostgreSQL uses catalog popularity order for product suggestions;
+        memory uses fixture order.'
       security: []
       responses:
         '200':
@@ -472,6 +474,17 @@ paths:
                 $ref: '#/components/schemas/Suggestions'
         '500':
           description: internal_error; unexpected storage or server failure.
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: validation_error; q is longer than 200 Unicode code points.
           headers:
             X-Request-ID:
               description: Echoed X-Request-ID or server-generated identifier.
@@ -1391,8 +1404,8 @@ components:
       name: q
       in: query
       required: false
-      description: Trimmed query; catalog/facets reject more than 200 Unicode code points. PostgreSQL full text
-        (simple) OR substring search; % and _ retain LIKE wildcard meaning. Suggestions have no 200-character cap.
+      description: Trimmed query; catalog, facets and suggestions reject more than 200 Unicode code points.
+        PostgreSQL full text (simple) OR substring search; % and _ retain LIKE wildcard meaning.
       schema:
         type: string
     category:

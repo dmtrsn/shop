@@ -1,10 +1,10 @@
-import type { ComponentPropsWithoutRef } from "react";
+import type { ComponentPropsWithRef } from "react";
 
 import { SearchIcon } from "./icons";
 import { TextInput } from "./text-input";
 
 type SearchInputProps = Omit<
-  ComponentPropsWithoutRef<typeof TextInput>,
+  ComponentPropsWithRef<typeof TextInput>,
   "icon" | "label" | "type"
 > & {
   label?: string;

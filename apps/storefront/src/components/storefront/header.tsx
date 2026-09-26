@@ -2,21 +2,9 @@ import Link from "next/link";
 
 import { Container } from "@/components/ui/container";
 import { CartIcon, HeartIcon, UserIcon } from "@/components/ui/icons";
-import { SearchInput } from "@/components/ui/search-input";
 
+import { GlobalSearch } from "./global-search";
 import styles from "./header.module.css";
-
-function SearchForm({ className }: { className?: string }) {
-  return (
-    <form action="/search" className={className} role="search">
-      <SearchInput
-        autoComplete="off"
-        name="q"
-        placeholder="Найти товар, артикул или производителя"
-      />
-    </form>
-  );
-}
 
 export function StorefrontHeader() {
   return (
@@ -34,7 +22,7 @@ export function StorefrontHeader() {
         <Link className={styles.navLink} href="/collections">
           Подборки
         </Link>
-        <SearchForm className={styles.search} />
+        <GlobalSearch className={styles.search} />
         <Link className={styles.utilityLink} href="/favorites">
           <HeartIcon />
           <span className={styles.utilityLabel}>Избранное</span>
@@ -59,7 +47,7 @@ export function StorefrontHeader() {
             <span>Корзина</span>
           </Link>
         </div>
-        <SearchForm />
+        <GlobalSearch />
       </Container>
     </header>
   );

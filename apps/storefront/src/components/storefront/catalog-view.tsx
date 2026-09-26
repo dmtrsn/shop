@@ -175,7 +175,7 @@ export function CatalogView({ data, state }: CatalogViewProps) {
         <header className={styles.heading}>
           <div>
             <p className={styles.eyebrow}>Кондитерские изделия</p>
-            <h1>{category?.name ?? "Каталог"}</h1>
+            <h1>{category?.name ?? (state.query ? `Поиск: «${state.query}»` : "Каталог")}</h1>
             <p>Категории и производители остаются независимыми — сочетайте их для точного выбора.</p>
           </div>
           <p className={styles.resultCount} aria-live="polite">

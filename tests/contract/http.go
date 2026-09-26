@@ -160,6 +160,8 @@ func Run(t *testing.T, handler http.Handler) {
 	for _, query := range []string{"sort=priceAsc", "page=1000001", "page=abc", "limit=abc", "minPrice=-1", "inStock=invalid", "sale=invalid", "new=invalid", "q=" + strings.Repeat("a", 201)} {
 		request("GET", "/api/catalog?"+query, "", 422, false)
 	}
+	request("GET", "/api/search/suggest?q="+strings.Repeat("a", 201), "", 422, false)
+	request("GET", "/api/search/suggest?q="+strings.Repeat("a", 200), "", 200, false)
 	request("GET", "/api/products/missing", "", 404, false)
 	request("GET", "/api/orders/missing", "", 404, true)
 	request("POST", "/api/orders/ord-2026-002/repeat/preview", "not JSON", 200, true)
