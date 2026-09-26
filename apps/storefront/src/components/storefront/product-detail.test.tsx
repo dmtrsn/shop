@@ -35,6 +35,7 @@ const product: Product = {
   },
   series: "Origins",
   tags: ["веган", "без сахара"],
+  badges: ["Новинка"],
   ingredients: "Какао, какао-масло, морская соль",
   shelfLifeDays: 180,
   stock: 24,

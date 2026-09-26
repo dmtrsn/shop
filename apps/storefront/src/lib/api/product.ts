@@ -1,4 +1,9 @@
-import { getRequiredApiBaseUrl } from "./config";
+import {
+  ApiRequestError,
+  type ApiRequestOptions,
+  isRecord,
+  requestApiJsonWithMeta,
+} from "./request";
 
 export type ProductEntity = {
   id: string;
@@ -25,6 +30,7 @@ export type Product = {
   brand: ProductEntity & { manufacturerId: string; manufacturer: string };
   series?: string;
   tags: string[];
+  badges: string[];
   ingredients?: string;
   nutrition?: string;
   shelfLifeDays?: number;
@@ -56,16 +62,6 @@ export class ProductApiError extends Error {
     this.requestId = options.requestId;
     this.status = options.status;
   }
-}
-
-type ProductRequestOptions = {
-  fetcher?: typeof fetch;
-  signal?: AbortSignal;
-  timeoutMs?: number;
-};
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function requiredString(record: Record<string, unknown>, key: string): string {
@@ -162,6 +158,7 @@ export function parseProduct(value: unknown): Product {
     },
     series: optionalString(value, "series"),
     tags: stringArray(value, "tags"),
+    badges: stringArray(value, "badges"),
     ingredients: optionalString(value, "ingredients"),
     nutrition: optionalString(value, "nutrition"),
     shelfLifeDays: optionalInteger(value, "shelfLifeDays"),
@@ -171,76 +168,40 @@ export function parseProduct(value: unknown): Product {
   };
 }
 
-function responseRequestId(response: Response, body: unknown): string | undefined {
-  const header = response.headers.get("x-request-id") || undefined;
-  if (!isRecord(body) || !isRecord(body.error)) return header;
-  return typeof body.error.requestId === "string" ? body.error.requestId : header;
-}
-
 export async function getProduct(
   identity: string,
-  options: ProductRequestOptions = {},
+  options: ApiRequestOptions = {},
 ): Promise<Product> {
-  const fetcher = options.fetcher ?? fetch;
-  const timeoutSignal = AbortSignal.timeout(options.timeoutMs ?? 5_000);
-  const signal = options.signal
-    ? AbortSignal.any([options.signal, timeoutSignal])
-    : timeoutSignal;
-
-  let baseUrl: string;
+  let response: Awaited<ReturnType<typeof requestApiJsonWithMeta>>;
   try {
-    baseUrl = getRequiredApiBaseUrl();
+    response = await requestApiJsonWithMeta(
+      `/api/products/${encodeURIComponent(identity)}`,
+      options,
+    );
   } catch (error) {
-    throw new ProductApiError("configuration", "The product service URL is invalid", {
-      cause: error,
-    });
-  }
-
-  let response: Response;
-  try {
-    response = await fetcher(`${baseUrl}/api/products/${encodeURIComponent(identity)}`, {
-      cache: "no-store",
-      headers: { Accept: "application/json" },
-      signal,
-    });
-  } catch (error) {
-    if (error instanceof ProductApiError) throw error;
-    const kind = options.signal?.aborted ? "cancelled" : "unavailable";
-    throw new ProductApiError(kind, "The product service could not be reached", {
-      cause: error,
-    });
-  }
-
-  let body: unknown;
-  try {
-    body = await response.json();
-  } catch (error) {
-    throw new ProductApiError("invalid-response", "The product service returned invalid JSON", {
-      cause: error,
-      status: response.status,
-    });
-  }
-
-  if (!response.ok) {
-    const requestId = responseRequestId(response, body);
-    if (response.status === 404) {
-      throw new ProductApiError("not-found", "Product not found", {
-        requestId,
-        status: response.status,
+    if (error instanceof ApiRequestError) {
+      if (error.status === 404) {
+        throw new ProductApiError("not-found", "Product not found", {
+          cause: error,
+          requestId: error.requestId,
+          status: error.status,
+        });
+      }
+      throw new ProductApiError(error.kind, error.message, {
+        cause: error,
+        requestId: error.requestId,
+        status: error.status,
       });
     }
-    throw new ProductApiError("unavailable", "The product service returned an error", {
-      requestId,
-      status: response.status,
-    });
+    throw error;
   }
 
   try {
-    return parseProduct(body);
+    return parseProduct(response.body);
   } catch (error) {
     throw new ProductApiError("invalid-response", "The product response did not match its contract", {
       cause: error,
-      requestId: responseRequestId(response, body),
+      requestId: response.requestId,
       status: response.status,
     });
   }
