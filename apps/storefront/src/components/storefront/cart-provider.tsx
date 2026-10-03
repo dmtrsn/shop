@@ -2,10 +2,12 @@
 
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
-import { BrowserRequestError, ResponseOwnerError } from "@/lib/api/browser-request";
+import { BrowserRequestError, ResponseOwnerError, type FieldError } from "@/lib/api/browser-request";
 import type { RouteSession } from "@/lib/api/browser-session";
 import type { Cart } from "@/lib/api/cart";
 import { getBrowserCart, mutateBrowserCart, type CartCommand } from "@/lib/api/cart-client";
+import type { Order } from "@/lib/api/order";
+import { placeBrowserOrder, type CheckoutBody } from "@/lib/api/order-client";
 
 import { useBrowserSession, useBrowserSessionStore } from "./browser-session-provider";
 import styles from "./cart.module.css";
@@ -31,6 +33,26 @@ const initial: State = {
   reconciling: false, errors: {}, message: "",
 };
 type WriteJob = { userID: string; networkDone: Promise<void> };
+
+// One logical checkout attempt, frozen by the /checkout view when submit
+// starts. The same key and body are reused only for a deliberate check after
+// an ambiguous outcome.
+export type PlaceOrderAttempt = { userID: string; key: string; body: CheckoutBody };
+
+// Definitive outcomes say whether an order was created; "unknown" never does.
+export type PlaceOrderResult =
+  | { kind: "placed"; order: Order; replayed: boolean }
+  | { kind: "changed" | "outOfStock" | "conflict" }
+  | { kind: "invalid"; fields: readonly FieldError[]; detail?: string }
+  | { kind: "signedOut" | "csrf" | "ownerMismatch" | "idempotencyReused" }
+  // Commit state cannot be known: only the same key and body may check it.
+  | { kind: "unknown" }
+  // The user changed: the attempt belongs to nobody current and is dropped.
+  | { kind: "discarded" }
+  // Another read/write is running or the reviewed snapshot is not current.
+  | { kind: "blocked" };
+
+type PlacedOrder = { userID: string; orderID: string };
 type Runtime = {
   state: State;
   initialized: boolean;
@@ -40,6 +62,8 @@ type Runtime = {
   read: AbortController | null;
   reading: Promise<void>;
   write: WriteJob | null;
+  // In-memory confirmation handoff for /account/orders/[id]; never persisted.
+  placedOrder: PlacedOrder | null;
 };
 
 type CartContextValue = State & {
@@ -50,6 +74,8 @@ type CartContextValue = State & {
   enterRoute: (session: CartRouteSession) => void;
   mutate: (command: CartCommand) => Promise<boolean>;
   selectAll: (selected: boolean) => Promise<boolean>;
+  placeOrder: (attempt: PlaceOrderAttempt, mode: "submit" | "check") => Promise<PlaceOrderResult>;
+  takePlacedOrder: (userID: string, orderID: string) => boolean;
   signInRequired: () => void;
 };
 const CartContext = createContext<CartContextValue | null>(null);
@@ -77,7 +103,7 @@ export function CartProvider({ children, loginHref }: { children: ReactNode; log
   const [state, setState] = useState<State>(initial);
   const runtime = useRef<Runtime>({
     state: initial, initialized: false, alive: true, generation: 0, seenSession: "",
-    read: null, reading: Promise.resolve(), write: null,
+    read: null, reading: Promise.resolve(), write: null, placedOrder: null,
   });
 
   const actions = useMemo(() => {
@@ -151,6 +177,12 @@ export function CartProvider({ children, loginHref }: { children: ReactNode; log
       if (rt.seenSession === key) return;
       rt.seenSession = key;
       rt.generation++;
+      // A handoff belongs to one user; a settled other identity drops it. The
+      // transient loading state of a revalidation keeps it.
+      if (rt.placedOrder && (shared.status === "anonymous" || shared.status === "unavailable" ||
+          (shared.status === "authenticated" && shared.userID !== rt.placedOrder.userID))) {
+        rt.placedOrder = null;
+      }
       rt.read?.abort();
       rt.read = null;
       publish({
@@ -251,6 +283,103 @@ export function CartProvider({ children, loginHref }: { children: ReactNode; log
       }
     }
 
+    // Creating an order consumes the persisted Cart, so it shares the global
+    // write lock. Its recovery differs from Cart writes: an order POST is not an
+    // idempotent assignment, a Cart GET never proves whether an order exists,
+    // and nothing here is ever resent. Only definitive outcomes reread the Cart.
+    async function placeOrder(attempt: PlaceOrderAttempt, mode: "submit" | "check"): Promise<PlaceOrderResult> {
+      const shared = store.get();
+      const snapshot = rt.state.snapshot;
+      if (!rt.alive || rt.write || rt.read || shared.status !== "authenticated" || shared.userID !== attempt.userID) {
+        return { kind: "blocked" };
+      }
+      // A first submit confirms the visible review, which must be current. A
+      // check resends a frozen body and does not depend on the Cart snapshot.
+      if (mode === "submit" && (rt.state.status !== "ready" || rt.state.reconciling ||
+          snapshot?.ownerUserID !== shared.userID || snapshot.generation !== shared.generation)) {
+        return { kind: "blocked" };
+      }
+      const generation = rt.generation;
+      const { userID, generation: sessionGeneration, csrfToken } = shared;
+      let networkFinished!: () => void;
+      const job: WriteJob = {
+        userID, networkDone: new Promise<void>((resolve) => { networkFinished = resolve; }),
+      };
+      rt.write = job;
+      publish({ ...rt.state, mutationPending: true, pendingProductID: null });
+      // After the response: is the identity that sent it still the current one?
+      async function settled(): Promise<"current" | "sameUser" | "other"> {
+        if (store.get().status === "loading") await store.ensure();
+        if (current(generation, sessionGeneration, userID)) return "current";
+        const now = store.get();
+        return rt.alive && now.status === "authenticated" && now.userID === userID ? "sameUser" : "other";
+      }
+      try {
+        let placed: { order: Order; replayed: boolean } | null = null;
+        let failure: unknown = null;
+        try {
+          placed = await placeBrowserOrder(attempt.body, attempt.key, csrfToken, { expectedUserID: userID })
+            .finally(networkFinished);
+        } catch (error) { failure = error; }
+        const status = failure instanceof BrowserRequestError ? failure.status : undefined;
+        const code = failure instanceof BrowserRequestError ? failure.code : undefined;
+        // Another account answered (or Go refused the expected-user precondition
+        // before any effect): never read it, never replay, recover the session.
+        if (failure instanceof ResponseOwnerError || (status === 409 && code === "authenticated_user_changed")) {
+          await ownerMismatch(sessionGeneration);
+          return { kind: "ownerMismatch" };
+        }
+        const identity = await settled();
+        if (identity === "other") return { kind: "discarded" };
+        // Never publish across session generations; the same key can check.
+        if (identity === "sameUser") return { kind: "unknown" };
+        if (placed) {
+          // The pre-order snapshot is stale. Hide it and let the next session
+          // sync or route entry read the Cart once; never fabricate lines.
+          rt.placedOrder = { userID, orderID: placed.order.id };
+          rt.generation++;
+          rt.seenSession = "";
+          publish({ ...rt.state, status: "loading", snapshot: null, reconciling: false, errors: {}, message: "" });
+          return { kind: "placed", ...placed };
+        }
+        if (status === 401) {
+          signedOut();
+          return { kind: "signedOut" };
+        }
+        if (status === 403 && code === "csrf_failed") {
+          // Only reads follow; the order is never resent automatically.
+          await initialize(store.refresh());
+          return { kind: "csrf" };
+        }
+        if (status === 409 && (code === "checkout_changed" || code === "out_of_stock" || code === "conflict")) {
+          await read(userID, sessionGeneration, true);
+          return { kind: code === "checkout_changed" ? "changed" : code === "out_of_stock" ? "outOfStock" : "conflict" };
+        }
+        if (status === 409 && code === "idempotency_key_reused") return { kind: "idempotencyReused" };
+        if (status === 422 && failure instanceof BrowserRequestError) {
+          return { kind: "invalid", fields: failure.fields, detail: failure.detail };
+        }
+        // Network, timeout, 5xx, malformed 201 or any unexpected answer: the
+        // order may exist. No Cart read can tell, so none is made.
+        return { kind: "unknown" };
+      } finally {
+        if (rt.write === job) {
+          rt.write = null;
+          publish({ ...rt.state, mutationPending: false, pendingProductID: null });
+        }
+      }
+    }
+
+    // Consumes the confirmation handoff for exactly this current user and order.
+    function takePlacedOrder(userID: string, orderID: string): boolean {
+      const handoff = rt.placedOrder;
+      const shared = store.get();
+      if (!handoff || shared.status !== "authenticated" || shared.userID !== userID ||
+          handoff.userID !== userID || handoff.orderID !== orderID) return false;
+      rt.placedOrder = null;
+      return true;
+    }
+
     // Whole-cart scope: every authoritative line, independent of local search
     // or collapsed groups. An empty cart sends nothing.
     function selectAll(selected: boolean) {
@@ -270,6 +399,8 @@ export function CartProvider({ children, loginHref }: { children: ReactNode; log
       },
       mutate,
       selectAll,
+      placeOrder,
+      takePlacedOrder,
       signInRequired: () => message("Чтобы пользоваться корзиной, войдите в свой аккаунт."),
       dismissMessage: (text: string) => { if (rt.state.message === text) message(""); },
     };

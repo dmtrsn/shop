@@ -26,7 +26,7 @@ describe("browser favorites transport", () => {
     const fetcher = vi.fn().mockResolvedValue(jsonResponse(body));
     expect(await getBrowserFavorites({ expectedUserID: "A", fetcher })).toEqual(body);
     expect(fetcher).toHaveBeenCalledExactlyOnceWith("/api/favorites", expect.objectContaining({
-      method: "GET", credentials: "same-origin", cache: "no-store", headers: { Accept: "application/json" },
+      method: "GET", credentials: "same-origin", cache: "no-store", headers: { Accept: "application/json", "X-Expected-Authenticated-User-ID": "A" },
     }));
   });
   it.each([[true, "PUT"], [false, "DELETE"]] as const)("mutation enabled=%s has exact CSRF header, no body or credentials in headers", async (enabled, method) => {
@@ -34,7 +34,7 @@ describe("browser favorites transport", () => {
     await setBrowserFavorite("id/with spaces", enabled, "current-csrf", { expectedUserID: "A", fetcher });
     expect(fetcher).toHaveBeenCalledExactlyOnceWith("/api/favorites/id%2Fwith%20spaces", expect.objectContaining({
       method, credentials: "same-origin", cache: "no-store",
-      headers: { Accept: "application/json", "X-CSRF-Token": "current-csrf" },
+      headers: { Accept: "application/json", "X-CSRF-Token": "current-csrf", "X-Expected-Authenticated-User-ID": "A" },
     }));
     const options = fetcher.mock.calls[0][1];
     expect(options).not.toHaveProperty("body");

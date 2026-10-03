@@ -34,7 +34,30 @@ function matches(item: Cart["items"][number], query: string) {
   return `${product.name} ${product.sku} ${product.manufacturer.name}`.toLocaleLowerCase("ru").includes(query);
 }
 
-function CartSummaryPanel({ cart, reconciling }: { cart: Cart; reconciling: boolean }) {
+// Checkout is only a link: it never writes. It is offered for a current,
+// settled Cart with at least one selected line and no selected issue, because
+// Go aborts checkout when any selected line lacks stock.
+function CheckoutLink({ cart, busy }: { cart: Cart; busy: boolean }) {
+  const selected = cart.items.filter((line) => line.selected);
+  if (!selected.length) return <p className={styles.note}>Выберите товары, чтобы оформить заказ.</p>;
+  if (selected.some((line) => line.issue)) {
+    return <p className={styles.issue}>Чтобы оформить заказ, снимите выбор с позиций с проблемой наличия или исправьте их количество.</p>;
+  }
+  return (
+    <Link
+      aria-describedby={busy ? "cart-checkout-busy" : undefined}
+      aria-disabled={busy || undefined}
+      className={styles.checkout}
+      href="/checkout"
+      onClick={(event) => { if (busy) event.preventDefault(); }}
+    >
+      Перейти к оформлению
+      {busy ? <span className="visually-hidden" id="cart-checkout-busy"> (корзина обновляется)</span> : null}
+    </Link>
+  );
+}
+
+function CartSummaryPanel({ cart, reconciling, busy }: { cart: Cart; reconciling: boolean; busy: boolean }) {
   const currency = cart.items[0]?.product.currency ?? "RUB";
   const selectedPositions = cart.items.filter((line) => line.selected).length;
   const { summary } = cart;
@@ -62,7 +85,8 @@ function CartSummaryPanel({ cart, reconciling }: { cart: Cart; reconciling: bool
           С проблемой наличия: {positions(summary.unavailableCount)}. Они не входят в итоги.
         </p>
       ) : null}
-      <p className={styles.note}>Корзина не резервирует товар. Оформление заказа в новой витрине пока недоступно.</p>
+      <CheckoutLink busy={busy} cart={cart} />
+      <p className={styles.note}>Корзина не резервирует товар.</p>
       <Link className={styles.secondaryLink} href="/catalog">Продолжить покупки</Link>
     </aside>
   );
@@ -220,7 +244,7 @@ export function CartView({ initialSession }: { initialSession: CartRouteSession 
                     );
                   })}
                 </section>
-                <CartSummaryPanel cart={cart} reconciling={state.reconciling} />
+                <CartSummaryPanel busy={busy} cart={cart} reconciling={state.reconciling} />
               </div>
             </>
           ) : cart ? (

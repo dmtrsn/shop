@@ -184,7 +184,7 @@ describe("confirmed mutations and recovery", () => {
     expect(screen.getByRole("status", { name: "Уведомления избранного" })).toHaveTextContent("Действие не выполнено");
     expect(requests().filter((r) => r.startsWith("PUT"))).toHaveLength(1);
     respond(favoriteResponse(p1)); fireEvent.click(first()); await ready(["p01"]);
-    expect(fetcher.mock.calls[5][1]?.headers).toEqual({ Accept: "application/json", "X-CSRF-Token": "new-csrf" });
+    expect(fetcher.mock.calls[5][1]?.headers).toEqual({ Accept: "application/json", "X-CSRF-Token": "new-csrf", "X-Expected-Authenticated-User-ID": "A" });
   });
   it.each(["anonymous", "unavailable"] as const)("csrf_failed followed by %s discards the private list", async (status) => {
     respond(sessionResponse()); respond(favoriteResponse(p1)); mount(); await ready(["p01"]);

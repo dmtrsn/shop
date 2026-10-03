@@ -16,7 +16,7 @@ describe("browser cart transport", () => {
     const fetcher = vi.fn().mockResolvedValue(jsonResponse(body));
     expect(await getBrowserCart(options(fetcher))).toEqual(body);
     expect(fetcher).toHaveBeenCalledExactlyOnceWith("/api/cart", expect.objectContaining({
-      method: "GET", credentials: "same-origin", cache: "no-store", headers: { Accept: "application/json" },
+      method: "GET", credentials: "same-origin", cache: "no-store", headers: { Accept: "application/json", "X-Expected-Authenticated-User-ID": "A" },
     }));
   });
 
@@ -35,6 +35,7 @@ describe("browser cart transport", () => {
     expect(init.headers).toEqual({
       Accept: "application/json", "X-CSRF-Token": "current-csrf",
       ...(body === undefined ? {} : { "Content-Type": "application/json" }),
+      "X-Expected-Authenticated-User-ID": "A",
     });
   });
 
