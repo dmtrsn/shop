@@ -12,6 +12,11 @@ var (
 	ErrConflict     = errors.New("resource conflict")
 	ErrValidation   = errors.New("validation failed")
 	ErrOutOfStock   = errors.New("requested quantity is not available")
+	// ErrCheckoutChanged: the selected cart, quantities, current prices or
+	// total differ from the review the client confirmed.
+	ErrCheckoutChanged = errors.New("checkout review changed")
+	// ErrIdempotencyKeyReused: the key already committed a different request.
+	ErrIdempotencyKeyReused = errors.New("idempotency key reused for a different request")
 
 	// ErrDemoAccountDisabled is an ErrUnauthorized, so clients see the generic
 	// failure; only server logs distinguish it.

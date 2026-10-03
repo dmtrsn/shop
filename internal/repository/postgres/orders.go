@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"sweetshop/internal/domain"
 )
@@ -109,7 +110,66 @@ func (s *Store) orderItemsByOrderIDs(ctx context.Context, orderIDs []string) (ma
 	return result, nil
 }
 
-func (s *Store) CreateOrder(ctx context.Context, userID string, input domain.CheckoutInput) (domain.Order, error) {
+// orderIdempotencyIndex is the only unique violation that means "another
+// request committed this key"; every other 23505 is an ordinary failure.
+const orderIdempotencyIndex = "orders_user_idempotency_key_idx"
+
+func (s *Store) CreateOrder(ctx context.Context, userID string, input domain.CheckoutInput) (domain.Order, bool, error) {
+	if input.IdempotencyKey == nil {
+		order, err := s.createOrder(ctx, userID, input)
+		return order, false, err
+	}
+	if input.RequestDigest == "" {
+		return domain.Order{}, false, errors.New("keyed checkout without request digest")
+	}
+	// A committed key wins before the cart is consulted: the first request
+	// consumed the selected lines, so a retry must replay instead of conflicting.
+	if order, found, err := s.orderByIdempotencyKey(ctx, userID, *input.IdempotencyKey, input.RequestDigest); found || err != nil {
+		return order, found && err == nil, err
+	}
+	order, err := s.createOrder(ctx, userID, input)
+	if err == nil {
+		return order, false, nil
+	}
+	// The transaction has rolled back. A concurrent request with the same key
+	// may have committed meanwhile; its record decides the outcome.
+	if errors.Is(err, domain.ErrConflict) || errors.Is(err, domain.ErrOutOfStock) || errors.Is(err, domain.ErrCheckoutChanged) || isOrderIdempotencyViolation(err) {
+		if replay, found, lookupErr := s.orderByIdempotencyKey(ctx, userID, *input.IdempotencyKey, input.RequestDigest); found || lookupErr != nil {
+			return replay, found && lookupErr == nil, lookupErr
+		}
+	}
+	return domain.Order{}, false, err
+}
+
+// orderByIdempotencyKey reports found=true when the user already committed the
+// key: the stored order for the same digest, or ErrIdempotencyKeyReused.
+func (s *Store) orderByIdempotencyKey(ctx context.Context, userID, key, digest string) (domain.Order, bool, error) {
+	var orderID, storedDigest string
+	err := s.pool.QueryRow(ctx, `SELECT id,request_digest FROM orders WHERE user_id=$1 AND idempotency_key=$2`, userID, key).Scan(&orderID, &storedDigest)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.Order{}, false, nil
+	}
+	if err != nil {
+		return domain.Order{}, false, fmt.Errorf("load idempotent order: %w", err)
+	}
+	if storedDigest != digest {
+		return domain.Order{}, true, domain.ErrIdempotencyKeyReused
+	}
+	order, err := s.Order(ctx, userID, orderID)
+	if err != nil {
+		return domain.Order{}, true, fmt.Errorf("load replayed order: %w", err)
+	}
+	// pgx scans timestamptz in the process zone; the original 201 was UTC.
+	order.CreatedAt = order.CreatedAt.UTC()
+	return order, true, nil
+}
+
+func isOrderIdempotencyViolation(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == "23505" && pgErr.ConstraintName == orderIdempotencyIndex
+}
+
+func (s *Store) createOrder(ctx context.Context, userID string, input domain.CheckoutInput) (domain.Order, error) {
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return domain.Order{}, err
@@ -155,23 +215,33 @@ func (s *Store) CreateOrder(ctx context.Context, userID string, input domain.Che
 		return domain.Order{}, domain.ErrConflict
 	}
 	selectedProductIDs := make([]string, 0, len(selected))
+	items := make([]domain.OrderItem, 0, len(selected))
+	itemCount, subtotal := 0, int64(0)
 	for _, row := range selected {
 		selectedProductIDs = append(selectedProductIDs, row.product.ID)
+		item := domain.OrderItem{ProductID: row.product.ID, SKU: row.product.SKU, Name: row.product.Name, Image: row.product.Image, ManufacturerID: row.product.Manufacturer.ID, Manufacturer: row.product.Manufacturer.Name, Quantity: row.quantity, UnitPriceMinor: row.product.PriceMinor, LineTotalMinor: int64(row.quantity) * row.product.PriceMinor}
+		items = append(items, item)
+		itemCount += row.quantity
+		subtotal += item.LineTotalMinor
+	}
+	total := subtotal + domain.DeliveryMinor(subtotal)
+	// Compare the confirmed review with the locked lines before any write, even
+	// before the non-transactional order number sequence is advanced.
+	if !domain.CheckoutMatchesExpectation(input, items, total) {
+		return domain.Order{}, domain.ErrCheckoutChanged
 	}
 	var sequence int64
 	if err := tx.QueryRow(ctx, `SELECT nextval('order_number_seq')`).Scan(&sequence); err != nil {
 		return domain.Order{}, fmt.Errorf("next order number: %w", err)
 	}
-	now := time.Now().UTC()
-	order := domain.Order{ID: fmt.Sprintf("ord-%d-%d", now.Year(), sequence), Number: fmt.Sprintf("#%d", sequence), UserID: userID, Status: "processing", StatusLabel: "Собираем заказ", DeliveryAddress: input.DeliveryAddress, Comment: input.Comment, CreatedAt: now, Items: make([]domain.OrderItem, 0, len(selected))}
-	for _, row := range selected {
-		item := domain.OrderItem{ProductID: row.product.ID, SKU: row.product.SKU, Name: row.product.Name, Image: row.product.Image, ManufacturerID: row.product.Manufacturer.ID, Manufacturer: row.product.Manufacturer.Name, Quantity: row.quantity, UnitPriceMinor: row.product.PriceMinor, LineTotalMinor: int64(row.quantity) * row.product.PriceMinor}
-		order.Items = append(order.Items, item)
-		order.ItemCount += row.quantity
-		order.TotalMinor += item.LineTotalMinor
+	// PostgreSQL stores microseconds; return exactly the committed instant.
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	order := domain.Order{ID: fmt.Sprintf("ord-%d-%d", now.Year(), sequence), Number: fmt.Sprintf("#%d", sequence), UserID: userID, Status: "processing", StatusLabel: "Собираем заказ", DeliveryAddress: input.DeliveryAddress, Comment: input.Comment, CreatedAt: now, Items: items, ItemCount: itemCount, TotalMinor: total}
+	var requestDigest *string
+	if input.IdempotencyKey != nil {
+		requestDigest = &input.RequestDigest
 	}
-	order.TotalMinor += domain.DeliveryMinor(order.TotalMinor)
-	_, err = tx.Exec(ctx, `INSERT INTO orders(id,number,user_id,status,status_label,item_count,total_minor,delivery_address,comment,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`, order.ID, order.Number, userID, order.Status, order.StatusLabel, order.ItemCount, order.TotalMinor, order.DeliveryAddress, order.Comment, now)
+	_, err = tx.Exec(ctx, `INSERT INTO orders(id,number,user_id,status,status_label,item_count,total_minor,delivery_address,comment,created_at,idempotency_key,request_digest) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`, order.ID, order.Number, userID, order.Status, order.StatusLabel, order.ItemCount, order.TotalMinor, order.DeliveryAddress, order.Comment, now, input.IdempotencyKey, requestDigest)
 	if err != nil {
 		return domain.Order{}, fmt.Errorf("insert order: %w", err)
 	}

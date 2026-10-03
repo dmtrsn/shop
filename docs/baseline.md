@@ -93,7 +93,7 @@ The following existing gaps were confirmed or characterized and left unchanged:
 | Duplicate batch additions | PostgreSQL rejects duplicate product IDs; memory's repository method does not reject them itself. The service rejects duplicates before reaching either adapter. No HTTP semantics changed. |
 | Collection visibility | PostgreSQL listing honors dates; direct catalog filtering ignores them. Memory listing has no schedule filtering. The public fixture has no schedule boundaries. |
 | Mutable rules | Cart set validates minimum/step before acquiring the repository lock; checkout rechecks stock, not minimum/step. No product-write API exists, but imports/manual changes can expose this gap. |
-| Consent/retries | Repeat default selection, lack of review binding/expected price/idempotency, and checkout lack of idempotency remain. A cart is not a stock reservation. |
+| Consent/retries | Repeat default selection and lack of review binding/expected price/idempotency remain. Checkout gained an optional Idempotency-Key and review guard on 2026-10-03 (see below); without them checkout is still not idempotent. A cart is not a stock reservation. |
 | Read consistency | Count/items, facet aggregations and cart product loads use separate queries. Sorts lack unique ID tie-breakers. updatedAt is not a cart revision. |
 | Empty historical order | PostgreSQL list/detail differ (`null` versus `[]`) when the database contains an order with no item rows. Normal checkout writes snapshots transactionally; the schema itself does not enforce a nonempty item set. |
 
@@ -129,6 +129,15 @@ Migration immutability, local `.env` retention, exclusion from the Git index and
 Remaining evidence gaps include browser E2E/accessibility, representative load/query-plan benchmarks, arbitrary cart-update/checkout interleavings, migration contention between deployments, backup/restore rehearsal and dependency vulnerability/support review. The earlier audit remains applicable. Passing tests does not establish a production guarantee.
 
 Recommended next phase: a separately scoped production-safety design and implementation for demo-seed separation, revocable browser sessions/CSRF, abuse controls, serialized release migrations, and reviewed strict purchasing consent/idempotency. Resolve and version intentional contract changes before starting the frontend migration. This phase stops here.
+
+## Checkout hardening (2026-10-03)
+
+Backward-compatible additions; legacy callers that send none of them keep the behavior above.
+
+- Every protected route accepts an optional `X-Expected-Authenticated-User-ID` precondition. After authentication and cookie CSRF, and before any handler runs, a present value must occur once and equal the authenticated user ID; otherwise **409 `authenticated_user_changed`** with the actual owner header and no side effect. It is never a credential. Cookie mutations were already bound to the session token through the derived CSRF token; the precondition also covers bearer requests and reads.
+- `POST /api/orders` accepts an optional `Idempotency-Key` (`^[A-Za-z0-9_-]{16,128}$`, one value) and optional paired `expectedItems`/`expectedTotalMinor`. Go computes a SHA-256 digest of the normalized request (`checkout/v1`: trimmed address, comment as stored, expectation or its absence with items sorted by product ID) and stores key and digest on the committed order (migration `006_order_idempotency`, unique per user, NULL/NULL pair check). Same key and digest replays the order with 201 and `Idempotent-Replayed: true`, also after the cart was emptied; a different digest returns **409 `idempotency_key_reused`**. Every keyed failure path rechecks the key record after rollback; only the intended unique index is treated as a concurrent commit. Failed attempts store nothing.
+- The expectation is compared inside the checkout transaction after the locks, before any write (including the order number sequence): exact selected product set, quantities, current unit prices and Go total including delivery. A mismatch returns **409 `checkout_changed`**. The values never price the order. Minimum/step are still not revalidated at checkout.
+- Evidence: memory service and HTTP tests, the shared contract suite on both adapters, and PostgreSQL tests for replay after consumption, per-user keys, failed attempts, every guard mismatch with zero writes, concurrent same-key requests through the lock path and through the unique index (same and different digest), an unrelated unique violation that is not replayed, the pair constraint and migration down/up.
 
 ## File inventory
 

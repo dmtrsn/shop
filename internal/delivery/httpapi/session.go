@@ -33,6 +33,13 @@ type SessionConfig struct {
 	TrustedOrigins []string
 }
 
+// errAuthenticatedUserChanged rejects a protected request whose optional
+// X-Expected-Authenticated-User-ID precondition does not name the user that
+// authentication resolved. It is never a credential.
+var errAuthenticatedUserChanged = errors.New("authenticated user differs from the expected user")
+
+const expectedUserHeader = "X-Expected-Authenticated-User-ID"
+
 // errCSRF rejects a cookie-authenticated unsafe request or a cookie login that
 // failed Origin or CSRF-token validation.
 var errCSRF = errors.New("csrf validation failed")
@@ -304,6 +311,15 @@ func (s *Server) auth(next http.Handler) http.Handler {
 		// Never use an incoming owner header: cookies may change between requests.
 		w.Header().Set("X-Authenticated-User-ID", user.ID)
 		setAuthTransport(r, string(transport))
+		// The caller's expectation is checked only after authentication and before
+		// any handler runs, so a stale client can never act as another account.
+		// Absent: legacy behavior. Empty or repeated values fail closed.
+		if expected := r.Header.Values(expectedUserHeader); len(expected) > 0 &&
+			(len(expected) != 1 || expected[0] == "" || expected[0] != user.ID) {
+			s.logger.Warn("expected user precondition failed", "method", r.Method, "path", r.URL.Path, "requestId", r.Context().Value(requestIDKey))
+			s.writeError(w, r, errAuthenticatedUserChanged)
+			return
+		}
 		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), userKey, user)))
 	})
 }

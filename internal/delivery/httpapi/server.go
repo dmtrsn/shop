@@ -426,13 +426,27 @@ func (s *Server) checkout(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, r, err)
 		return
 	}
-	order, err := s.service.Checkout(r.Context(), currentUser(r).ID, input)
+	// Optional; absent keeps the legacy non-idempotent checkout. A present value
+	// is validated by the service; a repeated header is ambiguous.
+	if keys := r.Header.Values(idempotencyKeyHeader); len(keys) > 1 {
+		s.writeError(w, r, &domain.ValidationError{Fields: []domain.FieldError{{Field: idempotencyKeyHeader, Message: "Передайте ровно один Idempotency-Key"}}})
+		return
+	} else if len(keys) == 1 {
+		input.IdempotencyKey = &keys[0]
+	}
+	result, err := s.service.Checkout(r.Context(), currentUser(r).ID, input)
 	if err != nil {
 		s.writeError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, order)
+	if result.Replayed {
+		w.Header().Set("Idempotent-Replayed", "true")
+	}
+	writeJSON(w, http.StatusCreated, result.Order)
 }
+
+const idempotencyKeyHeader = "Idempotency-Key"
+
 func (s *Server) repeatPreview(w http.ResponseWriter, r *http.Request) {
 	if r.Body != nil {
 		_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 1024))
@@ -517,6 +531,12 @@ func (s *Server) writeError(w http.ResponseWriter, r *http.Request, err error) {
 		status, code, message = http.StatusNotFound, "not_found", "Ничего не найдено"
 	case errors.Is(err, domain.ErrOutOfStock):
 		status, code, message = http.StatusConflict, "out_of_stock", "Запрошенного количества уже нет в наличии"
+	case errors.Is(err, domain.ErrCheckoutChanged):
+		status, code, message = http.StatusConflict, "checkout_changed", "Корзина, цены или остатки изменились: проверьте заказ и подтвердите его снова"
+	case errors.Is(err, domain.ErrIdempotencyKeyReused):
+		status, code, message = http.StatusConflict, "idempotency_key_reused", "Ключ идемпотентности уже использован для другого заказа"
+	case errors.Is(err, errAuthenticatedUserChanged):
+		status, code, message = http.StatusConflict, "authenticated_user_changed", "Сессия принадлежит другому пользователю: обновите страницу"
 	case errors.Is(err, domain.ErrConflict):
 		status, code, message = http.StatusConflict, "conflict", "Операцию нельзя выполнить в текущем состоянии"
 	}

@@ -353,6 +353,22 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        '409':
+          description: authenticated_user_changed when X-Expected-Authenticated-User-ID is present but empty,
+            repeated or not the authenticated user; the handler did not run.
+          headers:
+            X-Authenticated-User-ID:
+              $ref: '#/components/headers/AuthenticatedUserID'
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      parameters:
+      - $ref: '#/components/parameters/expectedAuthenticatedUserID'
   /api/categories:
     get:
       operationId: listCategories
@@ -735,6 +751,22 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        '409':
+          description: authenticated_user_changed when X-Expected-Authenticated-User-ID is present but empty,
+            repeated or not the authenticated user; the handler did not run.
+          headers:
+            X-Authenticated-User-ID:
+              $ref: '#/components/headers/AuthenticatedUserID'
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      parameters:
+      - $ref: '#/components/parameters/expectedAuthenticatedUserID'
     delete:
       operationId: clearCart
       summary: clearCart
@@ -800,8 +832,23 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        '409':
+          description: authenticated_user_changed when X-Expected-Authenticated-User-ID is present but empty,
+            repeated or not the authenticated user; the handler did not run.
+          headers:
+            X-Authenticated-User-ID:
+              $ref: '#/components/headers/AuthenticatedUserID'
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
       parameters:
       - $ref: '#/components/parameters/selectedOnly'
+      - $ref: '#/components/parameters/expectedAuthenticatedUserID'
   /api/cart/items:
     post:
       operationId: setCartItem
@@ -884,7 +931,8 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
         '409':
-          description: out_of_stock or conflict
+          description: out_of_stock or conflict; or authenticated_user_changed when X-Expected-Authenticated-User-ID
+            is present but empty, repeated or not the authenticated user; the handler did not run.
           headers:
             X-Authenticated-User-ID:
               $ref: '#/components/headers/AuthenticatedUserID'
@@ -915,6 +963,8 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/CartSetInput'
+      parameters:
+      - $ref: '#/components/parameters/expectedAuthenticatedUserID'
   /api/cart/items/{product}:
     patch:
       operationId: updateCartItem
@@ -996,7 +1046,8 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
         '409':
-          description: out_of_stock or conflict
+          description: out_of_stock or conflict; or authenticated_user_changed when X-Expected-Authenticated-User-ID
+            is present but empty, repeated or not the authenticated user; the handler did not run.
           headers:
             X-Authenticated-User-ID:
               $ref: '#/components/headers/AuthenticatedUserID'
@@ -1029,6 +1080,7 @@ paths:
               $ref: '#/components/schemas/CartPatchInput'
       parameters:
       - $ref: '#/components/parameters/product'
+      - $ref: '#/components/parameters/expectedAuthenticatedUserID'
     delete:
       operationId: removeCartItem
       summary: removeCartItem
@@ -1093,8 +1145,23 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        '409':
+          description: authenticated_user_changed when X-Expected-Authenticated-User-ID is present but empty,
+            repeated or not the authenticated user; the handler did not run.
+          headers:
+            X-Authenticated-User-ID:
+              $ref: '#/components/headers/AuthenticatedUserID'
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
       parameters:
       - $ref: '#/components/parameters/product'
+      - $ref: '#/components/parameters/expectedAuthenticatedUserID'
   /api/cart/selection:
     patch:
       operationId: selectCartItems
@@ -1175,12 +1242,28 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        '409':
+          description: authenticated_user_changed when X-Expected-Authenticated-User-ID is present but empty,
+            repeated or not the authenticated user; the handler did not run.
+          headers:
+            X-Authenticated-User-ID:
+              $ref: '#/components/headers/AuthenticatedUserID'
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
       requestBody:
         required: true
         content:
           application/json:
             schema:
               $ref: '#/components/schemas/CartSelectionInput'
+      parameters:
+      - $ref: '#/components/parameters/expectedAuthenticatedUserID'
   /api/favorites:
     get:
       operationId: favorites
@@ -1234,6 +1317,22 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        '409':
+          description: authenticated_user_changed when X-Expected-Authenticated-User-ID is present but empty,
+            repeated or not the authenticated user; the handler did not run.
+          headers:
+            X-Authenticated-User-ID:
+              $ref: '#/components/headers/AuthenticatedUserID'
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      parameters:
+      - $ref: '#/components/parameters/expectedAuthenticatedUserID'
   /api/favorites/{product}:
     put:
       operationId: enableFavorite
@@ -1313,8 +1412,23 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        '409':
+          description: authenticated_user_changed when X-Expected-Authenticated-User-ID is present but empty,
+            repeated or not the authenticated user; the handler did not run.
+          headers:
+            X-Authenticated-User-ID:
+              $ref: '#/components/headers/AuthenticatedUserID'
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
       parameters:
       - $ref: '#/components/parameters/product'
+      - $ref: '#/components/parameters/expectedAuthenticatedUserID'
     delete:
       operationId: disableFavorite
       summary: disableFavorite
@@ -1393,8 +1507,23 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        '409':
+          description: authenticated_user_changed when X-Expected-Authenticated-User-ID is present but empty,
+            repeated or not the authenticated user; the handler did not run.
+          headers:
+            X-Authenticated-User-ID:
+              $ref: '#/components/headers/AuthenticatedUserID'
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
       parameters:
       - $ref: '#/components/parameters/product'
+      - $ref: '#/components/parameters/expectedAuthenticatedUserID'
   /api/orders:
     get:
       operationId: orders
@@ -1448,14 +1577,40 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        '409':
+          description: authenticated_user_changed when X-Expected-Authenticated-User-ID is present but empty,
+            repeated or not the authenticated user; the handler did not run.
+          headers:
+            X-Authenticated-User-ID:
+              $ref: '#/components/headers/AuthenticatedUserID'
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      parameters:
+      - $ref: '#/components/parameters/expectedAuthenticatedUserID'
     post:
       operationId: checkout
       summary: checkout
-      description: Trimmed nonempty deliveryAddress required. Uses persisted selected cart lines only. Current stock
-        shortage on ANY selected line aborts everything with 409 out_of_stock; no selected lines returns 409 conflict.
-        Locks selected products/cart rows, snapshots current names/prices, decrements stock, deletes captured lines
-        atomically. Unselected lines remain. Does not recheck minimum/step, require prior quote, take payment or
-        provide idempotency.
+      description: 'Trimmed nonempty deliveryAddress required; comment is stored as sent. Uses persisted selected
+        cart lines only. Current stock shortage on ANY selected line aborts everything with 409 out_of_stock; no
+        selected lines returns 409 conflict. Locks selected products/cart rows, snapshots current names/prices,
+        decrements stock, deletes captured lines atomically. Unselected lines remain. Does not recheck minimum/step,
+        reserve stock or take payment. Optional review guard: expectedItems and expectedTotalMinor (both or neither)
+        must equal, inside the same locked transaction, the selected lines (same canonical product IDs, no extra or
+        missing line, same quantities, unitPriceMinor equal to the current price) and the Go-computed total
+        including delivery; otherwise 409 checkout_changed with no writes. They are comparison values only and never
+        price the order. Optional Idempotency-Key: the key and a server-computed digest of the normalized request
+        (trimmed deliveryAddress, comment, expectations or their absence) are stored with the committed order. A
+        later request by the same user with the same key and digest returns that order again with 201 and
+        Idempotent-Replayed: true, without consuming the cart or stock again, even after the cart was emptied; the
+        same key with a different digest returns 409 idempotency_key_reused with no writes. Failed attempts store
+        nothing, so their key may be retried. Keys are scoped per user. Without a key, checkout is not idempotent
+        (legacy behavior).'
       security:
       - bearerAuth: []
       - sessionCookie: []
@@ -1469,6 +1624,13 @@ paths:
               description: Echoed X-Request-ID or server-generated identifier.
               schema:
                 type: string
+            Idempotent-Replayed:
+              description: Present with value true only when the response replays an order committed earlier
+                with the same Idempotency-Key and request digest.
+              schema:
+                type: string
+                enum:
+                - 'true'
             Cache-Control:
               schema:
                 type: string
@@ -1517,7 +1679,12 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
         '409':
-          description: out_of_stock or conflict
+          description: out_of_stock (selected line short of current stock); conflict (no selected lines);
+            checkout_changed (expectation differs from the locked selection, prices or total); idempotency_key_reused
+            (key already committed a different request); authenticated_user_changed when
+            X-Expected-Authenticated-User-ID is present but empty, repeated or not the authenticated user; the
+            handler did not run. With an Idempotency-Key none of these is returned when the key already committed the
+            same request.
           headers:
             X-Authenticated-User-ID:
               $ref: '#/components/headers/AuthenticatedUserID'
@@ -1530,7 +1697,9 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
         '422':
-          description: validation_error; optional error.fields identifies invalid input.
+          description: validation_error; optional error.fields identifies invalid input (deliveryAddress,
+            Idempotency-Key malformed or repeated, expectedItems/expectedTotalMinor not paired, empty, duplicate or
+            out of range, unknown body fields such as requestDigest).
           headers:
             X-Authenticated-User-ID:
               $ref: '#/components/headers/AuthenticatedUserID'
@@ -1548,6 +1717,9 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/CheckoutInput'
+      parameters:
+      - $ref: '#/components/parameters/expectedAuthenticatedUserID'
+      - $ref: '#/components/parameters/idempotencyKey'
   /api/orders/{order}:
     get:
       operationId: order
@@ -1614,8 +1786,23 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        '409':
+          description: authenticated_user_changed when X-Expected-Authenticated-User-ID is present but empty,
+            repeated or not the authenticated user; the handler did not run.
+          headers:
+            X-Authenticated-User-ID:
+              $ref: '#/components/headers/AuthenticatedUserID'
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
       parameters:
       - $ref: '#/components/parameters/order'
+      - $ref: '#/components/parameters/expectedAuthenticatedUserID'
   /api/orders/{order}/repeat/preview:
     post:
       operationId: repeatPreview
@@ -1695,8 +1882,23 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        '409':
+          description: authenticated_user_changed when X-Expected-Authenticated-User-ID is present but empty,
+            repeated or not the authenticated user; the handler did not run.
+          headers:
+            X-Authenticated-User-ID:
+              $ref: '#/components/headers/AuthenticatedUserID'
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
       parameters:
       - $ref: '#/components/parameters/order'
+      - $ref: '#/components/parameters/expectedAuthenticatedUserID'
   /api/orders/{order}/repeat/commit:
     post:
       operationId: repeatCommit
@@ -1781,7 +1983,8 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
         '409':
-          description: out_of_stock or conflict
+          description: out_of_stock or conflict; or authenticated_user_changed when X-Expected-Authenticated-User-ID
+            is present but empty, repeated or not the authenticated user; the handler did not run.
           headers:
             X-Authenticated-User-ID:
               $ref: '#/components/headers/AuthenticatedUserID'
@@ -1814,6 +2017,7 @@ paths:
               $ref: '#/components/schemas/RepeatCommitInput'
       parameters:
       - $ref: '#/components/parameters/order'
+      - $ref: '#/components/parameters/expectedAuthenticatedUserID'
 components:
   headers:
     AuthenticatedUserID:
@@ -1839,6 +2043,26 @@ components:
         trusted origin and X-CSRF-Token equal to base64url(SHA-256("sweetshop/csrf/v1\0" + session token)), as
         returned by the session endpoints.'
   parameters:
+    idempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: false
+      description: Optional, at most one value. Enables idempotent checkout for this user; a browser
+        crypto.randomUUID() value fits. Malformed, empty or repeated values return 422 validation_error.
+      schema:
+        type: string
+        pattern: ^[A-Za-z0-9_-]{16,128}$
+    expectedAuthenticatedUserID:
+      name: X-Expected-Authenticated-User-ID
+      in: header
+      required: false
+      description: 'Optional precondition, never authentication: identity still comes only from the bearer token or
+        session cookie. Evaluated after successful authentication (and cookie CSRF), before the handler runs. When
+        present it must occur once and equal the authenticated canonical user ID; otherwise 409
+        authenticated_user_changed with X-Authenticated-User-ID of the actual user and no side effect. Omitted keeps
+        legacy behavior. Browser clients send the user ID of their current session.'
+      schema:
+        type: string
     q:
       name: q
       in: query
@@ -2829,6 +3053,9 @@ components:
               - out_of_stock
               - conflict
               - csrf_failed
+              - checkout_changed
+              - idempotency_key_reused
+              - authenticated_user_changed
               - internal_error
             message:
               type: string
@@ -3074,6 +3301,40 @@ components:
         comment:
           type: string
           nullable: true
+        expectedItems:
+          type: array
+          nullable: true
+          minItems: 1
+          description: Reviewed selected lines; present together with expectedTotalMinor (null means absent).
+            Product IDs are canonical and unique. Comparison only.
+          items:
+            $ref: '#/components/schemas/ExpectedCheckoutItem'
+        expectedTotalMinor:
+          type: integer
+          format: int64
+          minimum: 0
+          nullable: true
+          description: Reviewed order total including delivery; present together with expectedItems (null means
+            absent). Comparison only.
       required:
       - deliveryAddress
+      additionalProperties: false
+    ExpectedCheckoutItem:
+      type: object
+      properties:
+        productId:
+          type: string
+          minLength: 1
+        quantity:
+          type: integer
+          format: int32
+          minimum: 1
+        unitPriceMinor:
+          type: integer
+          format: int64
+          minimum: 0
+      required:
+      - productId
+      - quantity
+      - unitPriceMinor
       additionalProperties: false

@@ -2,6 +2,7 @@ package memory
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"sort"
@@ -18,6 +19,12 @@ type session struct {
 	userID    string
 	expiresAt time.Time
 	transport domain.SessionTransport
+}
+
+// orderKey binds a committed checkout to its idempotency key, per user.
+type orderKey struct {
+	orderID       string
+	requestDigest string
 }
 
 type cartRow struct {
@@ -41,6 +48,7 @@ type Store struct {
 	carts         map[string]map[string]cartRow
 	favorites     map[string]map[string]bool
 	orders        map[string][]domain.Order
+	orderKeys     map[string]map[string]orderKey
 }
 
 func NewDemo() *Store {
@@ -52,6 +60,7 @@ func NewDemo() *Store {
 		carts:        make(map[string]map[string]cartRow),
 		favorites:    make(map[string]map[string]bool),
 		orders:       make(map[string][]domain.Order),
+		orderKeys:    make(map[string]map[string]orderKey),
 	}
 	s.seed()
 	return s
@@ -604,9 +613,28 @@ func (s *Store) Order(_ context.Context, userID, orderID string) (domain.Order, 
 	return domain.Order{}, domain.ErrNotFound
 }
 
-func (s *Store) CreateOrder(_ context.Context, userID string, input domain.CheckoutInput) (domain.Order, error) {
+// CreateOrder mirrors the PostgreSQL semantics under the store mutex: a
+// committed key replays (or rejects a different digest) before the cart is
+// read, and the key is recorded together with the order.
+func (s *Store) CreateOrder(_ context.Context, userID string, input domain.CheckoutInput) (domain.Order, bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if input.IdempotencyKey != nil {
+		if input.RequestDigest == "" {
+			return domain.Order{}, false, errors.New("keyed checkout without request digest")
+		}
+		if record, ok := s.orderKeys[userID][*input.IdempotencyKey]; ok {
+			if record.requestDigest != input.RequestDigest {
+				return domain.Order{}, false, domain.ErrIdempotencyKeyReused
+			}
+			for _, order := range s.orders[userID] {
+				if order.ID == record.orderID {
+					return cloneOrder(order), true, nil
+				}
+			}
+			return domain.Order{}, false, fmt.Errorf("idempotent order %s is missing", record.orderID)
+		}
+	}
 	rows := s.carts[userID]
 	items := make([]domain.OrderItem, 0, len(rows))
 	for id, row := range rows {
@@ -615,17 +643,20 @@ func (s *Store) CreateOrder(_ context.Context, userID string, input domain.Check
 		}
 		p, ok := s.products[id]
 		if !ok || row.quantity > p.Stock {
-			return domain.Order{}, domain.ErrOutOfStock
+			return domain.Order{}, false, domain.ErrOutOfStock
 		}
 		items = append(items, orderItem(p, row.quantity))
 	}
 	if len(items) == 0 {
-		return domain.Order{}, domain.ErrConflict
+		return domain.Order{}, false, domain.ErrConflict
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].Name < items[j].Name })
+	subtotal := orderTotal(items)
+	if !domain.CheckoutMatchesExpectation(input, items, subtotal+domain.DeliveryMinor(subtotal)) {
+		return domain.Order{}, false, domain.ErrCheckoutChanged
+	}
 	now := time.Now().UTC()
 	seq := len(s.orders[userID]) + 10483
-	subtotal := orderTotal(items)
 	order := domain.Order{ID: fmt.Sprintf("ord-%d-%03d", now.Year(), seq), Number: fmt.Sprintf("#%d", seq), UserID: userID, Status: "processing", StatusLabel: "Собираем заказ", Items: items, ItemCount: itemCount(items), TotalMinor: subtotal + domain.DeliveryMinor(subtotal), DeliveryAddress: input.DeliveryAddress, Comment: input.Comment, CreatedAt: now}
 	for _, item := range items {
 		p := s.products[item.ProductID]
@@ -634,7 +665,13 @@ func (s *Store) CreateOrder(_ context.Context, userID string, input domain.Check
 		delete(rows, item.ProductID)
 	}
 	s.orders[userID] = append([]domain.Order{order}, s.orders[userID]...)
-	return cloneOrder(order), nil
+	if input.IdempotencyKey != nil {
+		if s.orderKeys[userID] == nil {
+			s.orderKeys[userID] = map[string]orderKey{}
+		}
+		s.orderKeys[userID][*input.IdempotencyKey] = orderKey{orderID: order.ID, requestDigest: input.RequestDigest}
+	}
+	return cloneOrder(order), false, nil
 }
 
 func (s *Store) filteredProducts(filter domain.ProductFilter) []domain.Product {

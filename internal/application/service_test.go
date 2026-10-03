@@ -187,10 +187,11 @@ func TestCheckoutTotalMatchesCartIncludingDelivery(t *testing.T) {
 	if cart.Summary.DiscountMinor <= 0 {
 		t.Fatalf("expected demo cart discount, got %d", cart.Summary.DiscountMinor)
 	}
-	order, err := service.Checkout(ctx, "usr-demo", domain.CheckoutInput{DeliveryAddress: "Москва, Тестовая, 1"})
+	result, err := service.Checkout(ctx, "usr-demo", domain.CheckoutInput{DeliveryAddress: "Москва, Тестовая, 1"})
 	if err != nil {
 		t.Fatal(err)
 	}
+	order := result.Order
 	if order.TotalMinor != cart.Summary.TotalMinor {
 		t.Fatalf("order total = %d, cart total = %d", order.TotalMinor, cart.Summary.TotalMinor)
 	}

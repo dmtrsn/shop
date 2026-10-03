@@ -18,7 +18,7 @@ func TestMigrationsAndDemoFixture(t *testing.T) {
 	if err := postgres.Migrate(d.ctx, d.pool, "../../migrations"); err != nil {
 		t.Fatal(err)
 	}
-	for table, want := range map[string]int64{"schema_migrations": 5, "users": 1, "categories": 10, "manufacturers": 8, "brands": 12, "products": 24, "collections": 4, "collection_products": 18, "cart_items": 4, "favorites": 5, "orders": 1, "order_items": 4} {
+	for table, want := range map[string]int64{"schema_migrations": 6, "users": 1, "categories": 10, "manufacturers": 8, "brands": 12, "products": 24, "collections": 4, "collection_products": 18, "cart_items": 4, "favorites": 5, "orders": 1, "order_items": 4} {
 		if got := d.number(t, "SELECT count(*) FROM "+table); got != want {
 			t.Errorf("%s count=%d want=%d", table, got, want)
 		}
@@ -58,7 +58,7 @@ func TestMigrationsAndDemoFixture(t *testing.T) {
 	if err := rows.Err(); err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(versions, []string{"001_init", "002_demo_seed", "003_catalog_scale_indexes", "004_brand_manufacturer_integrity", "005_session_transport"}) {
+	if !reflect.DeepEqual(versions, []string{"001_init", "002_demo_seed", "003_catalog_scale_indexes", "004_brand_manufacturer_integrity", "005_session_transport", "006_order_idempotency"}) {
 		t.Fatal(versions)
 	}
 }
@@ -77,6 +77,8 @@ func TestDatabaseConstraints(t *testing.T) {
 		{"case insensitive sku", "UPDATE products SET sku='cha-701' WHERE id='p02'", "23505"},
 		{"brand manufacturer ownership", "UPDATE products SET brand_id='b-caffarel' WHERE id='p01'", "23503"},
 		{"product FK", "INSERT INTO favorites(user_id,product_id) VALUES('usr-demo','missing')", "23503"},
+		{"idempotency key without digest", "UPDATE orders SET idempotency_key='half-set-key-000001' WHERE id='ord-2026-002'", "23514"},
+		{"idempotency digest without key", "UPDATE orders SET request_digest='abc' WHERE id='ord-2026-002'", "23514"},
 		{"order FK", "INSERT INTO order_items(order_id,position,product_id,sku,name,quantity,unit_price_minor,line_total_minor) VALUES('missing',1,'legacy','SKU','Name',1,1,1)", "23503"},
 	}
 	for _, c := range cases {
@@ -94,7 +96,7 @@ func TestDatabaseConstraints(t *testing.T) {
 	if got := d.number(t, "SELECT count(*) FROM information_schema.columns WHERE table_name='products' AND column_name='brand_id' AND column_default IS NULL"); got != 1 {
 		t.Fatal("brand must have no unsafe default")
 	}
-	for _, index := range []string{"products_search_idx", "products_tags_idx", "products_sku_lower_uidx", "products_name_trgm_idx", "orders_user_created_idx"} {
+	for _, index := range []string{"products_search_idx", "products_tags_idx", "products_sku_lower_uidx", "products_name_trgm_idx", "orders_user_created_idx", "orders_user_idempotency_key_idx"} {
 		if got := d.number(t, "SELECT count(*) FROM pg_indexes WHERE indexname=$1", index); got != 1 {
 			t.Errorf("missing index %s", index)
 		}

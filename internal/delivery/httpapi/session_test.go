@@ -256,6 +256,11 @@ func TestCSRFMatrixForCookieMutations(t *testing.T) {
 			}
 			response := h.do(http.MethodPost, "/api/cart/items", `{"productId":"p02","quantity":1}`, tc.headers)
 			expectStatus(t, response, http.StatusForbidden)
+			response = h.do(http.MethodPost, "/api/orders", `{"deliveryAddress":"Test"}`, tc.headers)
+			expectStatus(t, response, http.StatusForbidden)
+			if errorCode(t, response) != "csrf_failed" {
+				t.Fatal("checkout must require CSRF")
+			}
 		})
 	}
 	expectStatus(t, h.do(http.MethodPut, "/api/favorites/p02", "", h.mutation(token, csrf)), http.StatusOK)
@@ -625,6 +630,10 @@ func TestAuthenticatedResponseOwner(t *testing.T) {
 			{"DELETE", "/api/favorites/p02", "", 200},
 			{"PATCH", "/api/cart/items/missing", `{"selected":false}`, 404},
 			{"POST", "/api/cart/items", `{"productId":"p02","quantity":0}`, 422},
+			{"GET", "/api/orders", "", 200}, {"GET", "/api/orders/ord-2026-002", "", 200},
+			{"GET", "/api/orders/missing", "", 404},
+			{"POST", "/api/orders/ord-2026-002/repeat/preview", "", 200},
+			{"POST", "/api/orders", `{"deliveryAddress":" "}`, 422},
 		} {
 			response := h.do(tc.method, tc.path, tc.body, credentials)
 			expectStatus(t, response, tc.status)

@@ -13,10 +13,11 @@ import (
 func TestCheckoutSelectionAndHistoricalSnapshots(t *testing.T) {
 	d := newDatabase(t, true)
 	before := d.cart(t, "usr-demo")
-	order, err := d.service.Checkout(d.ctx, "usr-demo", domain.CheckoutInput{DeliveryAddress: "  Test address  ", Comment: "Test comment"})
+	result, err := d.service.Checkout(d.ctx, "usr-demo", domain.CheckoutInput{DeliveryAddress: "  Test address  ", Comment: "Test comment"})
 	if err != nil {
 		t.Fatal(err)
 	}
+	order := result.Order
 	if order.TotalMinor != 246500 || order.TotalMinor != before.Summary.TotalMinor || order.ItemCount != 5 || len(order.Items) != 2 || order.DeliveryAddress != "Test address" || order.Comment != "Test comment" {
 		t.Fatalf("unexpected checkout: %+v", order)
 	}

@@ -323,7 +323,57 @@ type RepeatCommitResult struct {
 	SkippedCount  int  `json:"skippedCount"`
 }
 
+// ExpectedCheckoutItem is one line of the review the client confirmed. It is
+// compared with the locked selected cart; it never supplies a price or total.
+type ExpectedCheckoutItem struct {
+	ProductID      string `json:"productId"`
+	Quantity       int    `json:"quantity"`
+	UnitPriceMinor int64  `json:"unitPriceMinor"`
+}
+
 type CheckoutInput struct {
 	DeliveryAddress string `json:"deliveryAddress"`
 	Comment         string `json:"comment"`
+	// ExpectedItems and ExpectedTotalMinor are an optional review guard: both
+	// absent (nil, including JSON null) or both present.
+	ExpectedItems      *[]ExpectedCheckoutItem `json:"expectedItems"`
+	ExpectedTotalMinor *int64                  `json:"expectedTotalMinor"`
+	// IdempotencyKey comes from the Idempotency-Key header; RequestDigest is
+	// computed by the application layer. Neither is accepted from JSON.
+	IdempotencyKey *string `json:"-"`
+	RequestDigest  string  `json:"-"`
+}
+
+// CheckoutResult reports whether Order is a replay of an earlier committed
+// checkout with the same idempotency key and request digest.
+type CheckoutResult struct {
+	Order    Order
+	Replayed bool
+}
+
+// CheckoutMatchesExpectation reports whether the locked selected lines and the
+// Go-computed total equal the confirmed review exactly. Without an expectation
+// there is nothing to compare.
+func CheckoutMatchesExpectation(input CheckoutInput, items []OrderItem, totalMinor int64) bool {
+	if input.ExpectedItems == nil || input.ExpectedTotalMinor == nil {
+		return input.ExpectedItems == nil && input.ExpectedTotalMinor == nil
+	}
+	expected := *input.ExpectedItems
+	if len(expected) != len(items) || *input.ExpectedTotalMinor != totalMinor {
+		return false
+	}
+	byProduct := make(map[string]ExpectedCheckoutItem, len(expected))
+	for _, item := range expected {
+		byProduct[item.ProductID] = item
+	}
+	if len(byProduct) != len(items) {
+		return false
+	}
+	for _, item := range items {
+		want, ok := byProduct[item.ProductID]
+		if !ok || want.Quantity != item.Quantity || want.UnitPriceMinor != item.UnitPriceMinor {
+			return false
+		}
+	}
+	return true
 }

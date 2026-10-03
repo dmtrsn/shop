@@ -39,5 +39,9 @@ type Repository interface {
 
 	ListOrders(context.Context, string) ([]Order, error)
 	Order(context.Context, string, string) (Order, error)
-	CreateOrder(context.Context, string, CheckoutInput) (Order, error)
+	// CreateOrder consumes the selected cart atomically. With an idempotency key
+	// it first returns the committed order for the same key and digest
+	// (replayed=true), or ErrIdempotencyKeyReused for a different digest, and
+	// stores the key with the new order in the same transaction.
+	CreateOrder(context.Context, string, CheckoutInput) (Order, bool, error)
 }

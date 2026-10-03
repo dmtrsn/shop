@@ -5,8 +5,12 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
+	"sort"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -282,12 +286,104 @@ func (s *Service) Order(ctx context.Context, userID, orderID string) (domain.Ord
 	return s.repo.Order(ctx, userID, orderID)
 }
 
-func (s *Service) Checkout(ctx context.Context, userID string, input domain.CheckoutInput) (domain.Order, error) {
+// idempotencyKeyPattern is the accepted Idempotency-Key syntax; a browser
+// crypto.randomUUID() value matches it.
+var idempotencyKeyPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{16,128}$`)
+
+// Checkout validates the request and computes the idempotency digest before the
+// repository consumes the selected cart. Address and comment rules are the
+// legacy ones: a trimmed nonempty address and an untouched optional comment.
+func (s *Service) Checkout(ctx context.Context, userID string, input domain.CheckoutInput) (domain.CheckoutResult, error) {
 	input.DeliveryAddress = strings.TrimSpace(input.DeliveryAddress)
+	fields := []domain.FieldError{}
 	if input.DeliveryAddress == "" {
-		return domain.Order{}, &domain.ValidationError{Fields: []domain.FieldError{{Field: "deliveryAddress", Message: "Укажите адрес доставки"}}}
+		fields = append(fields, domain.FieldError{Field: "deliveryAddress", Message: "Укажите адрес доставки"})
 	}
-	return s.repo.CreateOrder(ctx, userID, input)
+	if input.IdempotencyKey != nil && !idempotencyKeyPattern.MatchString(*input.IdempotencyKey) {
+		fields = append(fields, domain.FieldError{Field: "Idempotency-Key", Message: "Ключ идемпотентности: от 16 до 128 символов A-Z, a-z, 0-9, _ или -"})
+	}
+	fields = append(fields, validateCheckoutExpectation(input)...)
+	if len(fields) > 0 {
+		return domain.CheckoutResult{}, &domain.ValidationError{Fields: fields}
+	}
+	input.RequestDigest = ""
+	if input.IdempotencyKey != nil {
+		input.RequestDigest = checkoutRequestDigest(input)
+	}
+	order, replayed, err := s.repo.CreateOrder(ctx, userID, input)
+	if err != nil {
+		return domain.CheckoutResult{}, err
+	}
+	return domain.CheckoutResult{Order: order, Replayed: replayed}, nil
+}
+
+func validateCheckoutExpectation(input domain.CheckoutInput) []domain.FieldError {
+	if (input.ExpectedItems == nil) != (input.ExpectedTotalMinor == nil) {
+		return []domain.FieldError{{Field: "expectedItems", Message: "Передайте expectedItems и expectedTotalMinor вместе"}}
+	}
+	if input.ExpectedItems == nil {
+		return nil
+	}
+	fields := []domain.FieldError{}
+	items := *input.ExpectedItems
+	if len(items) == 0 {
+		fields = append(fields, domain.FieldError{Field: "expectedItems", Message: "Список ожидаемых позиций не может быть пустым"})
+	}
+	seen := make(map[string]bool, len(items))
+	for i, item := range items {
+		switch {
+		case item.ProductID == "":
+			fields = append(fields, domain.FieldError{Field: fmt.Sprintf("expectedItems.%d.productId", i), Message: "Укажите товар"})
+		case seen[item.ProductID]:
+			fields = append(fields, domain.FieldError{Field: fmt.Sprintf("expectedItems.%d.productId", i), Message: "Товар указан повторно"})
+		}
+		seen[item.ProductID] = true
+		if item.Quantity < 1 {
+			fields = append(fields, domain.FieldError{Field: fmt.Sprintf("expectedItems.%d.quantity", i), Message: "Количество должно быть больше нуля"})
+		}
+		if item.UnitPriceMinor < 0 {
+			fields = append(fields, domain.FieldError{Field: fmt.Sprintf("expectedItems.%d.unitPriceMinor", i), Message: "Цена не может быть отрицательной"})
+		}
+	}
+	if *input.ExpectedTotalMinor < 0 {
+		fields = append(fields, domain.FieldError{Field: "expectedTotalMinor", Message: "Сумма не может быть отрицательной"})
+	}
+	return fields
+}
+
+// checkoutDigestForm is the versioned canonical logical request. Field order
+// is fixed by the struct, so encoding/json output is deterministic. Strings
+// decoded from HTTP JSON are already valid UTF-8, so encoding is lossless.
+type checkoutDigestForm struct {
+	Version         string                      `json:"v"`
+	DeliveryAddress string                      `json:"deliveryAddress"`
+	Comment         string                      `json:"comment"`
+	Expectations    *checkoutDigestExpectations `json:"expectations"`
+}
+
+type checkoutDigestExpectations struct {
+	Items      []domain.ExpectedCheckoutItem `json:"items"`
+	TotalMinor int64                         `json:"totalMinor"`
+}
+
+// checkoutRequestDigest identifies the logical request bound to an
+// idempotency key: the normalized address, the comment exactly as persisted
+// (omitted, null and "" are the same empty string), and the expectation or
+// its absence with items sorted by product ID. Internal only; never returned.
+func checkoutRequestDigest(input domain.CheckoutInput) string {
+	form := checkoutDigestForm{Version: "checkout/v1", DeliveryAddress: input.DeliveryAddress, Comment: input.Comment}
+	if input.ExpectedItems != nil && input.ExpectedTotalMinor != nil {
+		items := append([]domain.ExpectedCheckoutItem(nil), (*input.ExpectedItems)...)
+		sort.Slice(items, func(i, j int) bool { return items[i].ProductID < items[j].ProductID })
+		form.Expectations = &checkoutDigestExpectations{Items: items, TotalMinor: *input.ExpectedTotalMinor}
+	}
+	encoded, err := json.Marshal(form)
+	if err != nil {
+		// Plain strings and integers cannot fail to encode.
+		panic(fmt.Sprintf("encode checkout digest: %v", err))
+	}
+	sum := sha256.Sum256(encoded)
+	return hex.EncodeToString(sum[:])
 }
 
 func (s *Service) RepeatPreview(ctx context.Context, userID, orderID string) (domain.RepeatPreview, error) {

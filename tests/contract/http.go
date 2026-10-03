@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -279,6 +280,7 @@ func Run(t *testing.T, handler http.Handler) {
 	if len(cart["items"].([]any)) != 0 || len(cart["groups"].([]any)) != 0 {
 		t.Fatal("empty cart arrays")
 	}
+	runCheckoutIdempotency(t, send, token)
 	runCookieSessions(t, send)
 	// Bearer logout revokes only the presented bearer session.
 	request("DELETE", "/api/auth/session", "", 204, true)
@@ -369,4 +371,102 @@ func runCookieSessions(t *testing.T, send sender) {
 	if gone["authenticated"] != false {
 		t.Fatal("revoked cookie still authenticated")
 	}
+}
+
+// runCheckoutIdempotency starts from an empty cart. It covers the optional
+// expected-user precondition, the review guard and the Idempotency-Key replay.
+func runCheckoutIdempotency(t *testing.T, send sender, token string) {
+	t.Helper()
+	auth := func(extra map[string]string) map[string]string {
+		headers := map[string]string{"Authorization": "Bearer " + token}
+		for k, v := range extra {
+			headers[k] = v
+		}
+		return headers
+	}
+	// The precondition passes for the authenticated user and stops anyone else
+	// before the handler: the cart stays empty.
+	send("GET", "/api/cart", "", 200, auth(map[string]string{"X-Expected-Authenticated-User-ID": "usr-demo"}))
+	expectCode(t, "authenticated_user_changed")(send("POST", "/api/cart/items", `{"productId":"p01","quantity":2}`, 409, auth(map[string]string{"X-Expected-Authenticated-User-ID": "usr-other"})))
+	expectCode(t, "authenticated_user_changed")(send("GET", "/api/cart", "", 409, auth(map[string]string{"X-Expected-Authenticated-User-ID": "usr-other"})))
+	if cart, _ := send("GET", "/api/cart", "", 200, auth(nil)); len(cart["items"].([]any)) != 0 {
+		t.Fatal("precondition failure changed the cart")
+	}
+	send("POST", "/api/cart/items", `{"productId":"p01","quantity":2}`, 201, auth(nil))
+	send("POST", "/api/cart/items", `{"productId":"p10","quantity":1}`, 201, auth(nil))
+	send("POST", "/api/cart/items", `{"productId":"p02","quantity":1,"selected":false}`, 201, auth(nil))
+	cart, _ := send("GET", "/api/cart", "", 200, auth(nil))
+	items := []map[string]any{}
+	for _, v := range cart["items"].([]any) {
+		line := v.(map[string]any)
+		if line["selected"] == true {
+			product := line["product"].(map[string]any)
+			items = append(items, map[string]any{"productId": product["id"], "quantity": line["quantity"], "unitPriceMinor": product["priceMinor"]})
+		}
+	}
+	total := cart["summary"].(map[string]any)["totalMinor"].(float64)
+	body := func(address string, items []map[string]any, total float64) string {
+		encoded, err := json.Marshal(map[string]any{"deliveryAddress": address, "comment": nil, "expectedItems": items, "expectedTotalMinor": total})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(encoded)
+	}
+	stock := func() float64 {
+		product, _ := send("GET", "/api/products/p01", "", 200, nil)
+		return product["stock"].(float64)
+	}
+	const key = "contract-checkout-key-0001"
+	keyed := auth(map[string]string{"Idempotency-Key": key, "X-Expected-Authenticated-User-ID": "usr-demo"})
+	before := stock()
+	expectCode(t, "checkout_changed")(send("POST", "/api/orders", body("Test", items, total+1), 409, keyed))
+	expectCode(t, "checkout_changed")(send("POST", "/api/orders", body("Test", items[:1], total), 409, keyed))
+	for _, invalid := range []string{
+		`{"deliveryAddress":"Test","expectedTotalMinor":1}`,
+		`{"deliveryAddress":"Test","expectedItems":[],"expectedTotalMinor":1}`,
+		`{"deliveryAddress":"Test","requestDigest":"0000"}`,
+	} {
+		send("POST", "/api/orders", invalid, 422, keyed)
+	}
+	send("POST", "/api/orders", body("Test", items, total), 422, auth(map[string]string{"Idempotency-Key": "short"}))
+	if after, _ := send("GET", "/api/cart", "", 200, auth(nil)); len(after["items"].([]any)) != 3 || stock() != before {
+		t.Fatal("rejected checkout wrote")
+	}
+	first, rec := send("POST", "/api/orders", body(" Test ", items, total), 201, keyed)
+	if rec.Header().Get("Idempotent-Replayed") != "" || first["totalMinor"] != total || first["deliveryAddress"] != "Test" {
+		t.Fatal("keyed checkout")
+	}
+	// The retry finds an emptied selection but replays the committed order;
+	// omitted and null comment are the same logical request.
+	retry := `{"deliveryAddress":"Test","expectedItems":` + string(must(json.Marshal(items))) + `,"expectedTotalMinor":` + strconv.FormatFloat(total, 'f', -1, 64) + `}`
+	replay, rec := send("POST", "/api/orders", retry, 201, keyed)
+	if rec.Header().Get("Idempotent-Replayed") != "true" || replay["id"] != first["id"] || replay["totalMinor"] != first["totalMinor"] {
+		t.Fatal("idempotent replay")
+	}
+	if stock() != before-2 {
+		t.Fatal("replay decremented stock again")
+	}
+	if remaining, _ := send("GET", "/api/cart", "", 200, auth(nil)); len(remaining["items"].([]any)) != 1 {
+		t.Fatal("replay changed the remaining cart")
+	}
+	expectCode(t, "idempotency_key_reused")(send("POST", "/api/orders", body("Other", items, total), 409, keyed))
+	expectCode(t, "conflict")(send("POST", "/api/orders", body("Test", items, total), 409, auth(map[string]string{"Idempotency-Key": "contract-checkout-key-0002"})))
+	send("DELETE", "/api/cart/items/p02", "", 200, auth(nil))
+}
+
+func expectCode(t *testing.T, code string) func(map[string]any, *httptest.ResponseRecorder) {
+	t.Helper()
+	return func(result map[string]any, _ *httptest.ResponseRecorder) {
+		t.Helper()
+		if got := result["error"].(map[string]any)["code"]; got != code {
+			t.Fatalf("error code=%v want %s", got, code)
+		}
+	}
+}
+
+func must(value []byte, err error) []byte {
+	if err != nil {
+		panic(err)
+	}
+	return value
 }
