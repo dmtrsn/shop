@@ -85,6 +85,16 @@
   text-decoration: none;
 }
 
+.mobileUtilities { display: flex; align-items: center; gap: var(--space-2); }
+.mobileFavorite {
+  display: inline-flex;
+  width: var(--control-height);
+  height: var(--control-height);
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-control);
+}
+
 @media (max-width: 78rem) {
   .desktop {
     grid-template-columns: auto auto auto auto minmax(10rem, 1fr) auto auto auto;

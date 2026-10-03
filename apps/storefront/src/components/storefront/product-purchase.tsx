@@ -6,10 +6,12 @@ import { Button } from "@/components/ui/button";
 import { QuantityControl } from "@/components/ui/quantity-control";
 
 import styles from "./product-detail.module.css";
+import { FavoriteButton } from "./favorite-button";
 
 type ProductPurchaseProps = {
   minimumQuantity: number;
   productName: string;
+  productID: string;
   quantityStep: number;
   stock: number;
 };
@@ -17,6 +19,7 @@ type ProductPurchaseProps = {
 export function ProductPurchase({
   minimumQuantity,
   productName,
+  productID,
   quantityStep,
   stock,
 }: ProductPurchaseProps) {
@@ -42,9 +45,7 @@ export function ProductPurchase({
       <Button disabled>
         {unavailable ? "Покупка недоступна" : "Добавление в корзину пока недоступно"}
       </Button>
-      <Button aria-label={`Избранное недоступно: ${productName}`} disabled variant="secondary">
-        Избранное пока недоступно
-      </Button>
+      <FavoriteButton productID={productID} productName={productName} text />
       <p className={styles.readOnlyNote}>
         Количество меняется только на этой странице и не резервирует товар.
       </p>

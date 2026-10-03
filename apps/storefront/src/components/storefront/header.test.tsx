@@ -31,5 +31,10 @@ describe("StorefrontHeader", () => {
       "/collections",
     );
     expect(screen.getAllByRole("link", { name: "Корзина" })).toHaveLength(2);
+    for (const link of screen.getAllByRole("link", { name: "Избранное" })) {
+      expect(link).toHaveAttribute("href", "/favorites");
+      expect(link).not.toHaveTextContent(/\d/);
+    }
+    expect(screen.getAllByRole("link", { name: "Избранное" })).toHaveLength(2);
   });
 });

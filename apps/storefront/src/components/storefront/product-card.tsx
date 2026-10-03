@@ -3,6 +3,7 @@ import Link from "next/link";
 import type { Product } from "@/lib/api/product";
 
 import { CatalogProductImage } from "./catalog-product-image";
+import { FavoriteButton } from "./favorite-button";
 import styles from "./catalog.module.css";
 
 function formatMoney(amountMinor: number, currency: string): string {
@@ -72,7 +73,10 @@ export function ProductCard({
   );
   return (
     <article className={styles.productCard}>
-      <ProductMedia product={product} />
+      <div className={styles.cardMedia}>
+        <ProductMedia product={product} />
+        <div className={styles.favoritePosition}><FavoriteButton productID={product.id} productName={product.name} /></div>
+      </div>
       <div className={styles.cardBody}>
         <p className={styles.lineage}>{productLineage(product)}</p>
         {headingLevel === 3 ? (
@@ -118,9 +122,10 @@ export function CompactProductCard({ product }: { product: Product }) {
         {stockLabel(product)}
       </p>
       <ProductPrice product={product} />
-      <Link className={styles.compactOpen} href={`/products/${product.slug}`}>
-        Открыть
-      </Link>
+      <div className={styles.compactOpen}>
+        <FavoriteButton productID={product.id} productName={product.name} />
+        <Link href={`/products/${product.slug}`}>Открыть</Link>
+      </div>
     </article>
   );
 }

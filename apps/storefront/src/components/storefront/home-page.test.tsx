@@ -1,4 +1,5 @@
-import { render, screen, within } from "@testing-library/react";
+import { screen, within } from "@testing-library/react";
+import { render } from "@/test/render-with-favorites";
 import { describe, expect, it } from "vitest";
 
 import type { Category, Manufacturer } from "@/lib/api/catalog";
@@ -177,7 +178,7 @@ describe("HomePage", () => {
     expect(screen.queryByRole("heading", { name: "Категории" })).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Производители" })).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { level: 2, name: "Новинки недели" })).toBeInTheDocument();
-    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    expect(within(screen.getByRole("main")).queryByRole("status")).not.toBeInTheDocument();
   });
 
   it("keeps the hero and navigation with an honest notice when every section failed", () => {
@@ -187,7 +188,7 @@ describe("HomePage", () => {
       />,
     );
 
-    expect(screen.getByRole("status")).toHaveTextContent("Не удалось загрузить разделы каталога");
+    expect(within(screen.getByRole("main")).getByRole("status")).toHaveTextContent("Не удалось загрузить разделы каталога");
     expect(screen.getByRole("heading", { level: 1 })).toBeInTheDocument();
     expect(screen.queryAllByRole("heading", { level: 2 })).toHaveLength(0);
     const nav = screen.getByRole("navigation", { name: "Разделы магазина" });

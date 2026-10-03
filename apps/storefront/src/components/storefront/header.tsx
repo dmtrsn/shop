@@ -23,7 +23,7 @@ export function StorefrontHeader() {
           Подборки
         </Link>
         <GlobalSearch className={styles.search} />
-        <Link className={styles.utilityLink} href="/favorites">
+        <Link className={styles.utilityLink} href="/favorites" prefetch={false}>
           <HeartIcon />
           <span className={styles.utilityLabel}>Избранное</span>
         </Link>
@@ -42,10 +42,15 @@ export function StorefrontHeader() {
           <Link className={styles.logo} href="/" aria-label="Слой — на главную">
             Слой
           </Link>
-          <Link className={styles.mobileCart} href="/cart">
-            <CartIcon />
-            <span>Корзина</span>
-          </Link>
+          <div className={styles.mobileUtilities}>
+            <Link aria-label="Избранное" className={styles.mobileFavorite} href="/favorites" prefetch={false}>
+              <HeartIcon />
+            </Link>
+            <Link className={styles.mobileCart} href="/cart">
+              <CartIcon />
+              <span>Корзина</span>
+            </Link>
+          </div>
         </div>
         <GlobalSearch />
       </Container>

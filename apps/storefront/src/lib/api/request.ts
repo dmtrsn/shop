@@ -1,4 +1,7 @@
 import { getRequiredApiBaseUrl } from "./config";
+import { isRecord } from "./json";
+
+export { isRecord } from "./json";
 
 export type ApiRequestErrorKind =
   | "cancelled"
@@ -32,10 +35,6 @@ export type ApiRequestOptions = {
   signal?: AbortSignal;
   timeoutMs?: number;
 };
-
-export function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
 
 function responseRequestId(response: Response, body: unknown): string | undefined {
   const header = response.headers.get("x-request-id") || undefined;

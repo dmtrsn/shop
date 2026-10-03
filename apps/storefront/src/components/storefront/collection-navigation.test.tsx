@@ -1,4 +1,5 @@
-import { render, screen, within } from "@testing-library/react";
+import { screen, within } from "@testing-library/react";
+import { render } from "@/test/render-with-favorites";
 import { describe, expect, it } from "vitest";
 
 import type { Collection, CollectionPageData } from "@/lib/api/collection";

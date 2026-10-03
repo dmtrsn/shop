@@ -2,6 +2,8 @@ import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
 
 import { StorefrontHeader } from "@/components/storefront/header";
+import { FavoritesProvider } from "@/components/storefront/favorites-provider";
+import { getLegacyLoginHref } from "@/lib/legacy-login";
 
 import "@/styles/globals.css";
 
@@ -23,7 +25,7 @@ export default function RootLayout({ children }: Readonly<{ children: ReactNode 
           Перейти к содержимому
         </a>
         <StorefrontHeader />
-        {children}
+        <FavoritesProvider loginHref={getLegacyLoginHref()}>{children}</FavoritesProvider>
       </body>
     </html>
   );

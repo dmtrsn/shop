@@ -216,9 +216,32 @@ func Run(t *testing.T, handler http.Handler) {
 	request("POST", "/api/orders", `{"deliveryAddress":"Test"}`, 409, true)
 	request("PATCH", "/api/cart/items/p18", `{"selected":false}`, 200, true)
 	request("DELETE", "/api/cart/items/cha-701", "", 200, true)
-	request("PUT", "/api/favorites/cha-701", "ignored body", 200, true)
-	request("DELETE", "/api/favorites/cha-701", "", 200, true)
+	favorites := request("PUT", "/api/favorites/cha-701", "ignored body", 200, true)
+	repeatedFavorite := request("PUT", "/api/favorites/cha-701", "", 200, true)
+	if favorites["total"] != repeatedFavorite["total"] {
+		t.Fatal("repeated favorite PUT changed membership count")
+	}
+	favorites = request("DELETE", "/api/favorites/cha-701", "", 200, true)
+	repeatedFavorite = request("DELETE", "/api/favorites/cha-701", "", 200, true)
+	if favorites["total"] != repeatedFavorite["total"] {
+		t.Fatal("repeated favorite DELETE changed membership count")
+	}
+	request("PUT", "/api/favorites/missing", "", 404, true)
 	request("DELETE", "/api/favorites/missing", "", 404, true)
+	// p18 is out of stock (the cart request above returns 409), but remains
+	// eligible for favorites. Both adapters must return it as a full Product.
+	favorites = request("PUT", "/api/favorites/p18", "", 200, true)
+	foundUnavailable := false
+	for _, item := range favorites["items"].([]any) {
+		product := item.(map[string]any)
+		if product["id"] == "p18" && product["stock"] == float64(0) {
+			foundUnavailable = true
+		}
+	}
+	if !foundUnavailable {
+		t.Fatal("out-of-stock favorite missing from full product response")
+	}
+	request("DELETE", "/api/favorites/p18", "", 200, true)
 	for _, body := range []string{"", `{`, `{} {}`, `{"unexpected":true}`, `{"productId":"` + strings.Repeat("a", 1<<20) + `","quantity":1}`} {
 		request("POST", "/api/cart/items", body, 422, true)
 	}

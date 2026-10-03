@@ -96,6 +96,7 @@ export function ProductDetail({ product }: ProductDetailProps) {
               </p>
 
               <ProductPurchase
+                productID={product.id}
                 minimumQuantity={product.minimumQuantity}
                 productName={product.name}
                 quantityStep={product.quantityStep}
