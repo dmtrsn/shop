@@ -3,8 +3,9 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { deferred, favoriteProduct, favoriteResponse, jsonResponse, sessionResponse } from "@/test/favorites-fixtures";
+import { cartResponse } from "@/test/cart-fixtures";
 import { FavoriteButton } from "./favorite-button";
-import { FavoritesProvider, type FavoritesRouteSession } from "./favorites-provider";
+import { FavoritesProvider, type FavoritesRouteSession } from "@/test/private-providers";
 import { FavoritesView } from "./favorites-view";
 import { ProductCard, CompactProductCard } from "./product-card";
 
@@ -15,7 +16,7 @@ function respond(body: unknown) { fetcher.mockResolvedValueOnce(jsonResponse(bod
 function page(session: FavoritesRouteSession = { status: "authenticated", userID: "A" }, loginHref: string | null = null) {
   return render(<FavoritesProvider loginHref={loginHref}><FavoritesView initialSession={session} /></FavoritesProvider>);
 }
-beforeEach(() => { fetcher.mockReset(); vi.stubGlobal("fetch", fetcher); });
+beforeEach(() => { fetcher.mockReset(); vi.stubGlobal("fetch", (path: RequestInfo | URL, options?: RequestInit) => String(path) === "/api/cart" ? Promise.resolve(jsonResponse(cartResponse())) : fetcher(path, options)); });
 afterEach(() => { vi.unstubAllGlobals(); });
 
 describe("favorites route states and list", () => {
@@ -56,7 +57,7 @@ describe("favorites route states and list", () => {
     const titles = screen.getAllByRole("heading", { level: 2 });
     expect(titles.map((h) => h.textContent)).toEqual([p2.name, p1.name]);
     expect(screen.getByRole("link", { name: p2.name })).toHaveAttribute("href", `/products/${p2.slug}`);
-    expect(screen.getByText("Нет в наличии")).toBeInTheDocument();
+    expect(screen.getAllByText("Нет в наличии").length).toBeGreaterThan(0);
     expect(fetcher.mock.calls.map(([path]) => path)).toEqual(["/api/auth/session", "/api/favorites"]);
   });
   it("recovers keyboard focus to the next card and then the heading when empty", async () => {
@@ -93,7 +94,7 @@ describe("shared controls", () => {
     respond({ authenticated: false });
     render(<FavoritesProvider loginHref={null}><FavoriteButton productID="one" productName="Шоколад" /></FavoritesProvider>);
     fireEvent.click(await screen.findByRole("button", { name: "Войдите, чтобы сохранить: Шоколад" }));
-    expect(screen.getByRole("status")).toHaveTextContent("Чтобы сохранять избранное, войдите");
+    expect(screen.getByRole("status", { name: "Уведомления избранного" })).toHaveTextContent("Чтобы сохранять избранное, войдите");
     expect(screen.queryByRole("button", { pressed: false })).not.toBeInTheDocument();
     expect(fetcher).toHaveBeenCalledTimes(1);
   });

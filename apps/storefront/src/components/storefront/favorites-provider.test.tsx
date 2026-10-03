@@ -4,12 +4,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { deferred, favoriteProduct, favoriteResponse, jsonResponse, sessionResponse } from "@/test/favorites-fixtures";
 import { FavoriteButton } from "./favorite-button";
-import { FavoritesProvider, useFavorites } from "./favorites-provider";
+import { FavoritesProvider, useFavorites } from "@/test/private-providers";
 
 const p1 = favoriteProduct("p01");
 const p2 = favoriteProduct("p02");
 const fetcher = vi.fn<typeof fetch>();
-function respond(body: unknown, status = 200) { fetcher.mockResolvedValueOnce(jsonResponse(body, status)); }
+function respond(body: unknown, status = 200, owner = "A") { fetcher.mockResolvedValueOnce(jsonResponse(body, status, owner)); }
 function fail(status: number, code: string) { respond({ error: { code } }, status); }
 function requests() { return fetcher.mock.calls.map(([path, options]) => `${options?.method} ${path}`); }
 function Probe({ initialize = true }: { initialize?: boolean }) {
@@ -85,14 +85,14 @@ describe("authenticated snapshot ownership", () => {
     expect(view().ids).toBeNull();
     await waitFor(() => expect(view().userID).toBe("B"));
     expect(view().ids).toBeNull();
-    await act(async () => bList.resolve(jsonResponse(favoriteResponse(p2))));
+    await act(async () => bList.resolve(jsonResponse(favoriteResponse(p2), 200, "B")));
     await ready(["p02"], "B");
   });
   it("ignores A's late GET after switching to B even if abort is ignored", async () => {
     const aList = deferred<Response>();
     respond(sessionResponse()); fetcher.mockReturnValueOnce(aList.promise);
     mount(); await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(2));
-    respond(sessionResponse("B")); respond(favoriteResponse(p2));
+    respond(sessionResponse("B")); respond(favoriteResponse(p2), 200, "B");
     refresh(); await ready(["p02"], "B");
     await act(async () => aList.resolve(jsonResponse(favoriteResponse(p1))));
     expect(view()).toEqual({ status: "ready", userID: "B", ids: ["p02"] });
@@ -102,7 +102,7 @@ describe("authenticated snapshot ownership", () => {
     mount(); await ready([]);
     const write = deferred<Response>(); fetcher.mockReturnValueOnce(write.promise);
     fireEvent.click(first());
-    respond(sessionResponse("B")); respond(favoriteResponse(p2));
+    respond(sessionResponse("B")); respond(favoriteResponse(p2), 200, "B");
     refresh(); await ready(["p02"], "B");
     const response = outcome === "success" ? jsonResponse(favoriteResponse(p1))
       : jsonResponse({ error: { code: outcome === "401" ? "unauthorized" : "csrf_failed" } }, outcome === "401" ? 401 : 403);
@@ -129,7 +129,7 @@ describe("authenticated snapshot ownership", () => {
     const reconciliation = deferred<Response>();
     fail(500, "internal_error"); fetcher.mockReturnValueOnce(reconciliation.promise);
     fireEvent.click(first()); await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(4));
-    respond(sessionResponse("B")); respond(favoriteResponse(p2)); refresh();
+    respond(sessionResponse("B")); respond(favoriteResponse(p2), 200, "B"); refresh();
     await ready(["p02"], "B");
     await act(async () => reconciliation.resolve(jsonResponse(favoriteResponse(p1))));
     expect(view().ids).toEqual(["p02"]);
@@ -140,7 +140,7 @@ describe("authenticated snapshot ownership", () => {
     const recovery = deferred<Response>();
     fail(403, "csrf_failed"); fetcher.mockReturnValueOnce(recovery.promise);
     fireEvent.click(first()); await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(4));
-    if (destination === "B") { respond(sessionResponse("B")); respond(favoriteResponse(p2)); }
+    if (destination === "B") { respond(sessionResponse("B")); respond(favoriteResponse(p2), 200, "B"); }
     fireEvent.click(screen.getByText(`Enter ${destination} route`));
     expect(view().ids).toBeNull();
     if (destination === "B") await ready(["p02"], "B");
@@ -181,7 +181,7 @@ describe("confirmed mutations and recovery", () => {
     fail(403, "csrf_failed"); respond(sessionResponse("A", "new-csrf")); respond(favoriteResponse());
     fireEvent.click(first());
     await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(5)); await ready([]);
-    expect(screen.getByRole("status")).toHaveTextContent("Действие не выполнено");
+    expect(screen.getByRole("status", { name: "Уведомления избранного" })).toHaveTextContent("Действие не выполнено");
     expect(requests().filter((r) => r.startsWith("PUT"))).toHaveLength(1);
     respond(favoriteResponse(p1)); fireEvent.click(first()); await ready(["p01"]);
     expect(fetcher.mock.calls[5][1]?.headers).toEqual({ Accept: "application/json", "X-CSRF-Token": "new-csrf" });
@@ -212,7 +212,7 @@ describe("confirmed mutations and recovery", () => {
     fireEvent.click(first());
     await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(4));
     expect(view().ids).toBeNull();
-    expect(screen.getByRole("status")).toHaveTextContent("Не удалось подтвердить изменение");
+    expect(screen.getByRole("status", { name: "Уведомления избранного" })).toHaveTextContent("Не удалось подтвердить изменение");
     await act(async () => read.resolve(jsonResponse(favoriteResponse(p1))));
     await ready(["p01"]);
     expect(requests().slice(2)).toEqual(["PUT /api/favorites/p01", "GET /api/favorites"]);
@@ -229,7 +229,7 @@ describe("confirmed mutations and recovery", () => {
   it("404 reconciles a removed product; out-of-stock products remain removable", async () => {
     respond(sessionResponse()); respond(favoriteResponse({ ...p1, stock: 0 })); mount(); await ready(["p01"]);
     fail(404, "not_found"); respond(favoriteResponse()); fireEvent.click(first()); await ready([]);
-    expect(screen.getByRole("status")).toHaveTextContent("Товар больше недоступен");
+    expect(screen.getByRole("status", { name: "Уведомления избранного" })).toHaveTextContent("Товар больше недоступен");
     expect(requests().slice(2)).toEqual(["DELETE /api/favorites/p01", "GET /api/favorites"]);
   });
   it("a same-user visibility refresh reads only after the active network write settles", async () => {
@@ -241,7 +241,7 @@ describe("confirmed mutations and recovery", () => {
     await act(async () => write.resolve(jsonResponse(favoriteResponse(p1))));
     await ready(["p01"]);
     expect(requests()).toHaveLength(5);
-    expect(screen.getByRole("status")).not.toHaveTextContent("Сохраняем избранное");
+    expect(screen.getByRole("status", { name: "Уведомления избранного" })).not.toHaveTextContent("Сохраняем избранное");
   });
   it("unmounting controls leaves the provider's write alive across navigation", async () => {
     respond(sessionResponse()); respond(favoriteResponse());

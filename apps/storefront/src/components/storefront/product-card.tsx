@@ -2,22 +2,11 @@ import Link from "next/link";
 
 import type { Product } from "@/lib/api/product";
 
+import { CartControl } from "./cart-control";
 import { CatalogProductImage } from "./catalog-product-image";
 import { FavoriteButton } from "./favorite-button";
+import { ProductOffer } from "./product-offer";
 import styles from "./catalog.module.css";
-
-function formatMoney(amountMinor: number, currency: string): string {
-  return new Intl.NumberFormat("ru-RU", {
-    currency,
-    style: "currency",
-  }).format(amountMinor / 100);
-}
-
-function stockLabel(product: Product): string {
-  if (product.stock <= 0) return "Нет в наличии";
-  if (product.stock < product.minimumQuantity) return "Меньше минимального количества";
-  return "В наличии";
-}
 
 function productLineage(product: Product): string {
   const values = [product.manufacturer.name];
@@ -44,20 +33,6 @@ function ProductMedia({ product }: { product: Product }) {
         </span>
       ) : null}
     </Link>
-  );
-}
-
-function ProductPrice({ product }: { product: Product }) {
-  const hasOldPrice = Boolean(
-    product.oldPriceMinor && product.oldPriceMinor > product.priceMinor,
-  );
-  return (
-    <p aria-label="Цена" className={styles.price}>
-      <strong>{formatMoney(product.priceMinor, product.currency)}</strong>
-      {hasOldPrice ? (
-        <del>{formatMoney(product.oldPriceMinor as number, product.currency)}</del>
-      ) : null}
-    </p>
   );
 }
 
@@ -88,16 +63,14 @@ export function ProductCard({
           <span>Арт. {product.sku}</span>
           <span>{product.unit}</span>
         </p>
-        <p className={product.stock >= product.minimumQuantity ? styles.inStock : styles.outOfStock}>
-          <span aria-hidden="true" />
-          {stockLabel(product)}
-        </p>
+        <ProductOffer product={product} part="stock" />
         <div className={styles.cardFooter}>
-          <ProductPrice product={product} />
+          <ProductOffer product={product} part="price" />
           <Link className={styles.productLink} href={`/products/${product.slug}`}>
             Подробнее
           </Link>
         </div>
+        <div className={styles.cardCart}><CartControl product={product} /></div>
       </div>
     </article>
   );
@@ -117,11 +90,9 @@ export function CompactProductCard({ product }: { product: Product }) {
       </div>
       <p className={styles.compactLineage}>{productLineage(product)}</p>
       <p className={styles.compactUnit}>{product.unit}</p>
-      <p className={product.stock >= product.minimumQuantity ? styles.inStock : styles.outOfStock}>
-        <span aria-hidden="true" />
-        {stockLabel(product)}
-      </p>
-      <ProductPrice product={product} />
+      <ProductOffer product={product} part="stock" />
+      <ProductOffer product={product} part="price" />
+      <div className={styles.compactCart}><CartControl compact product={product} /></div>
       <div className={styles.compactOpen}>
         <FavoriteButton productID={product.id} productName={product.name} />
         <Link href={`/products/${product.slug}`}>Открыть</Link>

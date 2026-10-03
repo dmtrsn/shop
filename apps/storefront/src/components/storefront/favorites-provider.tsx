@@ -2,22 +2,20 @@
 
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
+import { ResponseOwnerError } from "@/lib/api/browser-request";
+import type { RouteSession } from "@/lib/api/browser-session";
 import type { Favorites } from "@/lib/api/favorites";
-import {
-  FavoritesRequestError, getBrowserFavorites, getBrowserSession, setBrowserFavorite,
-  type BrowserSession,
-} from "@/lib/api/favorites-client";
+import { FavoritesRequestError, getBrowserFavorites, setBrowserFavorite } from "@/lib/api/favorites-client";
 
+import { useBrowserSession, useBrowserSessionStore } from "./browser-session-provider";
 import styles from "./favorites.module.css";
 
-export type FavoritesRouteSession =
-  | { status: "authenticated"; userID: string }
-  | { status: "anonymous" | "unavailable" };
+export type FavoritesRouteSession = RouteSession;
 
 type State = {
   status: "idle" | "loading" | "ready" | "anonymous" | "unavailable";
   userID: string | null;
-  snapshot: { ownerUserID: string; favorites: Favorites } | null;
+  snapshot: { ownerUserID: string; generation: number; favorites: Favorites } | null;
   mutationPending: boolean;
   pendingProductID: string | null;
   message: string;
@@ -25,15 +23,16 @@ type State = {
 const initial: State = {
   status: "idle", userID: null, snapshot: null, mutationPending: false, pendingProductID: null, message: "",
 };
-type ReadJob = { generation: number; controller: AbortController; sessionPending: boolean; routeUserID?: string; promise: Promise<void> };
-type WriteJob = { generation: number; userID: string; productID: string; networkDone: Promise<void> };
+type WriteJob = { userID: string; networkDone: Promise<void> };
 type Runtime = {
   state: State;
-  session: Extract<BrowserSession, { status: "authenticated" }> | null;
-  generation: number;
-  read: ReadJob | null;
-  write: WriteJob | null;
+  initialized: boolean;
   alive: boolean;
+  generation: number;
+  seenSession: string;
+  read: AbortController | null;
+  reading: Promise<void>;
+  write: WriteJob | null;
 };
 
 type FavoritesContextValue = State & {
@@ -47,9 +46,16 @@ type FavoritesContextValue = State & {
 };
 const FavoritesContext = createContext<FavoritesContextValue | null>(null);
 
+const saving = "Сохраняем избранное…";
+
 export function FavoritesProvider({ children, loginHref }: { children: ReactNode; loginHref: string | null }) {
+  const store = useBrowserSessionStore();
+  const session = useBrowserSession();
   const [state, setState] = useState<State>(initial);
-  const runtime = useRef<Runtime>({ state: initial, session: null, generation: 0, read: null, write: null, alive: true });
+  const runtime = useRef<Runtime>({
+    state: initial, initialized: false, alive: true, generation: 0, seenSession: "",
+    read: null, reading: Promise.resolve(), write: null,
+  });
 
   const actions = useMemo(() => {
     const rt = runtime.current;
@@ -58,171 +64,176 @@ export function FavoritesProvider({ children, loginHref }: { children: ReactNode
       if (rt.alive) setState(next);
     }
     function message(text: string) { publish({ ...rt.state, message: text }); }
-    function current(generation: number, userID?: string) {
-      return rt.alive && rt.generation === generation && (!userID || rt.session?.userID === userID);
+    // A response may publish only for the feature generation, shared session
+    // generation and user that issued it, even if its fetch ignored abort.
+    function current(generation: number, sessionGeneration: number, userID: string) {
+      const shared = store.get();
+      return rt.alive && rt.generation === generation && shared.generation === sessionGeneration &&
+        shared.status === "authenticated" && shared.userID === userID;
     }
-    // Invalidate the owner and snapshot atomically. Async work must pass current()
-    // before it may publish, even if its fetch implementation ignores cancellation.
-    function invalidate(status: State["status"], text = rt.state.message) {
-      rt.generation++;
-      rt.read?.controller.abort();
-      rt.read = null;
-      rt.session = null;
-      publish({ ...initial, status, mutationPending: Boolean(rt.write), message: text });
+    function signedOut() {
+      message("Сессия завершена. Войдите снова, чтобы изменить избранное.");
+      store.invalidate("anonymous");
     }
-    function signedOut() { invalidate("anonymous", "Сессия завершена. Войдите снова, чтобы изменить избранное."); }
+    async function ownerMismatch(sessionGeneration: number) {
+      message("Не удалось подтвердить владельца избранного. Проверяем вход.");
+      await store.recoverOwner(sessionGeneration);
+    }
 
-    async function readFavorites(generation: number, userID: string, signal?: AbortSignal) {
+    async function read(userID: string, sessionGeneration: number) {
+      rt.read?.abort();
+      const controller = new AbortController();
+      rt.read = controller;
+      const generation = ++rt.generation;
+      // Unknown outcomes are never presented as a rollback or a successful
+      // local edit. Hide membership until Go answers the read-only check.
+      publish({ ...rt.state, status: "loading", userID, snapshot: null });
+      // For the same user, wait for an in-flight write to settle first.
+      if (rt.write?.userID === userID) await rt.write.networkDone;
+      if (!current(generation, sessionGeneration, userID)) return;
       try {
-        const favorites = await getBrowserFavorites({ signal });
-        if (!current(generation, userID)) return;
-        publish({ ...rt.state, status: "ready", userID, snapshot: { ownerUserID: userID, favorites } });
+        const favorites = await getBrowserFavorites({ expectedUserID: userID, signal: controller.signal });
+        if (!current(generation, sessionGeneration, userID)) return;
+        publish({
+          ...rt.state, status: "ready", userID,
+          snapshot: { ownerUserID: userID, generation: sessionGeneration, favorites },
+        });
       } catch (error) {
-        if (!current(generation, userID)) return;
-        if (error instanceof FavoritesRequestError && error.status === 401) signedOut();
-        else invalidate("unavailable", "Не удалось проверить избранное. Повторите загрузку перед следующим действием.");
+        if (!current(generation, sessionGeneration, userID)) return;
+        if (error instanceof ResponseOwnerError) await ownerMismatch(sessionGeneration);
+        else if (error instanceof FavoritesRequestError && error.status === 401) signedOut();
+        else {
+          publish({
+            ...rt.state, status: "unavailable", userID: null, snapshot: null,
+            message: "Не удалось проверить избранное. Повторите загрузку перед следующим действием.",
+          });
+        }
+      } finally {
+        if (rt.read === controller) rt.read = null;
       }
     }
 
-    function refresh(force = true, routeUserID?: string): Promise<void> {
-      // Share the session request. A deliberate refresh can supersede a slow
-      // favorites GET, but never starts parallel session/CSRF requests.
-      // A newly observed server route identity supersedes an older session
-      // check, including CSRF recovery. Effect replay for that route shares it.
-      if (rt.read && (!force || rt.read.sessionPending) &&
-          (!routeUserID || rt.read.routeUserID === routeUserID || rt.state.userID === routeUserID)) return rt.read.promise;
-      invalidate("loading");
-      const job: ReadJob = {
-        generation: rt.generation, controller: new AbortController(), sessionPending: true, routeUserID, promise: Promise.resolve(),
-      };
-      rt.read = job;
-      job.promise = (async () => {
-        const session = await getBrowserSession({ signal: job.controller.signal });
-        if (!current(job.generation)) return;
-        job.sessionPending = false;
-        if (session.status !== "authenticated") {
-          invalidate(session.status, session.status === "unavailable"
-            ? "Не удалось проверить вход. Попробуйте ещё раз."
-            : rt.state.message);
-          return;
-        }
-        rt.session = session;
-        publish({ ...rt.state, userID: session.userID });
-        // A visibility/session check may run during a write, so an account
-        // change can hide private data immediately. For the same user, wait
-        // for that network write to settle before reading the resulting list.
-        if (rt.write?.userID === session.userID) await rt.write.networkDone;
-        if (current(job.generation, session.userID)) {
-          await readFavorites(job.generation, session.userID, job.controller.signal);
-        }
-      })().finally(() => { if (rt.read === job) rt.read = null; });
-      return job.promise;
+    // Follows the shared session. Any identity transition hides the previous
+    // snapshot synchronously; an authenticated identity is read once.
+    function sync() {
+      if (!rt.initialized) return;
+      const shared = store.get();
+      const key = `${shared.generation}:${shared.status}`;
+      if (rt.seenSession === key) return;
+      rt.seenSession = key;
+      rt.generation++;
+      rt.read?.abort();
+      rt.read = null;
+      const text = shared.status === "unavailable" && rt.state.status !== "unavailable"
+        ? "Не удалось проверить вход. Попробуйте ещё раз."
+        : rt.state.message;
+      publish({
+        ...initial, status: shared.status === "authenticated" ? "loading" : shared.status,
+        mutationPending: Boolean(rt.write), message: text,
+      });
+      if (shared.status === "authenticated") rt.reading = read(shared.userID, shared.generation);
     }
 
-    async function reconcile(generation: number, userID: string) {
-      if (!current(generation, userID)) return;
-      // Unknown outcomes are never presented as a rollback or a successful
-      // local edit. Hide membership until Go answers the read-only check.
-      publish({ ...rt.state, status: "loading", snapshot: null });
-      await readFavorites(generation, userID);
+    async function initialize(request: Promise<void>) {
+      rt.initialized = true;
+      sync();
+      await request;
+      sync();
+      await rt.reading;
     }
 
     async function toggle(productID: string) {
-      const session = rt.session;
+      const shared = store.get();
       const snapshot = rt.state.snapshot;
-      if (rt.write || rt.read || rt.state.status !== "ready" || !session || snapshot?.ownerUserID !== session.userID) return;
+      if (rt.write || rt.read || rt.state.status !== "ready" || shared.status !== "authenticated" ||
+          snapshot?.ownerUserID !== shared.userID || snapshot.generation !== shared.generation) return;
+      const generation = rt.generation;
       const enabled = !snapshot.favorites.items.some((product) => product.id === productID);
       let networkFinished!: () => void;
       const job: WriteJob = {
-        generation: rt.generation, userID: session.userID, productID,
-        networkDone: new Promise<void>((resolve) => { networkFinished = resolve; }),
+        userID: shared.userID, networkDone: new Promise<void>((resolve) => { networkFinished = resolve; }),
       };
       // Synchronous lock: even another click in this same render cannot write.
       rt.write = job;
-      publish({ ...rt.state, mutationPending: true, pendingProductID: productID, message: "Сохраняем избранное…" });
+      publish({ ...rt.state, mutationPending: true, pendingProductID: productID, message: saving });
       try {
-        const favorites = await setBrowserFavorite(productID, enabled, session.csrfToken).finally(networkFinished);
-        if (!current(job.generation, job.userID)) return;
+        const favorites = await setBrowserFavorite(productID, enabled, shared.csrfToken, { expectedUserID: shared.userID })
+          .finally(networkFinished);
+        if (!current(generation, shared.generation, shared.userID)) return;
         publish({
-          ...rt.state, snapshot: { ownerUserID: job.userID, favorites },
+          ...rt.state, snapshot: { ownerUserID: shared.userID, generation: shared.generation, favorites },
           message: enabled ? "Товар добавлен в избранное." : "Товар удалён из избранного.",
         });
       } catch (error) {
-        if (!current(job.generation, job.userID)) return;
-        if (error instanceof FavoritesRequestError && error.status === 401) {
+        if (!current(generation, shared.generation, shared.userID)) return;
+        if (error instanceof ResponseOwnerError) {
+          await ownerMismatch(shared.generation);
+        } else if (error instanceof FavoritesRequestError && error.status === 401) {
           signedOut();
         } else if (error instanceof FavoritesRequestError && error.status === 403 && error.code === "csrf_failed") {
           message("Действие не выполнено. Проверяем вход; после проверки повторите действие.");
           // Only reads follow a rejected write. A changed user receives a new
           // owned snapshot, never the previous user's intent or response.
-          await refresh();
+          await initialize(store.refresh());
         } else if (error instanceof FavoritesRequestError && error.status === 404) {
           message("Товар больше недоступен. Обновляем избранное.");
-          await reconcile(job.generation, job.userID);
+          await read(shared.userID, shared.generation);
         } else if (error instanceof FavoritesRequestError && error.status && error.status >= 400 && error.status < 500) {
           message("Действие не выполнено. Попробуйте ещё раз.");
         } else {
           message("Не удалось подтвердить изменение. Проверяем сохранённое избранное.");
-          await reconcile(job.generation, job.userID);
+          await read(shared.userID, shared.generation);
         }
       } finally {
         if (rt.write === job) {
           rt.write = null;
-          publish({ ...rt.state, mutationPending: false, pendingProductID: null,
-            message: rt.state.message === "Сохраняем избранное…" ? "" : rt.state.message });
+          publish({
+            ...rt.state, mutationPending: false, pendingProductID: null,
+            message: rt.state.message === saving ? "" : rt.state.message,
+          });
         }
       }
     }
 
     return {
-      ensure: () => rt.state.status === "idle" ? refresh(false) : rt.read?.promise ?? Promise.resolve(),
-      refresh: () => refresh(),
-      enterRoute: (session: FavoritesRouteSession) => {
-        if (session.status === "authenticated") void refresh(true, session.userID);
-        else invalidate(session.status, "");
+      sync,
+      ensure: () => initialize(store.ensure()),
+      refresh: () => initialize(store.refresh()),
+      enterRoute: (route: FavoritesRouteSession) => {
+        void initialize(store.enterRoute(route));
+        // The route itself presents anonymous/unavailable; no extra toast.
+        if (route.status !== "authenticated") message("");
       },
       toggle,
       signInRequired: () => message("Чтобы сохранять избранное, войдите в свой аккаунт."),
     };
-  }, []);
+  }, [store]);
 
   useEffect(() => {
     const rt = runtime.current;
     rt.alive = true;
-    let wasHidden = document.visibilityState === "hidden";
-    let lastRevalidation = 0;
-    function revalidate() {
-      const now = Date.now();
-      if (rt.state.status !== "idle" && now - lastRevalidation >= 1_000) {
-        lastRevalidation = now;
-        void actions.refresh();
-      }
-    }
-    function visibility() {
-      if (document.visibilityState === "hidden") wasHidden = true;
-      else if (wasHidden) { wasHidden = false; revalidate(); }
-    }
-    function restored(event: PageTransitionEvent) { if (event.persisted) revalidate(); }
-    document.addEventListener("visibilitychange", visibility);
-    window.addEventListener("pageshow", restored);
+    const unsubscribe = store.subscribe(actions.sync);
+    actions.sync();
     return () => {
+      unsubscribe();
       rt.alive = false;
-      document.removeEventListener("visibilitychange", visibility);
-      window.removeEventListener("pageshow", restored);
       // React's development effect replay reattaches immediately. Keep that
       // initialization shared, but dispose real unmounts and ignore responses.
       queueMicrotask(() => {
-        if (!rt.alive) { rt.generation++; rt.read?.controller.abort(); rt.session = null; }
+        if (!rt.alive) { rt.generation++; rt.read?.abort(); }
       });
     };
-  }, [actions]);
+  }, [actions, store]);
 
-  const favorites = state.status === "ready" && state.userID && state.snapshot?.ownerUserID === state.userID
-    ? state.snapshot.favorites : null;
+  // Render-time ownership: a snapshot is visible only for the exact shared
+  // session user and generation that read it.
+  const owned = session.status === "authenticated" && state.snapshot?.ownerUserID === session.userID &&
+    state.snapshot.generation === session.generation;
+  const favorites = state.status === "ready" && owned ? state.snapshot!.favorites : null;
   return (
     <FavoritesContext.Provider value={{ ...state, ...actions, favorites, loginHref }}>
       {children}
-      <div aria-atomic="true" aria-live="polite" className={styles.feedback} role="status">
+      <div aria-atomic="true" aria-label="Уведомления избранного" aria-live="polite" className={styles.feedback} role="status">
         {state.message ? <span>{state.message}</span> : null}
       </div>
     </FavoritesContext.Provider>

@@ -26,8 +26,8 @@ export function sessionResponse(userID = "A", csrfToken = `csrf-${userID}`) {
   return { authenticated: true, user: { id: userID, name: "Покупатель", email: "user@example.test" }, csrfToken, demoLogin: false };
 }
 
-export function jsonResponse(body: unknown, status = 200) {
-  return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
+export function jsonResponse(body: unknown, status = 200, owner: string | null = "A") {
+  return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json", ...(owner === null ? {} : { "X-Authenticated-User-ID": owner }) } });
 }
 
 export function deferred<T>() {

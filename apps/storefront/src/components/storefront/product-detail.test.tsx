@@ -57,11 +57,11 @@ describe("ProductDetail", () => {
     expect(screen.getByText("В наличии")).toBeInTheDocument();
     expect(screen.getByText("Минимум 2 · шаг 2")).toBeInTheDocument();
 
-    const quantity = screen.getByRole("spinbutton", { name: `Количество: ${product.name}` });
-    expect(quantity).toHaveValue(2);
-    await user.click(screen.getByRole("button", { name: `Увеличить: количество: ${product.name.toLowerCase()}` }));
-    expect(quantity).toHaveValue(4);
-    expect(screen.getByRole("button", { name: /добавление в корзину/i })).toBeDisabled();
+    const quantity = screen.getByRole("textbox", { name: `Количество: ${product.name}` });
+    expect(quantity).toHaveValue("2");
+    await user.clear(quantity); await user.type(quantity, "4");
+    expect(quantity).toHaveValue("4");
+    expect(screen.getByRole("button", { name: /добавить в корзину/i })).toHaveAttribute("aria-disabled", "true");
     expect(screen.getByText(/не резервирует товар/i)).toBeInTheDocument();
   });
 

@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { FavoritesProvider } from "@/components/storefront/favorites-provider";
+import { FavoritesProvider } from "@/test/private-providers";
 import { favoriteProduct, sessionResponse } from "@/test/favorites-fixtures";
 
 const { getServerSession } = vi.hoisted(() => ({ getServerSession: vi.fn() }));

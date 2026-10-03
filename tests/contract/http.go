@@ -112,6 +112,17 @@ func Run(t *testing.T, handler http.Handler) {
 				t.Fatal("private response missing no-store")
 			}
 		}
+		protected := path == "/api/me" || strings.HasPrefix(path, "/api/cart") || strings.HasPrefix(path, "/api/favorites") || strings.HasPrefix(path, "/api/orders")
+		if protected {
+			owner := rec.Header().Get("X-Authenticated-User-ID")
+			if status == 401 || status == 403 {
+				if owner != "" {
+					t.Fatal("rejected request exposes owner")
+				}
+			} else if owner != "usr-demo" {
+				t.Fatalf("%s %s owner=%q", method, path, owner)
+			}
+		}
 		validation := &openapi3filter.ResponseValidationInput{RequestValidationInput: &openapi3filter.RequestValidationInput{Request: req, PathParams: params, Route: route}, Status: rec.Code, Header: rec.Header(), Options: &openapi3filter.Options{IncludeResponseStatus: true}}
 		if err := openapi3filter.ValidateResponse(context.Background(), validation.SetBodyBytes(rec.Body.Bytes())); err != nil {
 			t.Fatalf("%s %s response contract: %v", method, path, err)

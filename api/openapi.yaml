@@ -312,6 +312,8 @@ paths:
         '200':
           description: Success
           headers:
+            X-Authenticated-User-ID:
+              $ref: '#/components/headers/AuthenticatedUserID'
             X-Request-ID:
               description: Echoed X-Request-ID or server-generated identifier.
               schema:
@@ -328,6 +330,8 @@ paths:
         '500':
           description: internal_error; unexpected storage or server failure.
           headers:
+            X-Authenticated-User-ID:
+              $ref: '#/components/headers/AuthenticatedUserID'
             X-Request-ID:
               description: Echoed X-Request-ID or server-generated identifier.
               schema:
@@ -690,6 +694,8 @@ paths:
         '200':
           description: Success
           headers:
+            X-Authenticated-User-ID:
+              $ref: '#/components/headers/AuthenticatedUserID'
             X-Request-ID:
               description: Echoed X-Request-ID or server-generated identifier.
               schema:
@@ -706,6 +712,8 @@ paths:
         '500':
           description: internal_error; unexpected storage or server failure.
           headers:
+            X-Authenticated-User-ID:
+              $ref: '#/components/headers/AuthenticatedUserID'
             X-Request-ID:
               description: Echoed X-Request-ID or server-generated identifier.
               schema:
@@ -739,6 +747,8 @@ paths:
         '200':
           description: Success
           headers:
+            X-Authenticated-User-ID:
+              $ref: '#/components/headers/AuthenticatedUserID'
             X-Request-ID:
               description: Echoed X-Request-ID or server-generated identifier.
               schema:
@@ -755,6 +765,8 @@ paths:
         '500':
           description: internal_error; unexpected storage or server failure.
           headers:
+            X-Authenticated-User-ID:
+              $ref: '#/components/headers/AuthenticatedUserID'
             X-Request-ID:
               description: Echoed X-Request-ID or server-generated identifier.
               schema:
@@ -805,6 +817,8 @@ paths:
         '201':
           description: Success
           headers:
+            X-Authenticated-User-ID:
+              $ref: '#/components/headers/AuthenticatedUserID'
             X-Request-ID:
               description: Echoed X-Request-ID or server-generated identifier.
               schema:
@@ -821,6 +835,8 @@ paths:
         '500':
           description: internal_error; unexpected storage or server failure.
           headers:
+            X-Authenticated-User-ID:
+              $ref: '#/components/headers/AuthenticatedUserID'
             X-Request-ID:
               description: Echoed X-Request-ID or server-generated identifier.
               schema:
@@ -857,6 +873,8 @@ paths:
         '404':
           description: not_found
           headers:
+            X-Authenticated-User-ID:
+              $ref: '#/components/headers/AuthenticatedUserID'
             X-Request-ID:
               description: Echoed X-Request-ID or server-generated identifier.
               schema:
@@ -868,6 +886,8 @@ paths:
         '409':
           description: out_of_stock or conflict
           headers:
+            X-Authenticated-User-ID:
+              $ref: '#/components/headers/AuthenticatedUserID'
             X-Request-ID:
               description: Echoed X-Request-ID or server-generated identifier.
               schema:
@@ -879,6 +899,8 @@ paths:
         '422':
           description: validation_error; optional error.fields identifies invalid input.
           headers:
+            X-Authenticated-User-ID:
+              $ref: '#/components/headers/AuthenticatedUserID'
             X-Request-ID:
               description: Echoed X-Request-ID or server-generated identifier.
               schema:
@@ -907,6 +929,8 @@ paths:
         '200':
           description: Success
           headers:
+            X-Authenticated-User-ID:
+              $ref: '#/components/headers/AuthenticatedUserID'
             X-Request-ID:
               description: Echoed X-Request-ID or server-generated identifier.
               schema:
@@ -923,6 +947,8 @@ paths:
         '500':
           description: internal_error; unexpected storage or server failure.
           headers:
+            X-Authenticated-User-ID:
+              $ref: '#/components/headers/AuthenticatedUserID'
             X-Request-ID:
               description: Echoed X-Request-ID or server-generated identifier.
               schema:
@@ -959,6 +985,8 @@ paths:
         '404':
           description: not_found
           headers:
+            X-Authenticated-User-ID:
+              $ref: '#/components/headers/AuthenticatedUserID'
             X-Request-ID:
               description: Echoed X-Request-ID or server-generated identifier.
               schema:
@@ -970,6 +998,8 @@ paths:
         '409':
           description: out_of_stock or conflict
           headers:
+            X-Authenticated-User-ID:
+              $ref: '#/components/headers/AuthenticatedUserID'
             X-Request-ID:
               description: Echoed X-Request-ID or server-generated identifier.
               schema:
@@ -981,6 +1011,8 @@ paths:
         '422':
           description: validation_error; optional error.fields identifies invalid input.
           headers:
+            X-Authenticated-User-ID:
+              $ref: '#/components/headers/AuthenticatedUserID'
             X-Request-ID:
               description: Echoed X-Request-ID or server-generated identifier.
               schema:
@@ -1008,6 +1040,8 @@ paths:
         '200':
           description: Success
           headers:
+            X-Authenticated-User-ID:
+              $ref: '#/components/headers/AuthenticatedUserID'
             X-Request-ID:
               description: Echoed X-Request-ID or server-generated identifier.
               schema:
@@ -1024,6 +1058,8 @@ paths:
         '500':
           description: internal_error; unexpected storage or server failure.
           headers:
+            X-Authenticated-User-ID:
+              $ref: '#/components/headers/AuthenticatedUserID'
             X-Request-ID:
               description: Echoed X-Request-ID or server-generated identifier.
               schema:
@@ -1073,6 +1109,8 @@ paths:
         '200':
           description: Success
           headers:
+            X-Authenticated-User-ID:
+              $ref: '#/components/headers/AuthenticatedUserID'
             X-Request-ID:
               description: Echoed X-Request-ID or server-generated identifier.
               schema:
@@ -1089,6 +1127,8 @@ paths:
         '500':
           description: internal_error; unexpected storage or server failure.
           headers:
+            X-Authenticated-User-ID:
+              $ref: '#/components/headers/AuthenticatedUserID'
             X-Request-ID:
               description: Echoed X-Request-ID or server-generated identifier.
               schema:
@@ -1125,6 +1165,8 @@ paths:
         '422':
           description: validation_error; optional error.fields identifies invalid input.
           headers:
+            X-Authenticated-User-ID:
+              $ref: '#/components/headers/AuthenticatedUserID'
             X-Request-ID:
               description: Echoed X-Request-ID or server-generated identifier.
               schema:
@@ -1151,6 +1193,8 @@ paths:
         '200':
           description: Success
           headers:
+            X-Authenticated-User-ID:
+              $ref: '#/components/headers/AuthenticatedUserID'
             X-Request-ID:
               description: Echoed X-Request-ID or server-generated identifier.
               schema:
@@ -1167,6 +1211,8 @@ paths:
         '500':
           description: internal_error; unexpected storage or server failure.
           headers:
+            X-Authenticated-User-ID:
+              $ref: '#/components/headers/AuthenticatedUserID'
             X-Request-ID:
               description: Echoed X-Request-ID or server-generated identifier.
               schema:
@@ -1201,6 +1247,8 @@ paths:
         '200':
           description: Success
           headers:
+            X-Authenticated-User-ID:
+              $ref: '#/components/headers/AuthenticatedUserID'
             X-Request-ID:
               description: Echoed X-Request-ID or server-generated identifier.
               schema:
@@ -1217,6 +1265,8 @@ paths:
         '500':
           description: internal_error; unexpected storage or server failure.
           headers:
+            X-Authenticated-User-ID:
+              $ref: '#/components/headers/AuthenticatedUserID'
             X-Request-ID:
               description: Echoed X-Request-ID or server-generated identifier.
               schema:
@@ -1253,6 +1303,8 @@ paths:
         '404':
           description: not_found
           headers:
+            X-Authenticated-User-ID:
+              $ref: '#/components/headers/AuthenticatedUserID'
             X-Request-ID:
               description: Echoed X-Request-ID or server-generated identifier.
               schema:
@@ -1275,6 +1327,8 @@ paths:
         '200':
           description: Success
           headers:
+            X-Authenticated-User-ID:
+              $ref: '#/components/headers/AuthenticatedUserID'
             X-Request-ID:
               description: Echoed X-Request-ID or server-generated identifier.
               schema:
@@ -1291,6 +1345,8 @@ paths:
         '500':
           description: internal_error; unexpected storage or server failure.
           headers:
+            X-Authenticated-User-ID:
+              $ref: '#/components/headers/AuthenticatedUserID'
             X-Request-ID:
               description: Echoed X-Request-ID or server-generated identifier.
               schema:
@@ -1327,6 +1383,8 @@ paths:
         '404':
           description: not_found
           headers:
+            X-Authenticated-User-ID:
+              $ref: '#/components/headers/AuthenticatedUserID'
             X-Request-ID:
               description: Echoed X-Request-ID or server-generated identifier.
               schema:
@@ -1349,6 +1407,8 @@ paths:
         '200':
           description: Success
           headers:
+            X-Authenticated-User-ID:
+              $ref: '#/components/headers/AuthenticatedUserID'
             X-Request-ID:
               description: Echoed X-Request-ID or server-generated identifier.
               schema:
@@ -1365,6 +1425,8 @@ paths:
         '500':
           description: internal_error; unexpected storage or server failure.
           headers:
+            X-Authenticated-User-ID:
+              $ref: '#/components/headers/AuthenticatedUserID'
             X-Request-ID:
               description: Echoed X-Request-ID or server-generated identifier.
               schema:
@@ -1401,6 +1463,8 @@ paths:
         '201':
           description: Success
           headers:
+            X-Authenticated-User-ID:
+              $ref: '#/components/headers/AuthenticatedUserID'
             X-Request-ID:
               description: Echoed X-Request-ID or server-generated identifier.
               schema:
@@ -1417,6 +1481,8 @@ paths:
         '500':
           description: internal_error; unexpected storage or server failure.
           headers:
+            X-Authenticated-User-ID:
+              $ref: '#/components/headers/AuthenticatedUserID'
             X-Request-ID:
               description: Echoed X-Request-ID or server-generated identifier.
               schema:
@@ -1453,6 +1519,8 @@ paths:
         '409':
           description: out_of_stock or conflict
           headers:
+            X-Authenticated-User-ID:
+              $ref: '#/components/headers/AuthenticatedUserID'
             X-Request-ID:
               description: Echoed X-Request-ID or server-generated identifier.
               schema:
@@ -1464,6 +1532,8 @@ paths:
         '422':
           description: validation_error; optional error.fields identifies invalid input.
           headers:
+            X-Authenticated-User-ID:
+              $ref: '#/components/headers/AuthenticatedUserID'
             X-Request-ID:
               description: Echoed X-Request-ID or server-generated identifier.
               schema:
@@ -1490,6 +1560,8 @@ paths:
         '200':
           description: Success
           headers:
+            X-Authenticated-User-ID:
+              $ref: '#/components/headers/AuthenticatedUserID'
             X-Request-ID:
               description: Echoed X-Request-ID or server-generated identifier.
               schema:
@@ -1506,6 +1578,8 @@ paths:
         '500':
           description: internal_error; unexpected storage or server failure.
           headers:
+            X-Authenticated-User-ID:
+              $ref: '#/components/headers/AuthenticatedUserID'
             X-Request-ID:
               description: Echoed X-Request-ID or server-generated identifier.
               schema:
@@ -1530,6 +1604,8 @@ paths:
         '404':
           description: not_found
           headers:
+            X-Authenticated-User-ID:
+              $ref: '#/components/headers/AuthenticatedUserID'
             X-Request-ID:
               description: Echoed X-Request-ID or server-generated identifier.
               schema:
@@ -1553,6 +1629,8 @@ paths:
         '200':
           description: Success
           headers:
+            X-Authenticated-User-ID:
+              $ref: '#/components/headers/AuthenticatedUserID'
             X-Request-ID:
               description: Echoed X-Request-ID or server-generated identifier.
               schema:
@@ -1569,6 +1647,8 @@ paths:
         '500':
           description: internal_error; unexpected storage or server failure.
           headers:
+            X-Authenticated-User-ID:
+              $ref: '#/components/headers/AuthenticatedUserID'
             X-Request-ID:
               description: Echoed X-Request-ID or server-generated identifier.
               schema:
@@ -1605,6 +1685,8 @@ paths:
         '404':
           description: not_found
           headers:
+            X-Authenticated-User-ID:
+              $ref: '#/components/headers/AuthenticatedUserID'
             X-Request-ID:
               description: Echoed X-Request-ID or server-generated identifier.
               schema:
@@ -1632,6 +1714,8 @@ paths:
         '200':
           description: Success
           headers:
+            X-Authenticated-User-ID:
+              $ref: '#/components/headers/AuthenticatedUserID'
             X-Request-ID:
               description: Echoed X-Request-ID or server-generated identifier.
               schema:
@@ -1648,6 +1732,8 @@ paths:
         '500':
           description: internal_error; unexpected storage or server failure.
           headers:
+            X-Authenticated-User-ID:
+              $ref: '#/components/headers/AuthenticatedUserID'
             X-Request-ID:
               description: Echoed X-Request-ID or server-generated identifier.
               schema:
@@ -1684,6 +1770,8 @@ paths:
         '404':
           description: not_found
           headers:
+            X-Authenticated-User-ID:
+              $ref: '#/components/headers/AuthenticatedUserID'
             X-Request-ID:
               description: Echoed X-Request-ID or server-generated identifier.
               schema:
@@ -1695,6 +1783,8 @@ paths:
         '409':
           description: out_of_stock or conflict
           headers:
+            X-Authenticated-User-ID:
+              $ref: '#/components/headers/AuthenticatedUserID'
             X-Request-ID:
               description: Echoed X-Request-ID or server-generated identifier.
               schema:
@@ -1706,6 +1796,8 @@ paths:
         '422':
           description: validation_error; optional error.fields identifies invalid input.
           headers:
+            X-Authenticated-User-ID:
+              $ref: '#/components/headers/AuthenticatedUserID'
             X-Request-ID:
               description: Echoed X-Request-ID or server-generated identifier.
               schema:
@@ -1723,6 +1815,11 @@ paths:
       parameters:
       - $ref: '#/components/parameters/order'
 components:
+  headers:
+    AuthenticatedUserID:
+      description: Canonical user ID that authorized this request. Present after successful authentication, including downstream errors and HEAD; absent on authentication or pre-authentication CSRF rejection. Derived only from Go authentication, never an incoming header. Not a credential or revision.
+      schema:
+        type: string
   securitySchemes:
     bearerAuth:
       type: http

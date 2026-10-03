@@ -6,6 +6,7 @@ import type { Product } from "@/lib/api/product";
 import { categoryUrl } from "@/lib/category-tree";
 
 import { ProductGallery } from "./product-gallery";
+import { ProductOffer } from "./product-offer";
 import { ProductPurchase } from "./product-purchase";
 import styles from "./product-detail.module.css";
 
@@ -13,21 +14,11 @@ type ProductDetailProps = {
   product: Product;
 };
 
-function formatMoney(amountMinor: number, currency: string): string {
-  return new Intl.NumberFormat("ru-RU", {
-    currency,
-    style: "currency",
-  }).format(amountMinor / 100);
-}
-
 function productImages(product: Product): string[] {
   return Array.from(new Set([product.image, ...product.gallery].filter(Boolean)));
 }
 
 export function ProductDetail({ product }: ProductDetailProps) {
-  const isAvailable = product.stock >= product.minimumQuantity;
-  const oldPriceIsReal =
-    product.oldPriceMinor !== undefined && product.oldPriceMinor > product.priceMinor;
   const attributes: Array<[string, ReactNode] | undefined> = [
     ["Категория", <Link href={categoryUrl(product.category.slug)} key="category">{product.category.name}</Link>],
     ["Производитель", product.manufacturer.name],
@@ -77,31 +68,10 @@ export function ProductDetail({ product }: ProductDetailProps) {
                 ) : null}
               </div>
 
-              <div aria-label="Цена" className={styles.priceGroup}>
-                <span className={styles.price}>{formatMoney(product.priceMinor, product.currency)}</span>
-                {oldPriceIsReal ? (
-                  <del className={styles.oldPrice}>
-                    {formatMoney(product.oldPriceMinor as number, product.currency)}
-                  </del>
-                ) : null}
-              </div>
+              <ProductOffer product={product} part="price" detail />
+              <ProductOffer product={product} part="stock" detail />
 
-              <p className={isAvailable ? styles.stockAvailable : styles.stockUnavailable}>
-                <span aria-hidden="true" className={styles.stockMarker} />
-                {isAvailable
-                  ? "В наличии"
-                  : product.stock > 0
-                    ? "Недостаточно для минимального заказа"
-                    : "Нет в наличии"}
-              </p>
-
-              <ProductPurchase
-                productID={product.id}
-                minimumQuantity={product.minimumQuantity}
-                productName={product.name}
-                quantityStep={product.quantityStep}
-                stock={product.stock}
-              />
+              <ProductPurchase product={product} />
             </div>
           </div>
 

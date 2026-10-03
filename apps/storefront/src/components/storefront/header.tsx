@@ -31,7 +31,7 @@ export function StorefrontHeader() {
           <UserIcon />
           <span className={styles.utilityLabel}>Аккаунт</span>
         </Link>
-        <Link className={`${styles.utilityLink} ${styles.cart}`} href="/cart">
+        <Link className={`${styles.utilityLink} ${styles.cart}`} href="/cart" prefetch={false}>
           <CartIcon />
           <span>Корзина</span>
         </Link>
@@ -46,7 +46,7 @@ export function StorefrontHeader() {
             <Link aria-label="Избранное" className={styles.mobileFavorite} href="/favorites" prefetch={false}>
               <HeartIcon />
             </Link>
-            <Link className={styles.mobileCart} href="/cart">
+            <Link className={styles.mobileCart} href="/cart" prefetch={false}>
               <CartIcon />
               <span>Корзина</span>
             </Link>

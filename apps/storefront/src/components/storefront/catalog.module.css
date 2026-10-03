@@ -25,6 +25,7 @@
 .heading {
   display: flex;
   align-items: end;
+  flex-wrap: wrap;
   justify-content: space-between;
   gap: var(--space-6);
   padding-block: var(--space-5);
@@ -1015,5 +1016,24 @@
 
   .pagination .pageItem:not(:has([aria-current="page"])) {
     display: none;
+  }
+}
+
+/* Cart controls get their own row so price, links and identity are not compressed. */
+.cardCart {
+  min-width: 0;
+  padding-top: var(--space-3);
+}
+
+.compactCart {
+  grid-column: 2 / -1;
+  grid-row: 2;
+  min-width: 0;
+}
+
+@media (max-width: 61rem) {
+  .compactCart {
+    grid-column: 1 / -1;
+    grid-row: auto;
   }
 }

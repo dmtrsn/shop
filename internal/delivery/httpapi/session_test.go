@@ -599,3 +599,60 @@ func TestParseTrustedOrigins(t *testing.T) {
 		}
 	}
 }
+
+func TestAuthenticatedResponseOwner(t *testing.T) {
+	h := demoHarness(t)
+	cookie, csrf := h.cookieLogin(nil)
+	login := h.do("POST", "/api/auth/login", demoLogin, nil)
+	var bearer struct {
+		Token string `json:"token"`
+	}
+	if err := json.Unmarshal(login.Body.Bytes(), &bearer); err != nil {
+		t.Fatal(err)
+	}
+	for _, credentials := range []map[string]string{h.mutation(cookie, csrf), {"Authorization": "Bearer " + bearer.Token}} {
+		credentials["X-Authenticated-User-ID"] = "spoofed-owner"
+		for _, tc := range []struct {
+			method, path, body string
+			status             int
+		}{
+			{"GET", "/api/cart", "", 200}, {"HEAD", "/api/cart", "", 200},
+			{"POST", "/api/cart/items", `{"productId":"p02","quantity":1}`, 201},
+			{"PATCH", "/api/cart/items/p02", `{"selected":false}`, 200},
+			{"PATCH", "/api/cart/selection", `{"productIds":["p02"],"selected":true}`, 200},
+			{"DELETE", "/api/cart/items/p02", "", 200},
+			{"GET", "/api/favorites", "", 200}, {"PUT", "/api/favorites/p02", "", 200},
+			{"DELETE", "/api/favorites/p02", "", 200},
+			{"PATCH", "/api/cart/items/missing", `{"selected":false}`, 404},
+			{"POST", "/api/cart/items", `{"productId":"p02","quantity":0}`, 422},
+		} {
+			response := h.do(tc.method, tc.path, tc.body, credentials)
+			expectStatus(t, response, tc.status)
+			if got := response.Header().Get("X-Authenticated-User-ID"); got != domain.DemoUserID {
+				t.Fatalf("%s %s owner=%q", tc.method, tc.path, got)
+			}
+			if response.Header().Get("Cache-Control") != "no-store" {
+				t.Fatal("missing no-store")
+			}
+		}
+	}
+	for _, tc := range []struct {
+		method  string
+		headers map[string]string
+		status  int
+	}{
+		{"GET", map[string]string{"X-Authenticated-User-ID": "spoofed"}, 401},
+		{"GET", h.cookieHeader("invalid"), 401},
+		{"POST", h.mutation(cookie, "wrong-csrf"), 403},
+	} {
+		path := "/api/cart"
+		if tc.method == "POST" {
+			path += "/items"
+		}
+		response := h.do(tc.method, path, `{"productId":"p02","quantity":1}`, tc.headers)
+		expectStatus(t, response, tc.status)
+		if response.Header().Get("X-Authenticated-User-ID") != "" {
+			t.Fatal("rejected request has owner")
+		}
+	}
+}

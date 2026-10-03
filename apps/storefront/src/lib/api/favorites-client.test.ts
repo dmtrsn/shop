@@ -24,14 +24,14 @@ describe("browser favorites transport", () => {
   it("GETs only the same-origin favorites representation", async () => {
     const body = favoriteResponse(favoriteProduct());
     const fetcher = vi.fn().mockResolvedValue(jsonResponse(body));
-    expect(await getBrowserFavorites({ fetcher })).toEqual(body);
+    expect(await getBrowserFavorites({ expectedUserID: "A", fetcher })).toEqual(body);
     expect(fetcher).toHaveBeenCalledExactlyOnceWith("/api/favorites", expect.objectContaining({
       method: "GET", credentials: "same-origin", cache: "no-store", headers: { Accept: "application/json" },
     }));
   });
   it.each([[true, "PUT"], [false, "DELETE"]] as const)("mutation enabled=%s has exact CSRF header, no body or credentials in headers", async (enabled, method) => {
     const fetcher = vi.fn().mockResolvedValue(jsonResponse(favoriteResponse()));
-    await setBrowserFavorite("id/with spaces", enabled, "current-csrf", { fetcher });
+    await setBrowserFavorite("id/with spaces", enabled, "current-csrf", { expectedUserID: "A", fetcher });
     expect(fetcher).toHaveBeenCalledExactlyOnceWith("/api/favorites/id%2Fwith%20spaces", expect.objectContaining({
       method, credentials: "same-origin", cache: "no-store",
       headers: { Accept: "application/json", "X-CSRF-Token": "current-csrf" },
@@ -44,20 +44,20 @@ describe("browser favorites transport", () => {
   });
   it("preserves csrf_failed and does not retry within transport", async () => {
     const fetcher = vi.fn().mockResolvedValue(jsonResponse({ error: { code: "csrf_failed" } }, 403));
-    await expect(setBrowserFavorite("p", true, "old-csrf", { fetcher })).rejects.toMatchObject({ status: 403, code: "csrf_failed" });
+    await expect(setBrowserFavorite("p", true, "old-csrf", { expectedUserID: "A", fetcher })).rejects.toMatchObject({ status: 403, code: "csrf_failed" });
     expect(fetcher).toHaveBeenCalledTimes(1);
   });
   it("preserves a 401 even when the error body is not JSON", async () => {
-    await expect(getBrowserFavorites({ fetcher: vi.fn().mockResolvedValue(new Response("Unauthorized", { status: 401 })) })).rejects.toMatchObject({ status: 401 });
+    await expect(getBrowserFavorites({ expectedUserID: "A", fetcher: vi.fn().mockResolvedValue(new Response("Unauthorized", { status: 401 })) })).rejects.toMatchObject({ status: 401 });
   });
   it("rejects an invalid successful representation", async () => {
-    await expect(setBrowserFavorite("p", true, "csrf", { fetcher: vi.fn().mockResolvedValue(jsonResponse({ items: [] })) })).rejects.toThrow();
+    await expect(setBrowserFavorite("p", true, "csrf", { expectedUserID: "A", fetcher: vi.fn().mockResolvedValue(jsonResponse({ items: [] })) })).rejects.toThrow();
   });
   it("a mutation timeout is an uncertain request failure, with no retry", async () => {
     const fetcher = vi.fn<typeof fetch>().mockImplementation((_url, options) => new Promise((_resolve, reject) => {
       options?.signal?.addEventListener("abort", () => reject(new Error("timeout")));
     }));
-    await expect(setBrowserFavorite("p", true, "csrf", { fetcher, timeoutMs: 5 })).rejects.toBeInstanceOf(FavoritesRequestError);
+    await expect(setBrowserFavorite("p", true, "csrf", { expectedUserID: "A", fetcher, timeoutMs: 5 })).rejects.toBeInstanceOf(FavoritesRequestError);
     expect(fetcher).toHaveBeenCalledTimes(1);
   });
 });

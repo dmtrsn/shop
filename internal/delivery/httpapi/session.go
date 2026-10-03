@@ -300,6 +300,9 @@ func (s *Server) auth(next http.Handler) http.Handler {
 			s.writeError(w, r, domain.ErrUnauthorized)
 			return
 		}
+		// Bind every protected response to the identity that authorized this request.
+		// Never use an incoming owner header: cookies may change between requests.
+		w.Header().Set("X-Authenticated-User-ID", user.ID)
 		setAuthTransport(r, string(transport))
 		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), userKey, user)))
 	})
