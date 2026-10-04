@@ -31,6 +31,10 @@ describe("StorefrontHeader", () => {
       "/collections",
     );
     expect(screen.getAllByRole("link", { name: "Корзина" })).toHaveLength(2);
+    for (const link of screen.getAllByRole("link", { name: "Заказы" })) {
+      expect(link).toHaveAttribute("href", "/account/orders");
+    }
+    expect(screen.getAllByRole("link", { name: "Заказы" })).toHaveLength(2);
     for (const link of screen.getAllByRole("link", { name: "Избранное" })) {
       expect(link).toHaveAttribute("href", "/favorites");
       expect(link).not.toHaveTextContent(/\d/);

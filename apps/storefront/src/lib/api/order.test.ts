@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { orderItem, orderResponse } from "@/test/order-fixtures";
 
-import { parseOrder } from "./order";
+import { parseOrder, parseOrderHistory } from "./order";
 
 describe("Order parser", () => {
   it("keeps exactly Go's fields and server strings; zero deliveredAt means not delivered", () => {
@@ -36,5 +36,34 @@ describe("Order parser", () => {
     ["missing sku", orderResponse({ items: [{ ...orderItem(), sku: undefined }] })],
   ])("rejects malformed private data: %s", (_name, body) => {
     expect(() => parseOrder(body)).toThrow();
+  });
+});
+
+describe("Order history parser", () => {
+  it("parses full snapshots in server order, including empty history", () => {
+    const first = orderResponse();
+    const second = orderResponse({ id: "older", number: "#1" });
+    expect(parseOrderHistory({ items: [first, second] })).toEqual([parseOrder(first), parseOrder(second)]);
+    expect(parseOrderHistory({ items: [] })).toEqual([]);
+  });
+
+  it("normalizes null history items without losing units or weakening detail", () => {
+    const order = orderResponse({ items: null, itemCount: 7 });
+    expect(parseOrderHistory({ items: [order] })[0]).toMatchObject({ items: [], itemCount: 7 });
+    expect(() => parseOrder(order)).toThrow();
+    expect(parseOrderHistory({ items: [orderResponse({ items: [], itemCount: 0 })] })[0].itemCount).toBe(0);
+  });
+
+  it.each([
+    null, {}, { items: null }, { items: [null] },
+    { items: [orderResponse({ items: undefined })] },
+    { items: [orderResponse({ number: "" })] },
+    { items: [orderResponse({ createdAt: "bad" })] },
+    { items: [orderResponse({ itemCount: Number.MAX_SAFE_INTEGER + 1 })] },
+    { items: [orderResponse({ totalMinor: Number.MAX_SAFE_INTEGER + 1 })] },
+    { items: [orderResponse({ items: [{ ...orderItem(), quantity: 1.5 }] })] },
+    { items: [orderResponse({ items: [{ ...orderItem(), unitPriceMinor: Number.MAX_SAFE_INTEGER + 1 }] })] },
+  ])("rejects malformed or unsafe history: %j", (body) => {
+    expect(() => parseOrderHistory(body)).toThrow();
   });
 });

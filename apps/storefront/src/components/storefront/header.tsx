@@ -27,9 +27,9 @@ export function StorefrontHeader() {
           <HeartIcon />
           <span className={styles.utilityLabel}>Избранное</span>
         </Link>
-        <Link className={styles.utilityLink} href="/account">
+        <Link className={styles.utilityLink} href="/account/orders" prefetch={false}>
           <UserIcon />
-          <span className={styles.utilityLabel}>Аккаунт</span>
+          <span className={styles.utilityLabel}>Заказы</span>
         </Link>
         <Link className={`${styles.utilityLink} ${styles.cart}`} href="/cart" prefetch={false}>
           <CartIcon />
@@ -43,6 +43,7 @@ export function StorefrontHeader() {
             Слой
           </Link>
           <div className={styles.mobileUtilities}>
+            <Link className={styles.navLink} href="/account/orders" prefetch={false}>Заказы</Link>
             <Link aria-label="Избранное" className={styles.mobileFavorite} href="/favorites" prefetch={false}>
               <HeartIcon />
             </Link>

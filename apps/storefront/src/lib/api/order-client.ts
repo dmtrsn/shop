@@ -1,6 +1,6 @@
 import { browserRequest, browserResponse, type PrivateRequestOptions } from "./browser-request";
 import type { Cart } from "./cart";
-import { parseOrder, type Order } from "./order";
+import { parseOrder, parseOrderHistory, type Order } from "./order";
 
 export type ExpectedCheckoutItem = { productId: string; quantity: number; unitPriceMinor: number };
 
@@ -40,6 +40,10 @@ export async function placeBrowserOrder(
 
 export async function getBrowserOrder(orderID: string, options: PrivateRequestOptions): Promise<Order> {
   return parseOrder(await browserRequest(`/api/orders/${encodeURIComponent(orderID)}`, options));
+}
+
+export async function getBrowserOrders(options: PrivateRequestOptions): Promise<Order[]> {
+  return parseOrderHistory(await browserRequest("/api/orders", options));
 }
 
 // A dynamic route segment arrives still percent-encoded (for example

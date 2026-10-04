@@ -101,6 +101,7 @@ describe("shared private initialization", () => {
     render(<PrivateProviders loginHref={null}><StorefrontHeader /></PrivateProviders>);
     await act(async () => {});
     expect(screen.getAllByRole("link", { name: "Корзина" })).toHaveLength(2);
+    expect(screen.getAllByRole("link", { name: "Заказы" })).toHaveLength(2);
     expect(fetcher).not.toHaveBeenCalled();
   });
 

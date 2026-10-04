@@ -86,3 +86,13 @@ export function parseOrder(body: unknown): Order {
     deliveredAt: deliveredAt.startsWith("0001-01-01") ? null : deliveredAt,
   };
 }
+
+// PostgreSQL history can return null items for an order with no snapshot rows.
+// Normalize only that documented history shape; detail parsing stays strict.
+// itemCount remains the authoritative unit count, independent of items.length.
+export function parseOrderHistory(body: unknown): Order[] {
+  if (!isRecord(body) || !Array.isArray(body.items)) throw new Error("Invalid order history response");
+  return body.items.map((order) => parseOrder(
+    isRecord(order) && order.items === null ? { ...order, items: [] } : order,
+  ));
+}

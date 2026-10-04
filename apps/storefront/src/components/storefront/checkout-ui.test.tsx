@@ -439,6 +439,7 @@ describe("order confirmation", () => {
     mountOrder();
     expect(await screen.findByRole("heading", { level: 1, name: "Заказ #10484" })).toBeInTheDocument();
     expect(screen.queryByText(/оформлен$/)).toBeNull();
+    expect(screen.getByRole("link", { name: "Все заказы" })).toHaveAttribute("href", "/account/orders");
     const facts = screen.getByText("Статус").closest("dl")!;
     expect(within(facts).getByText("Собираем заказ")).toBeInTheDocument();
     expect(within(facts).getByText("Москва, Тестовая, 1")).toBeInTheDocument();

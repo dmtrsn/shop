@@ -170,7 +170,10 @@ export function OrderView({ initialSession, orderID }: { initialSession: RouteSe
       <OrderSkeleton />
     </>;
   }
-  return <main className={cartStyles.main} id="main-content"><Container>{content}</Container></main>;
+  return <main className={cartStyles.main} id="main-content"><Container>
+    <Link className={cartStyles.secondaryLink} href="/account/orders" prefetch={false}>Все заказы</Link>
+    {content}
+  </Container></main>;
 }
 
 export function OrderSkeleton() {

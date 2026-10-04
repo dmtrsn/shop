@@ -5,7 +5,7 @@ import { jsonResponse } from "@/test/favorites-fixtures";
 import { orderResponse } from "@/test/order-fixtures";
 
 import { ResponseOwnerError } from "./browser-request";
-import { checkoutReview, getBrowserOrder, placeBrowserOrder } from "./order-client";
+import { checkoutReview, getBrowserOrder, getBrowserOrders, placeBrowserOrder } from "./order-client";
 
 afterEach(() => { vi.restoreAllMocks(); });
 
@@ -76,5 +76,35 @@ describe("order client", () => {
     expect(json).not.toHaveBeenCalled();
     await expect(getBrowserOrder("x", { expectedUserID: "A", fetcher: vi.fn().mockResolvedValue(jsonResponse({ error: { code: "not_found" } }, 404, "A")) }))
       .rejects.toEqual(expect.objectContaining({ status: 404 }));
+  });
+});
+
+describe("history client", () => {
+  it("gets the complete history once, no-store and bound to the expected owner", async () => {
+    const fetcher = vi.fn().mockResolvedValue(jsonResponse({ items: [orderResponse({ items: null })] }));
+    expect(await getBrowserOrders({ expectedUserID: "A", fetcher })).toMatchObject([{ items: [], itemCount: 2 }]);
+    expect(fetcher).toHaveBeenCalledExactlyOnceWith("/api/orders", expect.objectContaining({
+      method: "GET", cache: "no-store", credentials: "same-origin",
+      headers: { Accept: "application/json", "X-Expected-Authenticated-User-ID": "A" },
+    }));
+  });
+
+  it.each([null, "B"])("rejects owner %j before reading private data", async (owner) => {
+    const response = jsonResponse({ items: [orderResponse()] }, 200, owner);
+    const read = vi.spyOn(response, "json");
+    await expect(getBrowserOrders({ expectedUserID: "A", fetcher: vi.fn().mockResolvedValue(response) })).rejects.toBeInstanceOf(ResponseOwnerError);
+    expect(read).not.toHaveBeenCalled();
+  });
+
+  it.each([[401, "unauthorized"], [500, "internal_error"]])("reports %s without retry", async (status, code) => {
+    const fetcher = vi.fn().mockResolvedValue(jsonResponse({ error: { code } }, status, null));
+    await expect(getBrowserOrders({ expectedUserID: "A", fetcher })).rejects.toMatchObject({ status, code });
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not turn transport failure into empty history", async () => {
+    const fetcher = vi.fn().mockRejectedValue(new TypeError("offline"));
+    await expect(getBrowserOrders({ expectedUserID: "A", fetcher })).rejects.toThrow();
+    expect(fetcher).toHaveBeenCalledTimes(1);
   });
 });
