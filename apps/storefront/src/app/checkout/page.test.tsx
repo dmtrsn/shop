@@ -6,7 +6,7 @@ import { sessionResponse } from "@/test/favorites-fixtures";
 
 const { getServerSession } = vi.hoisted(() => ({ getServerSession: vi.fn() }));
 vi.mock("@/lib/api/session", () => ({ getServerSession }));
-vi.mock("next/navigation", () => ({ useRouter: () => ({ replace: vi.fn(), push: vi.fn() }) }));
+vi.mock("next/navigation", () => ({ usePathname: () => "/checkout", useRouter: () => ({ replace: vi.fn(), push: vi.fn() }) }));
 
 import Page, { dynamic, metadata } from "./page";
 import Loading from "./loading";

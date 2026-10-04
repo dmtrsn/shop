@@ -75,6 +75,7 @@ function OrderDetails({ order, placed }: { order: Order; placed: boolean }) {
             <div><dt>Товаров</dt><dd>{units(order.itemCount)}</dd></div>
             <div className={cartStyles.total}><dt>Итого с доставкой</dt><dd>{formatMoney(order.totalMinor, currency)}</dd></div>
           </dl>
+          <Link className={cartStyles.secondaryLink} href={`/account/orders/${encodeURIComponent(order.id)}/repeat`} prefetch={false}>Повторить заказ</Link>
           <p className={cartStyles.note}>Названия и цены сохранены на момент оформления.</p>
           <div className={cartStyles.actions}>
             <Link href="/catalog">Продолжить покупки</Link>

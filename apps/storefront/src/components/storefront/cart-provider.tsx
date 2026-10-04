@@ -1,11 +1,14 @@
 "use client";
 
+import { usePathname } from "next/navigation";
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { BrowserRequestError, ResponseOwnerError, type FieldError } from "@/lib/api/browser-request";
 import type { RouteSession } from "@/lib/api/browser-session";
 import type { Cart } from "@/lib/api/cart";
 import { getBrowserCart, mutateBrowserCart, type CartCommand } from "@/lib/api/cart-client";
+import { commitBrowserRepeat } from "@/lib/api/repeat-client";
+import type { RepeatBody, RepeatReceipt } from "@/lib/api/repeat";
 import type { Order } from "@/lib/api/order";
 import { placeBrowserOrder, type CheckoutBody } from "@/lib/api/order-client";
 
@@ -52,6 +55,12 @@ export type PlaceOrderResult =
   // Another read/write is running or the reviewed snapshot is not current.
   | { kind: "blocked" };
 
+export type RepeatAttempt = Readonly<{ userID: string; orderID: string; key: string; body: RepeatBody }>;
+export type RepeatCommitResult =
+  | { kind: "added"; receipt: RepeatReceipt; replayed: boolean }
+  | { kind: "changed" | "outOfStock" | "notFound" | "signedOut" | "csrf" | "ownerMismatch" | "idempotencyReused" | "unknown" | "discarded" | "blocked" }
+  | { kind: "invalid"; fields: readonly FieldError[]; detail?: string };
+export type RepeatHandoff = { userID: string; generation: number; receipt: RepeatReceipt; fromPath: string };
 type PlacedOrder = { userID: string; orderID: string };
 type Runtime = {
   state: State;
@@ -64,6 +73,9 @@ type Runtime = {
   write: WriteJob | null;
   // In-memory confirmation handoff for /account/orders/[id]; never persisted.
   placedOrder: PlacedOrder | null;
+  repeatReview: number;
+  repeatHandoff: RepeatHandoff | null;
+  pathname: string;
 };
 
 type CartContextValue = State & {
@@ -75,6 +87,9 @@ type CartContextValue = State & {
   mutate: (command: CartCommand) => Promise<boolean>;
   selectAll: (selected: boolean) => Promise<boolean>;
   placeOrder: (attempt: PlaceOrderAttempt, mode: "submit" | "check") => Promise<PlaceOrderResult>;
+  beginRepeatReview: () => () => void;
+  commitRepeat: (attempt: RepeatAttempt) => Promise<RepeatCommitResult>;
+  enterCartRoute: (session: CartRouteSession) => RepeatHandoff | null;
   takePlacedOrder: (userID: string, orderID: string) => boolean;
   signInRequired: () => void;
 };
@@ -100,11 +115,18 @@ function errorKey(command: CartCommand): string {
 export function CartProvider({ children, loginHref }: { children: ReactNode; loginHref: string | null }) {
   const store = useBrowserSessionStore();
   const session = useBrowserSession();
+  const pathname = usePathname();
   const [state, setState] = useState<State>(initial);
   const runtime = useRef<Runtime>({
     state: initial, initialized: false, alive: true, generation: 0, seenSession: "",
-    read: null, reading: Promise.resolve(), write: null, placedOrder: null,
+    read: null, reading: Promise.resolve(), write: null, placedOrder: null, repeatReview: 0, repeatHandoff: null, pathname: "",
   });
+
+  useEffect(() => {
+    const rt = runtime.current;
+    rt.pathname = pathname;
+    if (rt.repeatHandoff && pathname !== "/cart" && pathname !== rt.repeatHandoff.fromPath) rt.repeatHandoff = null;
+  }, [pathname]);
 
   const actions = useMemo(() => {
     const rt = runtime.current;
@@ -171,8 +193,9 @@ export function CartProvider({ children, loginHref }: { children: ReactNode; log
     // Follows the shared session. Any identity transition hides the previous
     // snapshot synchronously; an authenticated identity is read once.
     function sync() {
-      if (!rt.initialized) return;
       const shared = store.get();
+      if (rt.repeatHandoff && (shared.status !== "authenticated" || shared.userID !== rt.repeatHandoff.userID || shared.generation !== rt.repeatHandoff.generation)) rt.repeatHandoff = null;
+      if (!rt.initialized) return;
       const key = `${shared.generation}:${shared.status}`;
       if (rt.seenSession === key) return;
       rt.seenSession = key;
@@ -189,7 +212,7 @@ export function CartProvider({ children, loginHref }: { children: ReactNode; log
         ...initial, status: shared.status === "authenticated" ? "loading" : shared.status,
         mutationPending: Boolean(rt.write), message: rt.state.message,
       });
-      if (shared.status === "authenticated") rt.reading = read(shared.userID, shared.generation).then(() => {});
+      if (shared.status === "authenticated" && !rt.repeatReview) rt.reading = read(shared.userID, shared.generation).then(() => {});
     }
 
     async function initialize(request: Promise<void>) {
@@ -370,6 +393,73 @@ export function CartProvider({ children, loginHref }: { children: ReactNode; log
       }
     }
 
+    // Repeat review owns its reads. Even a previously initialized Cart must not
+    // issue a GET on session changes as evidence for an uncertain Repeat write.
+    function beginRepeatReview() {
+      rt.repeatReview++;
+      rt.read?.abort(); rt.read = null; rt.generation++;
+      return () => { rt.repeatReview = Math.max(0, rt.repeatReview - 1); };
+    }
+
+    async function commitRepeat(attempt: RepeatAttempt): Promise<RepeatCommitResult> {
+      const fromPath = rt.pathname;
+      const shared = store.get();
+      if (!rt.alive || rt.write || rt.read || shared.status !== "authenticated" || shared.userID !== attempt.userID) return { kind: "blocked" };
+      const generation = rt.generation;
+      let networkFinished!: () => void;
+      const job: WriteJob = { userID: shared.userID, networkDone: new Promise<void>((resolve) => { networkFinished = resolve; }) };
+      rt.write = job;
+      rt.repeatHandoff = null;
+      publish({ ...rt.state, mutationPending: true });
+      try {
+        let result: Awaited<ReturnType<typeof commitBrowserRepeat>> | null = null;
+        let failure: unknown;
+        try {
+          result = await commitBrowserRepeat(attempt.orderID, attempt.body, attempt.key, shared.csrfToken, { expectedUserID: shared.userID }).finally(networkFinished);
+        } catch (error) { failure = error; }
+        const error = failure instanceof BrowserRequestError ? failure : null;
+        if (failure instanceof ResponseOwnerError || error?.code === "authenticated_user_changed") {
+          await store.recoverOwner(shared.generation);
+          return { kind: "ownerMismatch" };
+        }
+        if (store.get().status === "loading") await store.ensure();
+        const now = store.get();
+        if (!rt.alive || now.status !== "authenticated" || now.userID !== attempt.userID) return { kind: "discarded" };
+        if (!current(generation, shared.generation, shared.userID)) return { kind: "unknown" };
+        if (result) {
+          rt.initialized = true;
+          rt.seenSession = `${shared.generation}:${shared.status}`;
+          rt.repeatHandoff = rt.pathname === fromPath ? { userID: shared.userID, generation: shared.generation, receipt: result.receipt, fromPath } : null;
+          publish({ ...initial, status: "ready", userID: shared.userID, mutationPending: true,
+            snapshot: { ownerUserID: shared.userID, generation: shared.generation, cart: result.cart } });
+          return { kind: "added", receipt: result.receipt, replayed: result.replayed };
+        }
+        if (error?.status === 401) { signedOut(); return { kind: "signedOut" }; }
+        if (error?.status === 403 && error.code === "csrf_failed") { await store.refresh(); return { kind: "csrf" }; }
+        if (error?.status === 404) return { kind: "notFound" };
+        if (error?.status === 409) {
+          if (error.code === "repeat_changed") return { kind: "changed" };
+          if (error.code === "out_of_stock") return { kind: "outOfStock" };
+          if (error.code === "idempotency_key_reused") return { kind: "idempotencyReused" };
+        }
+        if (error?.status === 422) return { kind: "invalid", fields: error.fields, detail: error.detail };
+        return { kind: "unknown" };
+      } finally {
+        if (rt.write === job) { rt.write = null; publish({ ...rt.state, mutationPending: false }); }
+      }
+    }
+
+    function enterCartRoute(route: CartRouteSession): RepeatHandoff | null {
+      const handoff = rt.repeatHandoff;
+      rt.repeatHandoff = null;
+      const shared = store.get();
+      if (handoff && route.status === "authenticated" && shared.status === "authenticated" &&
+          route.userID === handoff.userID && shared.userID === handoff.userID && shared.generation === handoff.generation &&
+          rt.state.status === "ready" && rt.state.snapshot?.generation === shared.generation) return handoff;
+      void initialize(store.enterRoute(route));
+      return null;
+    }
+
     // Consumes the confirmation handoff for exactly this current user and order.
     function takePlacedOrder(userID: string, orderID: string): boolean {
       const handoff = rt.placedOrder;
@@ -400,6 +490,9 @@ export function CartProvider({ children, loginHref }: { children: ReactNode; log
       mutate,
       selectAll,
       placeOrder,
+      beginRepeatReview,
+      commitRepeat,
+      enterCartRoute,
       takePlacedOrder,
       signInRequired: () => message("Чтобы пользоваться корзиной, войдите в свой аккаунт."),
       dismissMessage: (text: string) => { if (rt.state.message === text) message(""); },

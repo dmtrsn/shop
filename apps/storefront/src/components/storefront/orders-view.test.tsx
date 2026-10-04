@@ -54,7 +54,7 @@ describe("order history", () => {
     expect(list.querySelector("time")?.textContent).toBe(new Intl.DateTimeFormat("ru-RU", { dateStyle: "long" }).format(new Date("2026-10-03T12:00:00Z")));
     expect(screen.getByRole("link", { name: "Подробнее о заказе #10484" })).toHaveAttribute("href", "/account/orders/ord-2026-10484");
     expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
-    expect(screen.queryByText(/Повторить заказ|Добавить в корзину|позиций/)).toBeNull();
+    expect(screen.getAllByRole("link", { name: "Повторить заказ" }).map((link) => link.getAttribute("href"))).toEqual(["/account/orders/ord-2026-10484/repeat", "/account/orders/old/repeat"]);
     expect(list.querySelector("a button, a a")).toBeNull();
     expect(requests()).toEqual(["GET /api/auth/session", "GET /api/orders"]);
     expect(fetcher.mock.calls[1][1]?.headers).toMatchObject({ "X-Expected-Authenticated-User-ID": "A" });

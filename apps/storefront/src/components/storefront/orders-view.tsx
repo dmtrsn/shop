@@ -36,8 +36,9 @@ function OrderSummary({ order }: { order: Order }) {
       <div><dt>Сумма заказа</dt><dd className={styles.total}>{total}</dd></div>
       {order.deliveryAddress ? <div className={styles.address}><dt>Адрес доставки</dt><dd>{order.deliveryAddress}</dd></div> : null}
     </dl>
-    <Link className={styles.detail} href={`/account/orders/${encodeURIComponent(order.id)}`} prefetch={false}
+    <div className={styles.actions}><Link className={styles.detail} href={`/account/orders/${encodeURIComponent(order.id)}`} prefetch={false}
       aria-label={`Подробнее о заказе ${order.number}`}>Подробнее о заказе</Link>
+    <Link className={cartStyles.secondaryLink} href={`/account/orders/${encodeURIComponent(order.id)}/repeat`} prefetch={false}>Повторить заказ</Link></div>
   </article>;
 }
 

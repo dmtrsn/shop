@@ -9,6 +9,8 @@ import type { Cart } from "@/lib/api/cart";
 import { formatMoney } from "@/lib/money";
 import { pluralRu } from "@/lib/plural";
 
+import { useBrowserSession } from "./browser-session-provider";
+import type { RepeatHandoff } from "./cart-provider";
 import { selectionKey, useCart, type CartRouteSession } from "./cart-provider";
 import { CartRow } from "./cart-row";
 import styles from "./cart.module.css";
@@ -94,7 +96,10 @@ function CartSummaryPanel({ cart, reconciling, busy }: { cart: Cart; reconciling
 
 export function CartView({ initialSession }: { initialSession: CartRouteSession }) {
   const state = useCart();
-  const { enterRoute } = state;
+  const { enterCartRoute } = state;
+  const session = useBrowserSession();
+  const [repeat, setRepeat] = useState<RepeatHandoff | null>(null);
+  const entry = useRef<CartRouteSession | null>(null);
   const routeKey = initialSession.status === "authenticated" ? `user:${initialSession.userID}` : initialSession.status;
   const [enteredKey, setEnteredKey] = useState<string | null>(null);
   const [query, setQuery] = useState("");
@@ -104,9 +109,12 @@ export function CartView({ initialSession }: { initialSession: CartRouteSession 
   const focusedProduct = useRef<string | null>(null);
   const previousIDs = useRef<string[]>([]);
   useEffect(() => {
-    enterRoute(initialSession);
+    // Only deduplicate React effect replay, not a fresh server route gate.
+    if (entry.current === initialSession) return;
+    entry.current = initialSession;
+    setRepeat(enterCartRoute(initialSession));
     setEnteredKey(routeKey);
-  }, [enterRoute, initialSession, routeKey]);
+  }, [enterCartRoute, initialSession, routeKey]);
 
   // Before the route effect, render only its sanitized server gate. A warm
   // provider from another page must never flash its previous private Cart.
@@ -156,6 +164,9 @@ export function CartView({ initialSession }: { initialSession: CartRouteSession 
               <p>{positions(cart.summary.positionCount)} · {units(cart.summary.itemCount)}</p>
             ) : null}
           </header>
+          {repeat && cart && session.status === "authenticated" && session.userID === repeat.userID && session.generation === repeat.generation ? (
+            <p role="status">Добавлено из заказа {repeat.receipt.sourceOrderNumber}: {positions(repeat.receipt.addedCount)}, {units(repeat.receipt.addedQuantity)}</p>
+          ) : null}
           {status === "anonymous" ? (
             <section className={styles.state}>
               <h2>Войдите, чтобы открыть корзину</h2>

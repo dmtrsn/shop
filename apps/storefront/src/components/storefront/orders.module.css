@@ -58,3 +58,5 @@
   .order { grid-template-columns: minmax(0, 1fr); gap: var(--space-4); }
   .detail { justify-self: start; }
 }
+
+.actions { display: grid; gap: var(--space-2); }
