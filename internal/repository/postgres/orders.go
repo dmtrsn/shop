@@ -70,7 +70,7 @@ func scanOrder(row scanner) (domain.Order, error) {
 }
 
 func (s *Store) orderItems(ctx context.Context, orderID string) ([]domain.OrderItem, error) {
-	rows, err := s.pool.Query(ctx, `SELECT product_id,sku,name,image,manufacturer_id,manufacturer,quantity,unit_price_minor,line_total_minor,replacement_product_id FROM order_items WHERE order_id=$1 ORDER BY position`, orderID)
+	rows, err := s.pool.Query(ctx, `SELECT position,product_id,sku,name,image,manufacturer_id,manufacturer,quantity,unit_price_minor,line_total_minor,replacement_product_id FROM order_items WHERE order_id=$1 ORDER BY position`, orderID)
 	if err != nil {
 		return nil, fmt.Errorf("load order items: %w", err)
 	}
@@ -78,7 +78,7 @@ func (s *Store) orderItems(ctx context.Context, orderID string) ([]domain.OrderI
 	items := []domain.OrderItem{}
 	for rows.Next() {
 		var item domain.OrderItem
-		if err := rows.Scan(&item.ProductID, &item.SKU, &item.Name, &item.Image, &item.ManufacturerID, &item.Manufacturer, &item.Quantity, &item.UnitPriceMinor, &item.LineTotalMinor, &item.ReplacementProductID); err != nil {
+		if err := rows.Scan(&item.SourcePosition, &item.ProductID, &item.SKU, &item.Name, &item.Image, &item.ManufacturerID, &item.Manufacturer, &item.Quantity, &item.UnitPriceMinor, &item.LineTotalMinor, &item.ReplacementProductID); err != nil {
 			return nil, fmt.Errorf("scan order item: %w", err)
 		}
 		items = append(items, item)
@@ -91,7 +91,7 @@ func (s *Store) orderItemsByOrderIDs(ctx context.Context, orderIDs []string) (ma
 	if len(orderIDs) == 0 {
 		return result, nil
 	}
-	rows, err := s.pool.Query(ctx, `SELECT order_id,product_id,sku,name,image,manufacturer_id,manufacturer,quantity,unit_price_minor,line_total_minor,replacement_product_id FROM order_items WHERE order_id=ANY($1) ORDER BY order_id,position`, orderIDs)
+	rows, err := s.pool.Query(ctx, `SELECT order_id,position,product_id,sku,name,image,manufacturer_id,manufacturer,quantity,unit_price_minor,line_total_minor,replacement_product_id FROM order_items WHERE order_id=ANY($1) ORDER BY order_id,position`, orderIDs)
 	if err != nil {
 		return nil, fmt.Errorf("load order history items: %w", err)
 	}
@@ -99,7 +99,7 @@ func (s *Store) orderItemsByOrderIDs(ctx context.Context, orderIDs []string) (ma
 	for rows.Next() {
 		var orderID string
 		var item domain.OrderItem
-		if err := rows.Scan(&orderID, &item.ProductID, &item.SKU, &item.Name, &item.Image, &item.ManufacturerID, &item.Manufacturer, &item.Quantity, &item.UnitPriceMinor, &item.LineTotalMinor, &item.ReplacementProductID); err != nil {
+		if err := rows.Scan(&orderID, &item.SourcePosition, &item.ProductID, &item.SKU, &item.Name, &item.Image, &item.ManufacturerID, &item.Manufacturer, &item.Quantity, &item.UnitPriceMinor, &item.LineTotalMinor, &item.ReplacementProductID); err != nil {
 			return nil, fmt.Errorf("scan order history item: %w", err)
 		}
 		result[orderID] = append(result[orderID], item)
@@ -170,7 +170,7 @@ func isOrderIdempotencyViolation(err error) bool {
 }
 
 func (s *Store) createOrder(ctx context.Context, userID string, input domain.CheckoutInput) (domain.Order, error) {
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.beginCartMutation(ctx, userID)
 	if err != nil {
 		return domain.Order{}, err
 	}
@@ -179,10 +179,13 @@ func (s *Store) createOrder(ctx context.Context, userID string, input domain.Che
 		product  domain.Product
 		quantity int
 	}
-	// Lock both the selected cart rows and their products. Cart mutations then
-	// serialize with this snapshot instead of being accidentally ordered or
-	// removed by a checkout that did not include them.
-	rows, err := tx.Query(ctx, "SELECT "+productColumns+`,ci.quantity`+productJoins+` JOIN cart_items ci ON ci.product_id=p.id WHERE ci.user_id=$1 AND ci.selected=true ORDER BY p.id FOR UPDATE OF p,ci`, userID)
+	// The user lock stabilizes Cart membership through commit. Lock all selected
+	// products first, then read the COMPLETE selected Cart for the exact guard.
+	// Never filter that guard through an earlier captured list of product IDs.
+	if _, err := tx.Exec(ctx, `SELECT id FROM products WHERE id IN (SELECT product_id FROM cart_items WHERE user_id=$1 AND selected=true) ORDER BY id FOR UPDATE`, userID); err != nil {
+		return domain.Order{}, fmt.Errorf("lock checkout products: %w", err)
+	}
+	rows, err := tx.Query(ctx, "SELECT "+productColumns+`,ci.quantity`+productJoins+` JOIN cart_items ci ON ci.product_id=p.id WHERE ci.user_id=$1 AND ci.selected=true ORDER BY p.id FOR UPDATE OF ci`, userID)
 	if err != nil {
 		return domain.Order{}, fmt.Errorf("lock checkout cart: %w", err)
 	}
@@ -256,6 +259,7 @@ func (s *Store) createOrder(ctx context.Context, userID string, input domain.Che
 	unitPrices := make([]int64, 0, len(order.Items))
 	lineTotals := make([]int64, 0, len(order.Items))
 	for i, item := range order.Items {
+		order.Items[i].SourcePosition = i + 1
 		positions = append(positions, int32(i+1))
 		productIDs = append(productIDs, item.ProductID)
 		skus = append(skus, item.SKU)

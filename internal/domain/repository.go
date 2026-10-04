@@ -44,4 +44,7 @@ type Repository interface {
 	// (replayed=true), or ErrIdempotencyKeyReused for a different digest, and
 	// stores the key with the new order in the same transaction.
 	CreateOrder(context.Context, string, CheckoutInput) (Order, bool, error)
+	// CommitRepeatV2 checks the receipt before review state, then atomically
+	// validates, adds exact quantities, and records the receipt.
+	CommitRepeatV2(context.Context, string, string, RepeatV2Input) (RepeatV2Result, error)
 }

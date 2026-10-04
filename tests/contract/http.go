@@ -204,8 +204,17 @@ func Run(t *testing.T, handler http.Handler) {
 	request("GET", "/api/search/suggest?q="+strings.Repeat("a", 200), "", 200, false)
 	request("GET", "/api/products/missing", "", 404, false)
 	request("GET", "/api/orders/missing", "", 404, true)
-	request("POST", "/api/orders/ord-2026-002/repeat/preview", "not JSON", 200, true)
-	request("POST", "/api/orders/ord-2026-002/repeat/commit", `{"items":[{"productId":"p01","quantity":1,"selected":true},{"productId":"p07","quantity":1,"selected":false}]}`, 200, true)
+	legacyPreview := request("POST", "/api/orders/ord-2026-002/repeat/preview", "not JSON", 200, true)
+	legacyLines := legacyPreview["items"].([]any)
+	if legacyLines[3].(map[string]any)["replacement"].(map[string]any)["id"] != "p06" {
+		t.Fatal("legacy informational replacement disappeared")
+	}
+	legacyResult := request("POST", "/api/orders/ord-2026-002/repeat/commit", `{"items":[{"productId":"p01","quantity":1,"selected":true},{"productId":"p07","quantity":1,"selected":false}]}`, 200, true)
+	assertLine(t, legacyResult["cart"].(map[string]any), "p01", 3, true)
+	if legacyResult["addedQuantity"] != float64(1) || legacyResult["skippedCount"] != float64(1) {
+		t.Fatal("legacy addition/selected semantics changed")
+	}
+	request("POST", "/api/orders/ord-2026-002/repeat/commit", `{"items":[{"productId":"p06","quantity":1,"selected":true}]}`, 422, true)
 	request("POST", "/api/orders/ord-2026-002/repeat/commit", `{"items":[{"productId":"p18","quantity":1,"selected":true}]}`, 422, true)
 	request("POST", "/api/orders/ord-2026-002/repeat/commit", `{"items":[{"productId":"p01","selected":false},{"productId":"p01","selected":false}]}`, 422, true)
 	// Missing/null/empty items all retain default-addition behavior.
@@ -214,6 +223,24 @@ func Run(t *testing.T, handler http.Handler) {
 		if r["addedCount"].(float64) < 1 {
 			t.Fatal("legacy default repeat additions disappeared")
 		}
+	}
+	// Strict v2 is additive: explicit selections, receipt and current Cart replay.
+	v2Preview := request("POST", "/api/v2/orders/ord-2026-002/repeat/preview", "", 200, true)
+	line := v2Preview["items"].([]any)[0].(map[string]any)
+	product := line["product"].(map[string]any)
+	v2Body, _ := json.Marshal(map[string]any{"items": []any{map[string]any{
+		"sourcePosition": line["sourcePosition"], "productId": line["productId"], "quantity": 1,
+		"expectedExistingCartQuantity": line["existingCartQuantity"], "expectedUnitPriceMinor": product["priceMinor"],
+		"expectedCurrency": product["currency"], "expectedMinimumQuantity": product["minimumQuantity"], "expectedQuantityStep": product["quantityStep"],
+	}}})
+	v2Headers := map[string]string{"Authorization": "Bearer " + token, "Idempotency-Key": "contract-repeat-v2-0001"}
+	for _, body := range []string{"", "null", "{}", `{"items":null}`, `{"items":[]}`} {
+		send("POST", "/api/v2/orders/ord-2026-002/repeat/commit", body, 422, v2Headers)
+	}
+	send("POST", "/api/v2/orders/ord-2026-002/repeat/commit", string(v2Body), 200, v2Headers)
+	_, replay := send("POST", "/api/v2/orders/ord-2026-002/repeat/commit", string(v2Body), 200, v2Headers)
+	if replay.Header().Get("Idempotent-Replayed") != "true" {
+		t.Fatal("v2 receipt did not replay")
 	}
 	request("POST", "/api/cart/items", `{"productId":"p01","quantity":2}`, 201, true)
 	cart := request("POST", "/api/cart/items", `{"productId":"p01","quantity":3,"selected":null}`, 201, true)

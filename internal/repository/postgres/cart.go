@@ -102,14 +102,14 @@ func buildCart(rows []storedCartRow, products map[string]domain.Product) domain.
 }
 
 func (s *Store) SetCartItem(ctx context.Context, userID, productID string, quantity int, selected bool) (domain.Cart, error) {
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.beginCartMutation(ctx, userID)
 	if err != nil {
 		return domain.Cart{}, err
 	}
 	defer tx.Rollback(ctx)
 	var id string
 	var stock int
-	err = tx.QueryRow(ctx, `SELECT id,stock FROM products WHERE id=$1 OR slug=$1 OR lower(sku)=lower($1) FOR UPDATE`, productID).Scan(&id, &stock)
+	err = tx.QueryRow(ctx, `SELECT id,stock FROM products WHERE id=$1 OR slug=$1 OR lower(sku)=lower($1) ORDER BY id FOR UPDATE`, productID).Scan(&id, &stock)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.Cart{}, domain.ErrNotFound
 	}
@@ -130,33 +130,57 @@ func (s *Store) SetCartItem(ctx context.Context, userID, productID string, quant
 }
 
 func (s *Store) RemoveCartItem(ctx context.Context, userID, productID string) (domain.Cart, error) {
-	_, err := s.pool.Exec(ctx, `DELETE FROM cart_items ci USING products p WHERE ci.user_id=$1 AND ci.product_id=p.id AND (p.id=$2 OR p.slug=$2 OR lower(p.sku)=lower($2))`, userID, productID)
+	tx, err := s.beginCartMutation(ctx, userID)
+	if err != nil {
+		return domain.Cart{}, err
+	}
+	defer tx.Rollback(ctx)
+	_, err = tx.Exec(ctx, `WITH locked AS MATERIALIZED (SELECT ci.user_id,ci.product_id FROM cart_items ci JOIN products p ON ci.product_id=p.id WHERE ci.user_id=$1 AND (p.id=$2 OR p.slug=$2 OR lower(p.sku)=lower($2)) ORDER BY ci.product_id FOR UPDATE OF ci) DELETE FROM cart_items ci USING locked l WHERE ci.user_id=l.user_id AND ci.product_id=l.product_id`, userID, productID)
 	if err != nil {
 		return domain.Cart{}, fmt.Errorf("remove cart item: %w", err)
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return domain.Cart{}, err
 	}
 	return s.Cart(ctx, userID)
 }
 
 func (s *Store) ClearCart(ctx context.Context, userID string, selectedOnly bool) (domain.Cart, error) {
-	query := `DELETE FROM cart_items WHERE user_id=$1`
+	tx, err := s.beginCartMutation(ctx, userID)
+	if err != nil {
+		return domain.Cart{}, err
+	}
+	defer tx.Rollback(ctx)
+	query := `WITH locked AS MATERIALIZED (SELECT user_id,product_id FROM cart_items WHERE user_id=$1`
 	if selectedOnly {
 		query += ` AND selected=true`
 	}
-	if _, err := s.pool.Exec(ctx, query, userID); err != nil {
+	query += ` ORDER BY product_id FOR UPDATE) DELETE FROM cart_items ci USING locked l WHERE ci.user_id=l.user_id AND ci.product_id=l.product_id`
+	if _, err := tx.Exec(ctx, query, userID); err != nil {
 		return domain.Cart{}, fmt.Errorf("clear cart: %w", err)
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return domain.Cart{}, err
 	}
 	return s.Cart(ctx, userID)
 }
 
 func (s *Store) SetCartSelection(ctx context.Context, userID string, productIDs []string, selected bool) (domain.Cart, error) {
-	var err error
+	tx, err := s.beginCartMutation(ctx, userID)
+	if err != nil {
+		return domain.Cart{}, err
+	}
+	defer tx.Rollback(ctx)
 	if len(productIDs) == 0 {
-		_, err = s.pool.Exec(ctx, `UPDATE cart_items SET selected=$2,updated_at=now() WHERE user_id=$1`, userID, selected)
+		_, err = tx.Exec(ctx, `WITH locked AS MATERIALIZED (SELECT user_id,product_id FROM cart_items WHERE user_id=$1 ORDER BY product_id FOR UPDATE) UPDATE cart_items ci SET selected=$2,updated_at=now() FROM locked l WHERE ci.user_id=l.user_id AND ci.product_id=l.product_id`, userID, selected)
 	} else {
-		_, err = s.pool.Exec(ctx, `UPDATE cart_items SET selected=$3,updated_at=now() WHERE user_id=$1 AND product_id=ANY($2)`, userID, productIDs, selected)
+		_, err = tx.Exec(ctx, `WITH locked AS MATERIALIZED (SELECT user_id,product_id FROM cart_items WHERE user_id=$1 AND product_id=ANY($2) ORDER BY product_id FOR UPDATE) UPDATE cart_items ci SET selected=$3,updated_at=now() FROM locked l WHERE ci.user_id=l.user_id AND ci.product_id=l.product_id`, userID, productIDs, selected)
 	}
 	if err != nil {
 		return domain.Cart{}, fmt.Errorf("select cart items: %w", err)
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return domain.Cart{}, err
 	}
 	return s.Cart(ctx, userID)
 }
@@ -173,7 +197,7 @@ func (s *Store) AddCartItems(ctx context.Context, userID string, mutations []dom
 		}
 		productIDs = append(productIDs, mutation.ProductID)
 	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.beginCartMutation(ctx, userID)
 	if err != nil {
 		return domain.Cart{}, err
 	}

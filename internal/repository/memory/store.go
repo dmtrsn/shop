@@ -49,6 +49,7 @@ type Store struct {
 	favorites     map[string]map[string]bool
 	orders        map[string][]domain.Order
 	orderKeys     map[string]map[string]orderKey
+	repeatKeys    map[string]map[string]repeatKey
 }
 
 func NewDemo() *Store {
@@ -63,6 +64,13 @@ func NewDemo() *Store {
 		orderKeys:    make(map[string]map[string]orderKey),
 	}
 	s.seed()
+	for _, orders := range s.orders {
+		for _, order := range orders {
+			for i := range order.Items {
+				order.Items[i].SourcePosition = i + 1
+			}
+		}
+	}
 	return s
 }
 
@@ -651,6 +659,9 @@ func (s *Store) CreateOrder(_ context.Context, userID string, input domain.Check
 		return domain.Order{}, false, domain.ErrConflict
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].Name < items[j].Name })
+	for i := range items {
+		items[i].SourcePosition = i + 1
+	}
 	subtotal := orderTotal(items)
 	if !domain.CheckoutMatchesExpectation(input, items, subtotal+domain.DeliveryMinor(subtotal)) {
 		return domain.Order{}, false, domain.ErrCheckoutChanged

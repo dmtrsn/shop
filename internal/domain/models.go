@@ -247,6 +247,7 @@ type Favorites struct {
 }
 
 type OrderItem struct {
+	SourcePosition       int    `json:"-"` // Stored historical position; exposed only by Repeat v2.
 	ProductID            string `json:"productId"`
 	SKU                  string `json:"sku"`
 	Name                 string `json:"name"`

@@ -2018,6 +2018,299 @@ paths:
       parameters:
       - $ref: '#/components/parameters/order'
       - $ref: '#/components/parameters/expectedAuthenticatedUserID'
+  /api/v2/orders/{order}/repeat/preview:
+    post:
+      operationId: repeatPreviewV2
+      summary: Strict Repeat v2 preview
+      description: Legacy v1 remains unchanged. Cookie or bearer auth uses the existing middleware; cookie POST requires
+        valid Origin and X-CSRF-Token. X-Expected-Authenticated-User-ID is checked before handler side effects. Private
+        responses use no-store and the authenticated response owner. Stateless read; optional body ignored. No persistence,
+        review ID, TTL, reservation, receipt or Cart write. Historical source lines stay ordered by stored position,
+        including duplicate product IDs. No automatic replacement selection or commit.
+      security:
+      - bearerAuth: []
+      - sessionCookie: []
+      responses:
+        '200':
+          description: Success
+          headers:
+            X-Authenticated-User-ID:
+              $ref: '#/components/headers/AuthenticatedUserID'
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepeatV2Preview'
+        '500':
+          description: internal_error; unexpected storage or server failure.
+          headers:
+            X-Authenticated-User-ID:
+              $ref: '#/components/headers/AuthenticatedUserID'
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: csrf_failed; cookie-authenticated request without a trusted Origin or a valid X-CSRF-Token.
+            Bearer requests are exempt.
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: 'unauthorized; missing, malformed, repeated or conflicting credentials, invalid token, expired
+            or revoked session, or the demo principal in production mode. An invalid session cookie, or a cookie that
+            conflicts with the bearer identity, is cleared. All protected responses have Cache-Control: no-store.'
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: not_found
+          headers:
+            X-Authenticated-User-ID:
+              $ref: '#/components/headers/AuthenticatedUserID'
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: authenticated_user_changed when X-Expected-Authenticated-User-ID is present but empty, repeated
+            or not the authenticated user; the handler did not run.
+          headers:
+            X-Authenticated-User-ID:
+              $ref: '#/components/headers/AuthenticatedUserID'
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      parameters:
+      - $ref: '#/components/parameters/order'
+      - $ref: '#/components/parameters/expectedAuthenticatedUserID'
+  /api/v2/orders/{order}/repeat/commit:
+    post:
+      operationId: repeatCommitV2
+      summary: Strict Repeat v2 commit
+      description: Legacy v1 remains unchanged. Cookie or bearer auth uses the existing middleware; cookie POST requires
+        valid Origin and X-CSRF-Token. X-Expected-Authenticated-User-ID is checked before handler side effects. Private
+        responses use no-store and the authenticated response owner. Requires exactly one Idempotency-Key and explicit
+        nonempty items. Transaction compares reviewed price, currency, minimum, step and affected existing Cart quantities,
+        then validates aggregated final quantities against current stock. Stock equality is not required. No automatic
+        retry, fallback to v1, default selection, clamp or replacement. Same user/key and server-computed canonical
+        digest replays BEFORE review validation; a different digest conflicts. Receipt and Cart additions commit atomically.
+        Explicit same-key/same-body retry recovers a lost successful response without another increment.
+      security:
+      - bearerAuth: []
+      - sessionCookie: []
+      responses:
+        '200':
+          description: Committed logical receipt plus current Cart; also 200 on replay.
+          headers:
+            X-Authenticated-User-ID:
+              $ref: '#/components/headers/AuthenticatedUserID'
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+            Idempotent-Replayed:
+              description: Present with true only for durable receipt replay.
+              schema:
+                type: string
+                enum:
+                - 'true'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepeatV2Result'
+        '500':
+          description: internal_error; unexpected storage or server failure.
+          headers:
+            X-Authenticated-User-ID:
+              $ref: '#/components/headers/AuthenticatedUserID'
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: csrf_failed; cookie-authenticated request without a trusted Origin or a valid X-CSRF-Token.
+            Bearer requests are exempt.
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: 'unauthorized; missing, malformed, repeated or conflicting credentials, invalid token, expired
+            or revoked session, or the demo principal in production mode. An invalid session cookie, or a cookie that
+            conflicts with the bearer identity, is cleared. All protected responses have Cache-Control: no-store.'
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: not_found
+          headers:
+            X-Authenticated-User-ID:
+              $ref: '#/components/headers/AuthenticatedUserID'
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: 'repeat_changed: reviewed source/product/price/currency/minimum/step/Cart quantity changed or source/product does not match (including aliases/replacements);
+            fetch a fresh preview and reconfirm. out_of_stock: exact aggregate final quantity exceeds current stock.
+            idempotency_key_reused: this user/key committed a different logical request. authenticated_user_changed:
+            expected-user precondition failed before the handler. No Cart writes on conflicts.'
+          headers:
+            X-Authenticated-User-ID:
+              $ref: '#/components/headers/AuthenticatedUserID'
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: 'validation_error: malformed JSON or expectations; missing/null/empty items; invalid/repeated/missing
+            Idempotency-Key; duplicate source position;
+            nonpositive addition; final quantity violates minimum or step. No Cart writes.'
+          headers:
+            X-Authenticated-User-ID:
+              $ref: '#/components/headers/AuthenticatedUserID'
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RepeatV2Input'
+      parameters:
+      - $ref: '#/components/parameters/order'
+      - $ref: '#/components/parameters/expectedAuthenticatedUserID'
+      - name: Idempotency-Key
+        in: header
+        required: true
+        description: Exactly one value. Missing, empty, repeated or malformed values return 422. Scoped to authenticated
+          user and Repeat v2.
+        schema:
+          type: string
+          pattern: ^[A-Za-z0-9_-]{16,128}$
 components:
   headers:
     AuthenticatedUserID:
@@ -3054,6 +3347,7 @@ components:
               - conflict
               - csrf_failed
               - checkout_changed
+              - repeat_changed
               - idempotency_key_reused
               - authenticated_user_changed
               - internal_error
@@ -3338,3 +3632,215 @@ components:
       - quantity
       - unitPriceMinor
       additionalProperties: false
+
+    RepeatV2Line:
+      type: object
+      properties:
+        sourcePosition:
+          type: integer
+          minimum: -2147483648
+          maximum: 2147483647
+          description: Actual stored order_items.position, not array index or product ID. Stable within the source order;
+            duplicate historical product IDs have distinct positions.
+        productId:
+          type: string
+        sku:
+          type: string
+        name:
+          type: string
+        image:
+          type: string
+        requestedQuantity:
+          type: integer
+          minimum: 1
+          maximum: 2147483647
+        originalUnitPriceMinor:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+        product:
+          $ref: '#/components/schemas/Product'
+        existingCartQuantity:
+          type: integer
+          minimum: 0
+          maximum: 2147483647
+        existingCartSelected:
+          type: boolean
+        suggestedQuantity:
+          type: integer
+          minimum: 0
+          maximum: 2147483647
+        proposedQuantity:
+          type: integer
+          minimum: 0
+          maximum: 2147483647
+        status:
+          type: string
+          enum:
+          - available
+          - limited
+          - unavailable
+          - discontinued
+        priceChanged:
+          type: boolean
+        priceDeltaMinor:
+          type: integer
+          format: int64
+        replacement:
+          $ref: '#/components/schemas/Product'
+      required:
+      - sourcePosition
+      - productId
+      - sku
+      - name
+      - image
+      - requestedQuantity
+      - originalUnitPriceMinor
+      - existingCartQuantity
+      - existingCartSelected
+      - suggestedQuantity
+      - proposedQuantity
+      - status
+      - priceChanged
+      additionalProperties: false
+      description: 'Historical fields remain separate from current Product. Product supplies current canonical ID, priceMinor,
+        currency, minimumQuantity, quantityStep and stock. Absent product means discontinued original; replacement,
+        if present, is informational only and cannot be committed. Historical currency was not stored: price delta is
+        only present for current RUB prices under the existing historical RUB assumption; a different current currency
+        marks priceChanged without a cross-currency subtraction. Suggestions describe a line alone, not simultaneous
+        approval of duplicate-product additions; commit validates their aggregate. existingCartSelected is informational;
+        committed affected lines become selected.'
+    RepeatV2Preview:
+      type: object
+      properties:
+        orderId:
+          type: string
+        orderNumber:
+          type: string
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/RepeatV2Line'
+      required:
+      - orderId
+      - orderNumber
+      - items
+      additionalProperties: false
+    RepeatV2Selection:
+      type: object
+      properties:
+        sourcePosition:
+          type: integer
+          minimum: -2147483648
+          maximum: 2147483647
+        productId:
+          type: string
+          minLength: 1
+        quantity:
+          type: integer
+          minimum: 1
+          maximum: 2147483647
+          description: Exact units TO ADD, not final Cart quantity. Omission of a source line excludes it.
+        expectedExistingCartQuantity:
+          type: integer
+          minimum: 0
+          maximum: 2147483647
+        expectedUnitPriceMinor:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+        expectedCurrency:
+          type: string
+          pattern: ^[A-Z]{3}$
+        expectedMinimumQuantity:
+          type: integer
+          minimum: 1
+          maximum: 2147483647
+        expectedQuantityStep:
+          type: integer
+          minimum: 1
+          maximum: 2147483647
+      required:
+      - sourcePosition
+      - productId
+      - quantity
+      - expectedExistingCartQuantity
+      - expectedUnitPriceMinor
+      - expectedCurrency
+      - expectedMinimumQuantity
+      - expectedQuantityStep
+      additionalProperties: false
+    RepeatV2Input:
+      type: object
+      properties:
+        items:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/RepeatV2Selection'
+      required:
+      - items
+      additionalProperties: false
+      description: Explicit selections only. No selected flag, client digest, aliases, replacements, default additions
+        or silent quantity reduction. Duplicate sourcePosition is invalid. Current final quantity is existing quantity
+        plus aggregated additions for the canonical product; it must satisfy current stock, minimum and step.
+    RepeatAddition:
+      type: object
+      properties:
+        sourcePosition:
+          type: integer
+          minimum: -2147483648
+          maximum: 2147483647
+        productId:
+          type: string
+        quantity:
+          type: integer
+          minimum: 1
+          maximum: 2147483647
+      required:
+      - sourcePosition
+      - productId
+      - quantity
+      additionalProperties: false
+    RepeatReceipt:
+      type: object
+      properties:
+        sourceOrderId:
+          type: string
+        sourceOrderNumber:
+          type: string
+        addedCount:
+          type: integer
+          minimum: 1
+          maximum: 2147483647
+          description: Number of distinct target products added/incremented.
+        addedQuantity:
+          type: integer
+          minimum: 1
+        additions:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/RepeatAddition'
+      required:
+      - sourceOrderId
+      - sourceOrderNumber
+      - addedCount
+      - addedQuantity
+      - additions
+      additionalProperties: false
+      description: Original committed logical additions, sorted by sourcePosition. Durable receipt, not a historical
+        Cart or Product snapshot.
+    RepeatV2Result:
+      type: object
+      properties:
+        receipt:
+          $ref: '#/components/schemas/RepeatReceipt'
+        cart:
+          $ref: '#/components/schemas/Cart'
+      required:
+      - receipt
+      - cart
+      additionalProperties: false
+      description: Both first success and replay return the original logical receipt plus the CURRENT full authoritative
+        Cart, which may differ after later Cart/catalog changes. A Cart GET alone is not proof that Repeat succeeded.

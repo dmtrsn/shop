@@ -80,6 +80,8 @@ func New(service *application.Service, logger *slog.Logger, staticDir, storage s
 	mux.Handle("GET /api/orders/{order}", s.auth(http.HandlerFunc(s.order)))
 	mux.Handle("POST /api/orders/{order}/repeat/preview", s.auth(http.HandlerFunc(s.repeatPreview)))
 	mux.Handle("POST /api/orders/{order}/repeat/commit", s.auth(http.HandlerFunc(s.repeatCommit)))
+	mux.Handle("POST /api/v2/orders/{order}/repeat/preview", s.auth(http.HandlerFunc(s.repeatPreviewV2)))
+	mux.Handle("POST /api/v2/orders/{order}/repeat/commit", s.auth(http.HandlerFunc(s.repeatCommitV2)))
 	mux.Handle("/", s.staticHandler())
 	return s.middleware(mux)
 }
@@ -533,6 +535,8 @@ func (s *Server) writeError(w http.ResponseWriter, r *http.Request, err error) {
 		status, code, message = http.StatusConflict, "out_of_stock", "Запрошенного количества уже нет в наличии"
 	case errors.Is(err, domain.ErrCheckoutChanged):
 		status, code, message = http.StatusConflict, "checkout_changed", "Корзина, цены или остатки изменились: проверьте заказ и подтвердите его снова"
+	case errors.Is(err, domain.ErrRepeatChanged):
+		status, code, message = http.StatusConflict, "repeat_changed", "Условия повтора изменились: проверьте их и подтвердите снова"
 	case errors.Is(err, domain.ErrIdempotencyKeyReused):
 		status, code, message = http.StatusConflict, "idempotency_key_reused", "Ключ идемпотентности уже использован для другого заказа"
 	case errors.Is(err, errAuthenticatedUserChanged):

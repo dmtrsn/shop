@@ -384,7 +384,7 @@ browser session GET и ровно один orders GET. История не ин�
 своё обычное перечитывание при обновлении общей сессии. Ссылки «Заказы» в desktop/mobile шапке,
 ссылки на детали и «Все заказы» отключают prefetch. Обычное открытие исторического заказа не
 создаёт плашку оформления: она по-прежнему зависит только от in-memory `placedOrder` handoff.
-Кнопок и запросов повторного заказа в этом срезе нет; strict Repeat backend и Next review отложены.
+Кнопок и запросов повторного заказа в этом срезе нет; strict Repeat backend v2 описан ниже; Next review отложен.
 
 Пока не реализованы страницы брендов/серий, аккаунт, администрирование и
 production route ownership.
@@ -482,7 +482,9 @@ curl --fail http://127.0.0.1:8080/api/health
 | `GET /api/orders/{order}` | Один заказ | ✓ |
 | `POST /api/orders` | Оформить выбранные позиции корзины | ✓ |
 | `POST /api/orders/{order}/repeat/preview` | Рассчитать доступность старого заказа | ✓ |
-| `POST /api/orders/{order}/repeat/commit` | Подтвердить отредактированный повтор | ✓ |
+| `POST /api/orders/{order}/repeat/commit` | Подтвердить отредактированный повтор (legacy v1) | ✓ |
+| `POST /api/v2/orders/{order}/repeat/preview` | Stateless preview с историческими sourcePosition | ✓ |
+| `POST /api/v2/orders/{order}/repeat/commit` | Явные добавления, проверка review и идемпотентный receipt | ✓ |
 
 Параметры `GET /api/catalog`: `q`, `category`, `manufacturer`, `brand`, `collection`, `series`, повторяемый `tag` либо `tags=a,b`, `minPriceMinor`, `maxPriceMinor`, `inStock`, `sort`, `page`, `limit`. `limit` ограничен значением 100. Сортировки: `popular`, `new`, `price_asc`, `price_desc`, `rating`, `name`.
 
@@ -527,6 +529,49 @@ curl --fail --request POST \
 ```
 
 Backend заново строит preview перед commit, валидирует актуальный остаток, минимальное количество и шаг, затем применяет все изменения корзины одной операцией repository. Если `items` отсутствует, равен `null` или пуст, используются предложенные количества из нового preview. Это текущий legacy-контракт: обязательного предварительного review, фиксации цены и идемпотентности нет.
+
+### Strict Repeat v2 (Checkpoint B)
+
+Legacy v1 выше сохранён полностью, включая defaults для отсутствующего/null/пустого `items`.
+V2 preview — чтение без записи review, TTL, резерва или receipt. Каждая строка имеет настоящий
+`sourcePosition` из исторического заказа: одинаковый `productId` может встречаться несколько раз.
+Preview содержит исторические SKU/имя/изображение/количество/цену, текущий `product` с ценой,
+валютой, остатком, minimum/step, количество и selected в Cart, suggestions и статус.
+Замена информационная; выбрать её через v2 пока нельзя. Suggestions рассчитаны по одной строке,
+а одновременные добавления одинакового товара проверяются суммарно при commit.
+
+Commit требует ровно один `Idempotency-Key` (`^[A-Za-z0-9_-]{16,128}$`) и непустой явный `items`:
+
+```json
+{"items":[{"sourcePosition":1,"productId":"p01","quantity":2,"expectedExistingCartQuantity":3,"expectedUnitPriceMinor":12900,"expectedCurrency":"RUB","expectedMinimumQuantity":1,"expectedQuantityStep":1}]}
+```
+
+Значения expectations берутся из свежего preview; пример не является текущими demo-ценами.
+`quantity` — единицы **для добавления**; пропуск строки исключает её, `selected` не принимается.
+Транзакция проверяет исходную строку, canonical ID и все expectations. Несовпадение —
+`409 repeat_changed`, требуется новый preview и новое подтверждение. Stock не обязан быть равен
+preview: он должен покрывать точное итоговое количество, иначе `409 out_of_stock`.
+Добавления всех выбранных sourcePosition одного товара агрегируются; итог Cart должен
+соответствовать minimum/step (иначе 422). Нет clamping, автоматической замены или retry.
+
+Миграция `007_repeat_commits` хранит только успешные receipts и серверный digest `repeat/v2`.
+Запись receipt и изменения Cart атомарны. Повтор с тем же пользователем/ключом/телом возвращает
+`200`, `Idempotent-Replayed: true`, исходный `receipt` и **текущую полную Cart**, без нового
+добавления. Receipt содержит source order ID/номер, число разных добавленных товаров,
+сумму единиц и явные additions по sourcePosition. Иное тело с тем же ключом —
+`409 idempotency_key_reused`. Проверка receipt предшествует проверке текущих expectations,
+поэтому потерянный успешный ответ можно восстановить тем же запросом после изменения Cart.
+Один Cart GET не доказывает успех. Срок истечения receipts не введён.
+
+V2 использует общий cookie/bearer auth, cookie CSRF, `no-store` и expected-user/response-owner
+контракт. Каждая PostgreSQL-транзакция изменения Cart сначала блокирует строку пользователя
+`FOR NO KEY UPDATE` до commit/rollback, затем товары и Cart строки по canonical product ID.
+Checkout проверяет весь выбранный набор без фильтра ранее захваченных IDs: изменения,
+завершившиеся до user lock, видны проверке, более поздние записи того же пользователя ждут.
+FK `KEY SHARE` остаётся совместимым; разные пользователи сохраняют независимость. Отдельный
+advisory lock для Repeat key больше не нужен: receipt проверяется до входа и повторно под
+user lock, всегда до проверки review. Memory сохраняет существующий mutex.
+Полные DTO и ошибки — в `api/openapi.yaml`. Next Repeat UI и actions ещё не реализованы.
 
 ### Оформление заказа: идемпотентность и проверка
 

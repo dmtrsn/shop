@@ -15,6 +15,7 @@ var (
 	// ErrCheckoutChanged: the selected cart, quantities, current prices or
 	// total differ from the review the client confirmed.
 	ErrCheckoutChanged = errors.New("checkout review changed")
+	ErrRepeatChanged   = errors.New("repeat review changed")
 	// ErrIdempotencyKeyReused: the key already committed a different request.
 	ErrIdempotencyKeyReused = errors.New("idempotency key reused for a different request")
 
