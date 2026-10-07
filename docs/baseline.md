@@ -171,6 +171,38 @@ Removed from tracking only: `.env` (local copy retained). No migration, domain, 
 - Migration `007_repeat_commits` stores only durable successful receipts and a server-computed canonical `repeat/v2` SHA-256 digest. Receipt and Cart mutation commit together. Receipt lookup runs before current-state validation. Same user/key/digest replays the original receipt plus **current Cart** (`200`, `Idempotent-Replayed: true`); another digest returns `409 idempotency_key_reused`. Recovery is an explicit same-key/body request, never automatic retry or inference from Cart GET.
 - Through-commit correction: every PostgreSQL Cart writer (set/remove/clear/selection, legacy Repeat, Checkout and Repeat v2) takes `FOR NO KEY UPDATE` on its existing user row before historical/product/Cart locks. Products and Cart rows remain sorted by canonical product ID. Checkout reads the complete selected set without a captured-ID filter: earlier committed mutations are validated, later same-user writers wait until commit/rollback. The mode permits user-FK `KEY SHARE` readers, avoiding an opposing product-FK/user-FK dependency. Different users remain concurrent. Repeat v2 no longer needs a separate key advisory lock; receipt fast lookup and recheck under the user lock precede review validation. No new migration, API fields, revision or memory lock machinery is introduced.
 - Shared adversarial service and OpenAPI HTTP suites run against both adapters. PostgreSQL integration covers actual lock waits, same-key races, changed review state, Cart/Checkout/legacy Repeat interaction, multi-line rollback after an unrelated unique failure, and migration down/up. Auth route tests use the actual user's valid cookie CSRF while exercising an expected-user mismatch before handler calls.
-- No Next Repeat UI, replacement selection, automatic retries, review lifecycle, stock reservation or receipt expiry was added. Those UI and product-policy decisions remain deferred.
+- Checkpoint B added no Next UI. The subsequent Repeat frontend checkpoint implemented `/account/orders/:id/repeat`, explicit review/commit, same-key/body recovery and authoritative Cart handoff. Replacement selection, automatic retries, stored review lifecycle, stock reservation and receipt expiry remain deferred.
 
 The Cart-lock regression suite controls real repository transactions at commit/rollback using pgx tracing and verifies PostgreSQL lock waits. It covers both insertion and selection of p02 against a p01-only Checkout review in both orderings; quantity, deselection, remove and clear blocking; Repeat quantity expectations; Checkout versus both Repeat versions; different-user progress; compatible product/user foreign-key locks; and committed Checkout/Repeat replays without acquiring the Cart lock. Direct SQL can bypass this cooperative writer protocol and is outside the authenticated repository guarantee.
+
+## Guarded logout (2026-10-04, Account Checkpoint A)
+
+`DELETE /api/auth/session` now accepts the optional `X-Expected-Authenticated-User-ID` precondition.
+Omitting it preserves legacy logout exactly: bearer precedence, cookie Origin/CSRF checks,
+single-session deletion, cookie clearing, and idempotent empty `204` for absent/expired/revoked
+credentials. Existing cookie authentication/revocation supersedes the original pre-session
+baseline descriptions above; no legacy frontend changes are required.
+
+When the header is present, Go authenticates the selected captured token/transport through the
+existing service, including stable-ID demo restrictions. Cookie Origin/CSRF validation runs first.
+Authentication failure returns `401 unauthorized`; CSRF failure returns `403 csrf_failed`.
+Neither has an owner header. After authentication, a shared helper binds the actual user in
+`X-Authenticated-User-ID` and applies the same precondition rules as protected routes: empty,
+repeated or mismatching values return `409 authenticated_user_changed`. Guarded rejections do
+not revoke sessions or clear cookies. A later storage error retains the resolved owner on `500`.
+
+A matching guarded request returns an empty owner-bound `204` and revokes only that session.
+Cookie logout clears its cookie; bearer logout ignores and preserves any simultaneous cookie,
+even for another user. All responses remain `no-store`. Other devices remain signed in.
+Guarded repeats after revocation return `401`; unguarded repeats retain `204`.
+
+Authentication and deletion use the same local token and transport, without credential reselection.
+If concurrent guarded requests both authenticate before deletion, both may return `204` because
+deletion is idempotent. A request authenticating after deletion returns `401`. Neither path can
+switch to another session. No new schema, transaction or lock protocol is introduced.
+
+Coverage includes focused HTTP rejection/success/storage-error tests, the shared memory/PostgreSQL
+OpenAPI contract, and PostgreSQL session isolation, cross-user bearer precedence and coordinated
+concurrent logout tests. The backend must deploy before the guarded Next action. `/account`, Next
+204 handling and logout reconciliation are deferred to Account Checkpoint B; logout-all and
+profile mutation capabilities are outside this change.

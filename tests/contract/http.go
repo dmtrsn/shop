@@ -309,6 +309,7 @@ func Run(t *testing.T, handler http.Handler) {
 	}
 	runCheckoutIdempotency(t, send, token)
 	runCookieSessions(t, send)
+	runGuardedLogout(t, send)
 	// Bearer logout revokes only the presented bearer session.
 	request("DELETE", "/api/auth/session", "", 204, true)
 	request("GET", "/api/cart", "", 401, true)

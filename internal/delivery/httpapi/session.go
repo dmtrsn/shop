@@ -307,21 +307,26 @@ func (s *Server) auth(next http.Handler) http.Handler {
 			s.writeError(w, r, domain.ErrUnauthorized)
 			return
 		}
-		// Bind every protected response to the identity that authorized this request.
-		// Never use an incoming owner header: cookies may change between requests.
-		w.Header().Set("X-Authenticated-User-ID", user.ID)
 		setAuthTransport(r, string(transport))
-		// The caller's expectation is checked only after authentication and before
-		// any handler runs, so a stale client can never act as another account.
-		// Absent: legacy behavior. Empty or repeated values fail closed.
-		if expected := r.Header.Values(expectedUserHeader); len(expected) > 0 &&
-			(len(expected) != 1 || expected[0] == "" || expected[0] != user.ID) {
-			s.logger.Warn("expected user precondition failed", "method", r.Method, "path", r.URL.Path, "requestId", r.Context().Value(requestIDKey))
-			s.writeError(w, r, errAuthenticatedUserChanged)
+		if !s.bindAuthenticatedUser(w, r, user.ID) {
 			return
 		}
 		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), userKey, user)))
 	})
+}
+
+// bindAuthenticatedUser must run only after authentication. The actual owner
+// binds success and later errors; request headers never supply that identity.
+// An absent expectation preserves compatibility; empty/repeated values fail closed.
+func (s *Server) bindAuthenticatedUser(w http.ResponseWriter, r *http.Request, userID string) bool {
+	w.Header().Set("X-Authenticated-User-ID", userID)
+	if expected := r.Header.Values(expectedUserHeader); len(expected) > 0 &&
+		(len(expected) != 1 || expected[0] == "" || expected[0] != userID) {
+		s.logger.Warn("expected user precondition failed", "method", r.Method, "path", r.URL.Path, "requestId", r.Context().Value(requestIDKey))
+		s.writeError(w, r, errAuthenticatedUserChanged)
+		return false
+	}
+	return true
 }
 
 type cookieSessionResponse struct {
@@ -396,6 +401,8 @@ func (s *Server) sessionState(w http.ResponseWriter, r *http.Request) {
 
 // endSession revokes the presented credential. A bearer header takes precedence
 // and leaves the cookie untouched; a cookie requires Origin and CSRF checks.
+// Only callers sending an expected user opt into authentication and owner binding.
+// Authentication and deletion use the same captured token and transport.
 func (s *Server) endSession(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	bearer, hasBearer, err := bearerToken(r)
@@ -403,31 +410,42 @@ func (s *Server) endSession(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, r, err)
 		return
 	}
-	if hasBearer {
-		if err := s.service.Logout(r.Context(), bearer, domain.SessionBearer); err != nil {
+	token, transport, hasCredential := bearer, domain.SessionBearer, hasBearer
+	if !hasBearer {
+		token, hasCredential, err = s.sessionCookie(r)
+		transport = domain.SessionCookie
+		if err != nil {
 			s.writeError(w, r, err)
 			return
 		}
-		setAuthTransport(r, string(domain.SessionBearer))
-		w.WriteHeader(http.StatusNoContent)
-		return
-	}
-	cookie, hasCookie, err := s.sessionCookie(r)
-	if err != nil {
-		s.writeError(w, r, err)
-		return
-	}
-	if hasCookie {
-		if reason := s.checkCSRF(r, cookie); reason != "" {
-			s.rejectCSRF(w, r, reason)
-			return
+		if hasCredential {
+			if reason := s.checkCSRF(r, token); reason != "" {
+				s.rejectCSRF(w, r, reason)
+				return
+			}
 		}
-		if err := s.service.Logout(r.Context(), cookie, domain.SessionCookie); err != nil {
+	}
+	if len(r.Header.Values(expectedUserHeader)) > 0 {
+		record, err := s.service.AuthenticateSession(r.Context(), token, transport)
+		if err != nil {
+			s.logAuthFailure(r, err)
 			s.writeError(w, r, err)
 			return
 		}
-		setAuthTransport(r, string(domain.SessionCookie))
+		setAuthTransport(r, string(transport))
+		if !s.bindAuthenticatedUser(w, r, record.User.ID) {
+			return
+		}
 	}
-	s.clearSessionCookie(w)
+	if hasCredential {
+		if err := s.service.Logout(r.Context(), token, transport); err != nil {
+			s.writeError(w, r, err)
+			return
+		}
+		setAuthTransport(r, string(transport))
+	}
+	if !hasBearer {
+		s.clearSessionCookie(w)
+	}
 	w.WriteHeader(http.StatusNoContent)
 }

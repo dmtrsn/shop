@@ -3,7 +3,7 @@ info:
   title: Sweetshop current HTTP API
   version: 1.0.0-baseline
   description: Implemented /api contract, baseline 2026-09-25. PostgreSQL behavior is authoritative; noted memory
-    differences are preserved. No future v2 routes. JSON-decoded endpoints require one JSON value, reject unknown
+    differences are preserved. Includes implemented strict Repeat v2 routes. JSON-decoded endpoints require one JSON value, reject unknown
     fields, and cap body at 1048576 bytes; malformed/empty/oversize bodies return 422, not 400/413. Content-Type
     is not enforced. Go accepts case-insensitive JSON member names and null as zero/unset values; schemas describe
     canonical spellings and usable requests. No independent batch item-count limit. HTTP server MaxHeaderBytes=1048576,
@@ -127,7 +127,7 @@ paths:
     get:
       operationId: sessionState
       summary: sessionState
-      description: Reports the cookie session only; Authorization is ignored. Always 200. Signed out, missing,
+      description: Reports the cookie session only; Authorization is ignored. Successful checks return 200; storage failures return 500. Signed out, missing,
         invalid or expired cookies return authenticated=false (an invalid cookie is cleared). demoLogin reports
         whether the seeded demo principal may sign in in this deployment.
       security: []
@@ -245,15 +245,32 @@ paths:
     delete:
       operationId: endSession
       summary: endSession
-      description: Server-side logout; idempotent. With an Authorization header, revokes only that bearer session
-        and leaves any cookie untouched (no CSRF check). Otherwise, with a session cookie, requires a trusted Origin
-        and X-CSRF-Token (403 csrf_failed, nothing changed), revokes the cookie session and clears the cookie. Without
-        credentials, clears the cookie. A revoked token is rejected afterwards.
+      description: >-
+        Single-session server-side logout. All responses use Cache-Control no-store.
+        When X-Expected-Authenticated-User-ID is omitted, legacy behavior is
+        unchanged and idempotent, including 204 for missing, expired or already-revoked credentials. Authorization
+        bearer takes precedence and leaves any cookie untouched, without cookie authentication or CSRF checks.
+        Otherwise a presented cookie requires a trusted Origin and X-CSRF-Token before any authentication or
+        revocation; failure returns 403 csrf_failed. Successful cookie logout, or unguarded logout without
+        credentials, clears the cookie.
+        When the expected-user header is present (including empty), guarded mode authenticates the selected
+        credential using the existing transport and demo-principal policy. Missing, invalid, expired, revoked or
+        disabled principals return 401 without revocation or cookie clearing; cookie CSRF checks still run first.
+        After authentication, X-Authenticated-User-ID binds the actual principal. An empty, repeated or mismatching
+        expectation returns 409 authenticated_user_changed without revocation or cookie clearing. A matching
+        expectation revokes exactly the captured token/transport and returns an empty owner-bound 204. Other
+        sessions and devices remain valid. Later revocation failures retain the authenticated owner header.
       security: []
+      parameters:
+      - $ref: '#/components/parameters/expectedAuthenticatedUserID'
       responses:
         '204':
-          description: Revoked or nothing to revoke.
+          description: No response body. Guarded mode revoked the authenticated session; legacy mode revoked it or had nothing to revoke.
           headers:
+            X-Authenticated-User-ID:
+              description: Actual authenticated user ID; present only in guarded mode, never taken from request headers.
+              schema:
+                type: string
             X-Request-ID:
               description: Echoed X-Request-ID or server-generated identifier.
               schema:
@@ -268,7 +285,10 @@ paths:
               schema:
                 type: string
         '401':
-          description: unauthorized; malformed or repeated Authorization header, or repeated session cookies.
+          description: >-
+            unauthorized; malformed or repeated Authorization header, or repeated session cookies when no bearer
+            is selected. Guarded mode also rejects missing, invalid, expired, revoked or production-disabled demo
+            sessions. No authenticated owner header, revocation or cookie clearing.
           headers:
             X-Request-ID:
               description: Echoed X-Request-ID or server-generated identifier.
@@ -279,8 +299,21 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
         '403':
-          description: csrf_failed; cookie logout without a trusted Origin or a valid X-CSRF-Token.
+          description: csrf_failed; cookie logout without a trusted Origin or a valid X-CSRF-Token. Checked before guarded authentication and expected user; no owner header, revocation or cookie clearing.
           headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: authenticated_user_changed; authenticated guarded request with empty, repeated or mismatching expected user. No revocation or cookie clearing.
+          headers:
+            X-Authenticated-User-ID:
+              $ref: '#/components/headers/AuthenticatedUserID'
             X-Request-ID:
               description: Echoed X-Request-ID or server-generated identifier.
               schema:
@@ -292,6 +325,10 @@ paths:
         '500':
           description: internal_error; unexpected storage or server failure.
           headers:
+            X-Authenticated-User-ID:
+              description: Present only after successful guarded authentication, including a revocation storage failure; absent on authentication failure and in legacy mode.
+              schema:
+                type: string
             X-Request-ID:
               description: Echoed X-Request-ID or server-generated identifier.
               schema:
