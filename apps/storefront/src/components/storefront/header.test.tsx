@@ -1,3 +1,5 @@
+import type Link from "next/link";
+import type { ComponentProps } from "react";
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
@@ -5,6 +7,9 @@ vi.mock("next/navigation", () => ({
   usePathname: () => "/",
   useRouter: () => ({ push: vi.fn() }),
 }));
+
+vi.mock("next/link", () => ({ default: ({ href, children, prefetch, "aria-label": label }: ComponentProps<typeof Link>) =>
+  <a href={String(href)} aria-label={label} data-prefetch={String(prefetch)}>{children}</a> }));
 
 import { StorefrontHeader } from "./header";
 
@@ -31,10 +36,11 @@ describe("StorefrontHeader", () => {
       "/collections",
     );
     expect(screen.getAllByRole("link", { name: "Корзина" })).toHaveLength(2);
-    for (const link of screen.getAllByRole("link", { name: "Заказы" })) {
-      expect(link).toHaveAttribute("href", "/account/orders");
+    for (const link of screen.getAllByRole("link", { name: "Аккаунт" })) {
+      expect(link).toHaveAttribute("href", "/account");
+      expect(link).toHaveAttribute("data-prefetch", "false");
     }
-    expect(screen.getAllByRole("link", { name: "Заказы" })).toHaveLength(2);
+    expect(screen.getAllByRole("link", { name: "Аккаунт" })).toHaveLength(2);
     for (const link of screen.getAllByRole("link", { name: "Избранное" })) {
       expect(link).toHaveAttribute("href", "/favorites");
       expect(link).not.toHaveTextContent(/\d/);

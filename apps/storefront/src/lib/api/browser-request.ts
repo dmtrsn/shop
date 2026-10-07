@@ -69,7 +69,7 @@ function errorDetail(error: Record<string, unknown> | null, fields: FieldError[]
 
 // Relative same-origin request with the HttpOnly session cookie. Browser code
 // never sends Authorization, never stores credentials and never retries.
-export async function browserResponse(path: string, options: RequestInput = {}): Promise<{ body: unknown; headers: Headers }> {
+async function requestResponse(path: string, options: RequestInput, noContent = false): Promise<{ body: unknown; headers: Headers }> {
   const timeout = AbortSignal.timeout(options.timeoutMs ?? 5_000);
   const signal = options.signal ? AbortSignal.any([options.signal, timeout]) : timeout;
   const hasBody = options.body !== undefined;
@@ -93,6 +93,8 @@ export async function browserResponse(path: string, options: RequestInput = {}):
   if (options.expectedUserID !== undefined && !ownerAccepted(response, options.expectedUserID)) {
     throw new ResponseOwnerError(response.status);
   }
+  // Only the explicit helper accepts an empty 204, after the owner check.
+  if (noContent && response.status === 204) return { body: undefined, headers: response.headers };
   let body: unknown;
   try { body = await response.json(); } catch { throw new BrowserRequestError(response.status); }
   if (response.status !== (options.success ?? 200)) {
@@ -101,6 +103,14 @@ export async function browserResponse(path: string, options: RequestInput = {}):
     throw new BrowserRequestError(response.status, typeof error?.code === "string" ? error.code : undefined, errorDetail(error, fields), fields);
   }
   return { body, headers: response.headers };
+}
+
+export async function browserResponse(path: string, options: RequestInput = {}): Promise<{ body: unknown; headers: Headers }> {
+  return requestResponse(path, options);
+}
+
+export async function browserNoContent(path: string, options: Omit<RequestInput, "success"> & PrivateRequestOptions): Promise<void> {
+  await requestResponse(path, { ...options, success: 204 }, true);
 }
 
 export async function browserRequest(path: string, options: RequestInput = {}): Promise<unknown> {

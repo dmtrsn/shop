@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { deferred, jsonResponse, sessionResponse } from "@/test/favorites-fixtures";
 
-import { createBrowserSession } from "./browser-session";
+import { createBrowserSession, parseBrowserSession } from "./browser-session";
 
 const fetcher = vi.fn<typeof fetch>();
 function respond(body: unknown, status = 200) { fetcher.mockResolvedValueOnce(jsonResponse(body, status, null)); }
@@ -11,6 +11,40 @@ beforeEach(() => { fetcher.mockReset(); vi.stubGlobal("fetch", fetcher); });
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 describe("shared browser session", () => {
+  it("projects only validated account fields from the same session", () => {
+    const body = { ...sessionResponse(), user: { id: "A", name: "Анна", email: "anna@test.ru", phone: "+7 123", birthday: "secret", createdAt: "date" }, token: "secret" };
+    expect(parseBrowserSession(body)).toEqual({ status: "authenticated", userID: "A", csrfToken: "csrf-A",
+      account: { name: "Анна", email: "anna@test.ru", phone: "+7 123" } });
+    for (const phone of [undefined, "", "   "]) {
+      expect(parseBrowserSession({ ...body, user: { ...body.user, phone } })).toEqual({
+        status: "authenticated", userID: "A", csrfToken: "csrf-A", account: { name: "Анна", email: "anna@test.ru" },
+      });
+    }
+    expect(parseBrowserSession({ ...body, authenticated: false })).toEqual({ status: "anonymous" });
+  });
+
+  it.each([{ name: null }, { name: 7 }, { email: undefined }, { email: [] }, { phone: null }, { phone: 123 }])(
+    "rejects malformed account fields (%j)", (fields) => {
+      const body = sessionResponse();
+      expect(parseBrowserSession({ ...body, user: { ...body.user, ...fields } })).toEqual({ status: "unavailable" });
+    },
+  );
+
+  it("replaces every A field atomically, including dropping A's optional phone", async () => {
+    const a = sessionResponse();
+    respond({ ...a, user: { ...a.user, phone: "only-A" } });
+    const store = createBrowserSession();
+    await store.ensure();
+    const snapshots: unknown[] = [];
+    store.subscribe(() => snapshots.push(store.get()));
+    respond({ ...sessionResponse("B"), user: { id: "B", name: "B name", email: "b@test.ru" } });
+    await store.refresh();
+    expect(snapshots).toEqual([
+      { status: "loading", generation: 2 },
+      { status: "authenticated", userID: "B", csrfToken: "csrf-B", generation: 2, account: { name: "B name", email: "b@test.ru" } },
+    ]);
+  });
+
   it("starts idle and issues no request until a feature asks", () => {
     const store = createBrowserSession();
     expect(store.get()).toEqual({ status: "idle", generation: 0 });
@@ -21,7 +55,7 @@ describe("shared browser session", () => {
     respond(sessionResponse());
     const store = createBrowserSession();
     await store.ensure();
-    expect(store.get()).toEqual({ status: "authenticated", userID: "A", csrfToken: "csrf-A", generation: 1 });
+    expect(store.get()).toEqual({ status: "authenticated", userID: "A", csrfToken: "csrf-A", account: { name: "Покупатель", email: "user@example.test" }, generation: 1 });
     expect(fetcher).toHaveBeenCalledExactlyOnceWith("/api/auth/session", expect.objectContaining({
       method: "GET", credentials: "same-origin", cache: "no-store", headers: { Accept: "application/json" },
     }));
@@ -73,7 +107,7 @@ describe("shared browser session", () => {
   it.each([
     ["anonymous", { authenticated: false }, { status: "anonymous" }],
     ["unavailable", { malformed: true }, { status: "unavailable" }],
-    ["B", sessionResponse("B"), { status: "authenticated", userID: "B", csrfToken: "csrf-B" }],
+    ["B", sessionResponse("B"), { status: "authenticated", userID: "B", csrfToken: "csrf-B", account: { name: "Покупатель", email: "user@example.test" } }],
   ])("A -> %s replaces identity with a new generation", async (_name, body, expected) => {
     respond(sessionResponse());
     const store = createBrowserSession();

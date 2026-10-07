@@ -5,7 +5,7 @@ import { FavoritesRequestError, getBrowserFavorites, getBrowserSession, parseBro
 describe("browser favorites transport", () => {
   it("retains only user ID and in-memory CSRF from authenticated session data", () => {
     expect(parseBrowserSession({ ...sessionResponse(), expiresAt: "date", token: "never-return-this" }))
-      .toEqual({ status: "authenticated", userID: "A", csrfToken: "csrf-A" });
+      .toEqual({ status: "authenticated", userID: "A", csrfToken: "csrf-A", account: { name: "Покупатель", email: "user@example.test" } });
     expect(parseBrowserSession({ authenticated: false })).toEqual({ status: "anonymous" });
   });
   it.each([null, {}, { authenticated: true }, { authenticated: true, user: { id: "A" }, csrfToken: "" }, { authenticated: "false" }])("malformed sessions are unavailable (%#)", (body) => {

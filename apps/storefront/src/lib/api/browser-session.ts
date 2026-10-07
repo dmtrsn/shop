@@ -1,8 +1,10 @@
 import { browserRequest, type BrowserRequestOptions } from "./browser-request";
 import { isRecord } from "./json";
 
+export type AccountSummary = { name: string; email: string; phone?: string };
+
 export type BrowserSession =
-  | { status: "authenticated"; userID: string; csrfToken: string }
+  | { status: "authenticated"; userID: string; csrfToken: string; account: AccountSummary }
   | { status: "anonymous" | "unavailable" };
 
 export type SessionState = (BrowserSession | { status: "idle" | "loading" }) & { generation: number };
@@ -14,8 +16,16 @@ export function parseBrowserSession(body: unknown): BrowserSession {
   if (!isRecord(body) || typeof body.authenticated !== "boolean") return { status: "unavailable" };
   if (!body.authenticated) return { status: "anonymous" };
   if (!isRecord(body.user) || typeof body.user.id !== "string" || !body.user.id ||
+      typeof body.user.name !== "string" || typeof body.user.email !== "string" ||
+      (body.user.phone !== undefined && typeof body.user.phone !== "string") ||
       typeof body.csrfToken !== "string" || !body.csrfToken.trim()) return { status: "unavailable" };
-  return { status: "authenticated", userID: body.user.id, csrfToken: body.csrfToken };
+  return {
+    status: "authenticated", userID: body.user.id, csrfToken: body.csrfToken,
+    account: {
+      name: body.user.name, email: body.user.email,
+      ...(typeof body.user.phone === "string" && body.user.phone.trim() ? { phone: body.user.phone } : {}),
+    },
+  };
 }
 
 export async function getBrowserSession(options: BrowserRequestOptions = {}): Promise<BrowserSession> {
@@ -25,8 +35,8 @@ export async function getBrowserSession(options: BrowserRequestOptions = {}): Pr
 
 type SessionJob = { controller: AbortController; promise: Promise<void>; routeUserID?: string };
 
-// Shared identity for private browser features. It owns only status, user ID,
-// the in-memory CSRF token and a generation; features keep their own reads,
+// Shared identity for private browser features. It owns status, user ID, the
+// allowlisted account summary, in-memory CSRF and generation atomically; features keep their own reads,
 // snapshots, writes and messages. One instance per provider, never a module
 // singleton, so server rendering cannot share it between requests.
 export function createBrowserSession() {

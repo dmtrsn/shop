@@ -9,6 +9,7 @@ import { deferred, favoriteProduct, favoriteResponse, jsonResponse, sessionRespo
 import { PrivateProviders } from "@/test/private-providers";
 
 import { CartControl } from "./cart-control";
+import { AccountView } from "./account-view";
 import { useCart } from "./cart-provider";
 import { FavoriteButton } from "./favorite-button";
 import { useFavorites } from "./favorites-provider";
@@ -78,6 +79,45 @@ beforeEach(() => { fetcher.mockReset(); vi.stubGlobal("fetch", fetcher); });
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 describe("shared private initialization", () => {
+  it.each([false, true])("confirmed account logout clears populated Cart/Favorites (late reads=%s)", async (late) => {
+    fetcher.mockImplementation(async (path) => {
+      if (String(path) === "/api/auth/session") return jsonResponse(sessionResponse(), 200, null);
+      return jsonResponse(String(path) === "/api/cart" ? cartResponse(cartItem()) : favoriteResponse(product));
+    });
+    render(<PrivateProviders loginHref={null}>
+      <AccountView initialSession={{ status: "authenticated", userID: "A" }} loginHref={null} />
+      <CartProbe /><FavoritesProbe />
+    </PrivateProviders>);
+    await ready("cart", ["p01"]);
+    await ready("favorites", ["p01"]);
+    const lateCart = deferred<Response>();
+    const lateFavorites = deferred<Response>();
+    if (late) {
+      fetcher.mockImplementation((path) => {
+        if (String(path) === "/api/auth/session") return Promise.resolve(jsonResponse(sessionResponse(), 200, null));
+        return String(path) === "/api/cart" ? lateCart.promise : lateFavorites.promise;
+      });
+      fireEvent.click(screen.getByText("refresh-cart"));
+      await screen.findByRole("button", { name: "Выйти" });
+      await waitFor(() => expect(count("GET /api/favorites")).toBe(2));
+    }
+    fetcher.mockResolvedValueOnce(new Response(null, { status: 204, headers: { "X-Authenticated-User-ID": "A" } }));
+    fireEvent.click(screen.getByRole("button", { name: "Выйти" }));
+    await screen.findByRole("heading", { name: "Вы вышли из аккаунта" });
+    expect(view("cart")).toMatchObject({ status: "anonymous", ids: null });
+    expect(view("favorites")).toMatchObject({ status: "anonymous", ids: null });
+    const requestCount = fetcher.mock.calls.length;
+    await act(async () => {
+      lateCart.resolve(jsonResponse(cartResponse(cartItem())));
+      lateFavorites.resolve(jsonResponse(favoriteResponse(product)));
+    });
+    expect(view("cart")).toMatchObject({ status: "anonymous", ids: null });
+    expect(view("favorites")).toMatchObject({ status: "anonymous", ids: null });
+    expect(fetcher).toHaveBeenCalledTimes(requestCount);
+    expect(count("DELETE /api/auth/session")).toBe(1);
+    expect(count("GET /api/auth/session")).toBe(late ? 2 : 1);
+  });
+
   it.each([true, false])("Favorites and Cart controls share one session request (signed in=%s)", async (signedIn) => {
     serve(signedIn ? "A" : null);
     const controls = <>
@@ -101,7 +141,7 @@ describe("shared private initialization", () => {
     render(<PrivateProviders loginHref={null}><StorefrontHeader /></PrivateProviders>);
     await act(async () => {});
     expect(screen.getAllByRole("link", { name: "Корзина" })).toHaveLength(2);
-    expect(screen.getAllByRole("link", { name: "Заказы" })).toHaveLength(2);
+    expect(screen.getAllByRole("link", { name: "Аккаунт" })).toHaveLength(2);
     expect(fetcher).not.toHaveBeenCalled();
   });
 

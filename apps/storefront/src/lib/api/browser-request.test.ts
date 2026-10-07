@@ -2,11 +2,66 @@ import { describe, expect, it, vi } from "vitest";
 
 import { jsonResponse } from "@/test/favorites-fixtures";
 
-import { browserRequest, BrowserRequestError, ResponseOwnerError } from "./browser-request";
+import { browserNoContent, browserRequest, BrowserRequestError, ResponseOwnerError } from "./browser-request";
+import { logoutBrowserSession } from "./auth-client";
 
 function request(response: Response, expectedUserID = "A") {
   return browserRequest("/api/cart", { expectedUserID, fetcher: vi.fn().mockResolvedValue(response) });
 }
+
+describe("explicit no-content transport", () => {
+  function empty(owner: string | null = "A") {
+    return new Response(null, { status: 204, headers: owner === null ? {} : { "X-Authenticated-User-ID": owner } });
+  }
+
+  it("accepts only the explicit 204 path and sends guarded cookie DELETE", async () => {
+    const response = empty();
+    const json = vi.spyOn(response, "json");
+    const fetcher = vi.fn().mockResolvedValue(response);
+    await expect(logoutBrowserSession({ expectedUserID: "A", csrfToken: "csrf-A", fetcher })).resolves.toBeUndefined();
+    expect(json).not.toHaveBeenCalled();
+    expect(fetcher).toHaveBeenCalledExactlyOnceWith("/api/auth/session", expect.objectContaining({
+      method: "DELETE", credentials: "same-origin", cache: "no-store",
+      headers: { Accept: "application/json", "X-CSRF-Token": "csrf-A", "X-Expected-Authenticated-User-ID": "A" },
+    }));
+  });
+
+  it("keeps JSON endpoints strict even with success: 204", async () => {
+    await expect(browserRequest("/api/cart", { expectedUserID: "A", success: 204, fetcher: vi.fn().mockResolvedValue(empty()) }))
+      .rejects.toBeInstanceOf(BrowserRequestError);
+    await expect(request(new Response("", { status: 200, headers: { "X-Authenticated-User-ID": "A" } })))
+      .rejects.toBeInstanceOf(BrowserRequestError);
+  });
+
+  it.each([null, "", "B"])("rejects a 204 with owner %j before reading anything", async (owner) => {
+    const response = empty(owner);
+    const json = vi.spyOn(response, "json");
+    await expect(browserNoContent("/api/auth/session", { expectedUserID: "A", fetcher: vi.fn().mockResolvedValue(response) }))
+      .rejects.toBeInstanceOf(ResponseOwnerError);
+    expect(json).not.toHaveBeenCalled();
+  });
+
+  it.each([200, 201, 202, 205, 500])("does not accept unexpected %s", async (status) => {
+    await expect(logoutBrowserSession({ expectedUserID: "A", csrfToken: "csrf", fetcher: vi.fn().mockResolvedValue((status === 205 ? new Response(null, { status, headers: { "X-Authenticated-User-ID": "A" } }) : jsonResponse({}, status))) }))
+      .rejects.toMatchObject({ status });
+  });
+
+  it("rejects malformed responses", async () => {
+    await expect(logoutBrowserSession({ expectedUserID: "A", csrfToken: "csrf", fetcher: vi.fn().mockResolvedValue(new Response("not-json", { headers: { "X-Authenticated-User-ID": "A" } })) }))
+      .rejects.toBeInstanceOf(BrowserRequestError);
+  });
+
+  it("preserves timeout and network errors without retry", async () => {
+    const network = vi.fn().mockRejectedValue(new TypeError("offline"));
+    await expect(logoutBrowserSession({ expectedUserID: "A", csrfToken: "csrf", fetcher: network })).rejects.toBeInstanceOf(BrowserRequestError);
+    expect(network).toHaveBeenCalledOnce();
+    const timeout = vi.fn<typeof fetch>().mockImplementation((_path, init) => new Promise((_resolve, reject) => {
+      init!.signal!.addEventListener("abort", () => reject(init!.signal!.reason));
+    }));
+    await expect(logoutBrowserSession({ expectedUserID: "A", csrfToken: "csrf", timeoutMs: 5, fetcher: timeout })).rejects.toBeInstanceOf(BrowserRequestError);
+    expect(timeout).toHaveBeenCalledOnce();
+  });
+});
 
 describe("private response owner binding", () => {
   it("accepts a body bound to the expected user", async () => {
