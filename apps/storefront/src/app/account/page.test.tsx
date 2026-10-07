@@ -36,11 +36,11 @@ describe("account server boundary", () => {
 
   it("has one loading heading and an actionable error boundary without error details", () => {
     expect(renderToStaticMarkup(<Loading />)).toContain('aria-busy="true"');
-    const retry = vi.fn();
-    render(<ErrorPage error={new Error("private failure")} retry={retry} />);
+    const reset = vi.fn();
+    render(<ErrorPage error={new Error("private failure")} reset={reset} />);
     expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
     expect(screen.queryByText("private failure")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Повторить" }));
-    expect(retry).toHaveBeenCalledOnce();
+    expect(reset).toHaveBeenCalledOnce();
   });
 });

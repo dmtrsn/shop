@@ -50,7 +50,7 @@ docker compose down
 
 Требуется Go 1.22 или новее.
 
-### Изолированная будущая витрина
+### Next storefront: локальная разработка и production preview
 
 Первая frontend-основа находится в `apps/storefront` и запускается отдельно от Go-приложения.
 Для неё нужен Node.js 22.12 или новее. Установка и запуск:
@@ -67,9 +67,7 @@ npm run dev
 `/catalog`, `/categories`, `/categories/:slug`, `/products/:slug`, `/manufacturers`,
 `/manufacturers/:slug`, `/collections` и `/collections/:slug`, а также авторизованные
 избранное `/favorites`, корзина `/cart`, оформление `/checkout` и подтверждение заказа
-`/account/orders/:id`, история `/account/orders` и аккаунт `/account`; остальные ссылки новой шапки
-указывают на утверждённые будущие канонические маршруты и до следующих миграционных срезов
-могут вести на страницу 404.
+`/account/orders/:id`, история `/account/orders` и аккаунт `/account`.
 
 Чтобы запустить Go API и Next storefront вместе, откройте два терминала из корня репозитория:
 
@@ -98,6 +96,24 @@ npm run dev
 локальной настройки находится в `apps/storefront/.env.example`. Переменная намеренно не имеет
 префикса `NEXT_PUBLIC_` и не предназначена для browser-кода. При изменении значения
 перезапустите Next dev server.
+
+Для production-like проверки используется один публичный edge origin. `docker compose --env-file .env.example up --build`
+оставляет `/` за Go/`web`, направляет `/api/*` и `/assets/*` в Go, а Next доступен только по
+<http://127.0.0.1:8080/storefront-preview/>. Его `/_next/*` assets обслуживаются Next через тот
+же origin. Проверить ownership и healthchecks можно так:
+
+```bash
+docker compose --env-file .env.example up --build --wait edge
+bash scripts/test-edge-routes.sh
+```
+
+`STOREFRONT_BASE_PATH` — build-time путь preview (по умолчанию `/storefront-preview`), а
+`STOREFRONT_API_BASE_URL=http://app:8080` — только внутренний server-to-server адрес Next → Go.
+Он не передаётся в browser JavaScript: браузер всегда вызывает текущий origin по `/api`.
+Для публичного запуска TLS завершается перед edge; укажите exact HTTPS public origin в
+`TRUSTED_ORIGINS` и включите secure cookie согласно production-конфигурации Go. Будущий
+same-host `/legacy/...` login может быть смонтирован без смены cookie origin, но в Checkpoint A
+его bridge и `returnTo` намеренно не реализованы.
 
 Структура текущего frontend-среза:
 
@@ -143,7 +159,7 @@ facet counts не имитируются: текущие facet-значения 
 
 Каталог имеет два представления: комфортные карточки для просмотра и компактные строки для
 работы с большим числом SKU; на узком экране строки перекомпоновываются без горизонтальной
-таблицы. Количество на product page остаётся только локальным, а корзина пока отключена.
+таблицы. Количество на product page управляет подтверждённой серверной корзиной для вошедшего пользователя.
 Избранное работает через существующий Go API для вошедшего пользователя.
 
 Producer navigation использует реальные справочники `GET /api/manufacturers` и `/api/brands`.
@@ -389,8 +405,8 @@ browser session GET и ровно один orders GET. История не ин�
 strict Repeat v2, явное подтверждение, восстановление тем же ключом/телом и передачу
 авторитетной Cart в `/cart`. Сам переход по ссылке ничего не добавляет.
 
-Пока не реализованы страницы брендов/серий, аккаунт, администрирование и
-production route ownership.
+Администрирование и окончательное production route ownership ещё не перенесены; страницы брендов,
+серий и аккаунта уже доступны в Next storefront.
 
 ### In-memory demo mode
 

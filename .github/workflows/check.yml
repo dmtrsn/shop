@@ -5,6 +5,25 @@ on:
 permissions:
   contents: read
 jobs:
+  storefront:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: apps/storefront
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: apps/storefront/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm test
+      - run: npm run build
+
   check:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -53,3 +72,19 @@ jobs:
         run: |
           docker compose --env-file .env.example config --quiet
           git diff --check
+
+  edge-routing:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the production topology and wait for its health checks
+        run: docker compose -p sweetshop-edge-smoke --env-file .env.example up --build --wait --wait-timeout 180 edge
+      - name: Verify public edge route ownership
+        run: bash scripts/test-edge-routes.sh
+      - name: Show service logs on failure
+        if: failure()
+        run: docker compose -p sweetshop-edge-smoke --env-file .env.example logs --no-color
+      - name: Remove disposable smoke-test services
+        if: always()
+        run: docker compose -p sweetshop-edge-smoke --env-file .env.example down --volumes --remove-orphans
