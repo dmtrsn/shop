@@ -33,7 +33,9 @@ docker compose ps
 curl --fail http://127.0.0.1:8080/api/health
 ```
 
-После запуска откройте <http://127.0.0.1:8080>. PostgreSQL и HTTP по умолчанию опубликованы только на loopback-интерфейсе. Для доступа снаружи задайте `APP_BIND=0.0.0.0`, но в production рекомендуется оставить приложение за TLS reverse proxy.
+После запуска откройте <http://127.0.0.1:8080>: витрину `/` обслуживает Next, а прежний
+legacy-storefront доступен по <http://127.0.0.1:8080/legacy/> (см. «Владение маршрутами,
+выкладка и откат»). PostgreSQL и HTTP по умолчанию опубликованы только на loopback-интерфейсе. Для доступа снаружи задайте `APP_BIND=0.0.0.0`, но в production рекомендуется оставить приложение за TLS reverse proxy.
 
 Логи и остановка:
 
@@ -50,7 +52,7 @@ docker compose down
 
 Требуется Go 1.22 или новее.
 
-### Next storefront: локальная разработка и production preview
+### Next storefront: локальная разработка и production-сборка
 
 Первая frontend-основа находится в `apps/storefront` и запускается отдельно от Go-приложения.
 Для неё нужен Node.js 22.12 или новее. Установка и запуск:
@@ -61,9 +63,9 @@ npm ci
 npm run dev
 ```
 
-Новая витрина будет доступна на <http://127.0.0.1:3000>. Она не забирает production-маршрут
-`/`: действующий storefront по-прежнему обслуживается Go из `web/` на
-<http://127.0.0.1:8080>. В новой витрине подключены маршруты `/` (главная),
+В разработке витрина доступна на <http://127.0.0.1:3000>; Go API и legacy-storefront из `web/`
+работают отдельно на <http://127.0.0.1:8080>. В production-топологии Next владеет `/` за
+edge. В витрине подключены маршруты `/` (главная),
 `/catalog`, `/categories`, `/categories/:slug`, `/products/:slug`, `/manufacturers`,
 `/manufacturers/:slug`, `/collections` и `/collections/:slug`, а также авторизованные
 избранное `/favorites`, корзина `/cart`, оформление `/checkout` и подтверждение заказа
@@ -98,24 +100,26 @@ npm run dev
 перезапустите Next dev server.
 
 Для production-like проверки используется один публичный edge origin. `docker compose --env-file .env.example up --build`
-оставляет `/` за Go/`web`, направляет `/api/*` и `/assets/*` в Go, а Next доступен только по
-<http://127.0.0.1:8080/storefront-preview/>. Его `/_next/*` assets обслуживаются Next через тот
-же origin. Проверить ownership и healthchecks можно так:
+поднимает edge, в котором Next владеет `/` и всеми прочими путями (включая собственную 404),
+а `/api/*`, `/assets/*` и legacy-storefront `/legacy` остаются за Go. Проверить ownership и
+healthchecks можно так:
 
 ```bash
 docker compose --env-file .env.example up --build --wait edge
 bash scripts/test-edge-routes.sh
 ```
 
-`STOREFRONT_BASE_PATH` — build-time путь preview (по умолчанию `/storefront-preview`), а
-`STOREFRONT_API_BASE_URL=http://app:8080` — только внутренний server-to-server адрес Next → Go.
-Он не передаётся в browser JavaScript: браузер всегда вызывает текущий origin по `/api`.
-Для публичного запуска TLS завершается перед edge; укажите exact HTTPS public origin в
-`TRUSTED_ORIGINS` и включите secure cookie согласно production-конфигурации Go. Edge также
-отдаёт legacy-приложение по `/legacy` и `/legacy/*` (префикс снимается, Go получает обычный
-путь), а shell-файлы `/app.js`, `/migration.js`, `/styles.css` всегда направляет в Go. Это
-same-origin вход для Next (см. «Вход через legacy» ниже). Root `/` и неизвестные пути по-прежнему
-принадлежат Go: финальное переключение root на Next ещё не выполнено.
+Production-образ Next собирается без basePath: маршруты и assets — это `/`, `/catalog`,
+`/products/...`, `/_next/...`, healthcheck — `/healthz`. Прежний preview-путь
+`/storefront-preview` удалён и отвечает 404 Next. `STOREFRONT_API_BASE_URL=http://app:8080` —
+только внутренний server-to-server адрес Next → Go. Он не передаётся в browser JavaScript:
+браузер всегда вызывает текущий origin по `/api`. Для публичного запуска TLS завершается перед
+edge; укажите exact HTTPS public origin в `TRUSTED_ORIGINS` и включите secure cookie согласно
+production-конфигурации Go. Edge также отдаёт legacy-приложение по `/legacy` и `/legacy/*`
+(префикс снимается, Go получает обычный путь), а shell-файлы `/app.js`, `/migration.js`,
+`/styles.css` направляет в Go: на них ссылается legacy-страница. Это same-origin вход для Next
+(см. «Вход через legacy» ниже). Выкладка и откат описаны в разделе «Владение маршрутами,
+выкладка и откат».
 
 Структура текущего frontend-среза:
 
@@ -299,8 +303,9 @@ Go владеет HttpOnly cookie-сессией. Браузер сначала 
 Ссылка «Войти» на приватных страницах Next (избранное, корзина, оформление, аккаунт, история,
 заказ, повтор заказа) — обычная ссылка с полной загрузкой документа вида
 `/legacy/?returnTo=<текущий путь>#/login`. `returnTo` стоит до fragment и содержит фактический
-путь браузера вместе с query и hash, включая preview basePath (например,
-`/storefront-preview/cart`). Токены, CSRF и идентификатор пользователя в URL не попадают.
+путь браузера вместе с query и hash (например, `/checkout` →
+`/legacy/?returnTo=%2Fcheckout#/login`). Токены, CSRF и идентификатор пользователя в URL не
+попадают.
 
 Legacy-приложение (`web/migration.js`) проверяет `returnTo` и после настоящего входа через
 `POST /api/auth/session` выполняет `location.replace` на этот путь; дальше Next сам определяет
@@ -333,8 +338,8 @@ Next также переводит старые закладки вида `#/…
 | `#/profile` и `#/login` | `/account` |
 | `#/delivery` | `/` (демо-страница не перенесена) |
 
-Неизвестные hash и обычные якоря (`#main-content`) не трогаются. Пока root принадлежит Go, bridge
-работает только внутри preview.
+Неизвестные hash и обычные якоря (`#main-content`) не трогаются. Так старые закладки вида
+`/#/cart` после переключения root открывают соответствующую страницу Next.
 
 При локальной работе Next dev server проксирует `/legacy/*` и shell-файлы legacy в Go, поэтому
 вход и возврат выполняются на одном origin Next.
@@ -727,6 +732,63 @@ make compose-config
 
 Тесты покрывают вход и сессии, поиск/сортировку, ограничения корзины, повтор заказа, HTTP-контракты и защиту SQL-сортировки. Для smoke-проверки запущенного стека используйте `/api/health`, затем логин и защищённый `/api/cart`.
 
+## Владение маршрутами, выкладка и откат
+
+Публичный edge (`deploy/nginx/default.conf.template`):
+
+| Путь | Владелец |
+|---|---|
+| `/edge/healthz` | edge |
+| `/api`, `/api/*`, `/assets`, `/assets/*` | Go |
+| `/legacy`, `/legacy/*` | Go legacy (совместимость и откат) |
+| `/app.js`, `/migration.js`, `/styles.css` | Go (shell-файлы legacy-страницы) |
+| `/_next/*` | Next |
+| `/` и все остальные пути | Next, включая 404 |
+
+`/legacy` остаётся доступным на весь период наблюдения после переключения: через него работает
+вход и возможен откат.
+
+Карта маршрутов выбирается переменной `EDGE_ROUTE_MAP`. Допустимы только два значения:
+`default` (Next владеет `/`) и `legacy-root` (откат: `/` и неизвестные пути снова за Go legacy,
+`deploy/nginx/legacy-root.conf.template`). Любое другое значение не даёт edge запуститься.
+Откат меняет только маршрутизацию: без пересборки Go и Next, без миграций и без потери сессий,
+корзин, избранного и заказов.
+
+```bash
+# Откат: Go legacy снова владеет /
+# 1. В .env задайте EDGE_ROUTE_MAP=legacy-root, чтобы следующий `up` его не отменил.
+docker compose up -d --no-deps --force-recreate edge
+EXPECT_ROOT_OWNER=legacy EDGE_ORIGIN=https://<public-origin> bash scripts/test-edge-routes.sh
+
+# Возврат к Next: в .env задайте EDGE_ROUTE_MAP=default, затем
+docker compose up -d --no-deps --force-recreate edge
+```
+
+`--no-deps` обязателен: без него edge ждёт healthy `storefront` и не поднимется, если неисправен
+сам Next.
+
+Порядок выкладки (basePath компилируется при сборке, поэтому образ Next собирается до
+переключения edge):
+
+1. CI зелёный для коммита: `storefront`, `check`, `edge-routing`.
+2. `git pull`, в `.env` задайте `EDGE_ROUTE_MAP=legacy-root`, проверьте свободное место
+   (`df -h`) и выполните `docker compose build storefront`.
+3. `docker compose up -d --no-deps storefront`. Запущенный edge продолжает работать по прежней
+   карте, `/` остаётся за Go.
+4. Проверьте healthcheck `storefront` (`docker compose ps`).
+5. `docker compose up -d --no-deps --force-recreate edge` на карте `legacy-root`, затем
+   `EXPECT_ROOT_OWNER=legacy EDGE_ORIGIN=https://<public-origin> bash scripts/test-edge-routes.sh`.
+6. В `.env` задайте `EDGE_ROUTE_MAP=default`, снова пересоздайте только edge и выполните
+   `EXPECT_ROOT_OWNER=next EDGE_ORIGIN=https://<public-origin> bash scripts/test-edge-routes.sh`.
+7. Ручная проверка с отдельной тестовой учётной записью: вход через `/legacy` и возврат,
+   аккаунт, выход, избранное и корзина с восстановлением состояния. Оформление и повтор заказа
+   проверяйте только на staging: они создают реальные заказы.
+8. Наблюдайте за 404 в access-логах edge и ошибками Next/Go. При проблеме выполните откат выше.
+
+`scripts/test-release-flow.mjs` (headless Chrome + CDP) автоматически проходит вход, возврат,
+избранное, корзину, оформление, историю и выход. Он создаёт заказ, поэтому запускается только в
+CI и на одноразовых данных, не в production.
+
 ## Production checklist
 
 `APP_MODE=production` закрывает только опасный fallback без базы. Миграция `002` по-прежнему добавляет демоаккаунт даже в production; этот этап не делает приложение готовым к публичным продажам. Если отслеживаемый ранее `.env` использовался в развёртывании, соответствующие учётные данные необходимо ротировать. Удаление из индекса не удаляет секреты из истории Git.
@@ -739,4 +801,5 @@ make compose-config
 - запускайте миграции одним release-job/экземпляром, после чего выставляйте `RUN_MIGRATIONS=false` на остальных репликах;
 - используйте PostgreSQL для нескольких реплик: memory mode неперсистентен и изолирован внутри процесса;
 - проверяйте `/api/health` readiness-пробой и давайте процессу до 10 секунд на graceful shutdown;
+- держите `EDGE_ROUTE_MAP` в `.env` явно и выкладывайте по порядку из раздела «Владение маршрутами, выкладка и откат»;
 - образ уже запускается без root, а Compose дополнительно включает read-only root filesystem, `no-new-privileges` и удаляет Linux capabilities.

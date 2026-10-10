@@ -11,8 +11,8 @@ import { LegacyHashBridge } from "@/components/storefront/legacy-hash-bridge";
 import "@/styles/globals.css";
 
 export const metadata: Metadata = {
-  title: "Слой — новая витрина",
-  description: "Изолированная основа будущей витрины магазина кондитерских изделий.",
+  title: "Слой — кондитерские изделия",
+  description: "Слой — современный магазин шоколада, печенья, вафель и других кондитерских изделий.",
 };
 
 export const viewport: Viewport = {

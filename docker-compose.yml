@@ -62,11 +62,10 @@ services:
 
   storefront:
     image: sweetshop-storefront:local
+    # Root artifact: Next is built without a basePath and owns / at the edge.
     build:
       context: ./apps/storefront
       dockerfile: Dockerfile
-      args:
-        STOREFRONT_BASE_PATH: ${STOREFRONT_BASE_PATH:-/storefront-preview}
     restart: unless-stopped
     init: true
     depends_on:
@@ -76,15 +75,13 @@ services:
       NODE_ENV: production
       HOSTNAME: 0.0.0.0
       PORT: ${STOREFRONT_PORT:-3000}
-      # Must match the build arg; Next basePath is compiled into the image.
-      STOREFRONT_BASE_PATH: ${STOREFRONT_BASE_PATH:-/storefront-preview}
       # Private server-to-server target; it is never exposed as NEXT_PUBLIC_*.
       STOREFRONT_API_BASE_URL: ${STOREFRONT_API_BASE_URL:-http://app:8080}
       STOREFRONT_LEGACY_LOGIN_URL: ${STOREFRONT_LEGACY_LOGIN_URL:-/legacy/#/login}
     expose:
       - "${STOREFRONT_PORT:-3000}"
     healthcheck:
-      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:' + process.env.PORT + process.env.STOREFRONT_BASE_PATH + '/healthz').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))\""]
+      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:' + process.env.PORT + '/healthz').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))\""]
       interval: 30s
       timeout: 3s
       retries: 3
@@ -112,7 +109,15 @@ services:
     ports:
       - "${APP_BIND:-127.0.0.1}:${APP_PORT:-8080}:8080"
     volumes:
-      - ./deploy/nginx/default.conf.template:/etc/nginx/templates/default.conf.template:ro
+      # Route map: default (Next owns /) or legacy-root (rollback: Go owns /).
+      # Without create_host_path an unknown value fails startup instead of
+      # mounting an empty directory.
+      - type: bind
+        source: ./deploy/nginx/${EDGE_ROUTE_MAP:-default}.conf.template
+        target: /etc/nginx/templates/default.conf.template
+        read_only: true
+        bind:
+          create_host_path: false
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/edge/healthz || exit 1"]
       interval: 30s

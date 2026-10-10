@@ -78,10 +78,19 @@ jobs:
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
-      - name: Build the production topology and wait for its health checks
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Build the production root topology and wait for its health checks
         run: docker compose -p sweetshop-edge-smoke --env-file .env.example up --build --wait --wait-timeout 180 edge
-      - name: Verify public edge route ownership
-        run: bash scripts/test-edge-routes.sh
+      - name: Verify public edge route ownership (Next owns /)
+        run: EXPECT_ROOT_OWNER=next bash scripts/test-edge-routes.sh
+      - name: Authenticated release flow through the edge (disposable data)
+        run: node scripts/test-release-flow.mjs
+      - name: Switch only the edge to the legacy-root rollback map
+        run: EDGE_ROUTE_MAP=legacy-root docker compose -p sweetshop-edge-smoke --env-file .env.example up -d --no-deps --force-recreate --wait --wait-timeout 60 edge
+      - name: Verify rollback route ownership (Go legacy owns /)
+        run: EXPECT_ROOT_OWNER=legacy bash scripts/test-edge-routes.sh
       - name: Show service logs on failure
         if: failure()
         run: docker compose -p sweetshop-edge-smoke --env-file .env.example logs --no-color

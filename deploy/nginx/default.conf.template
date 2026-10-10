@@ -32,21 +32,11 @@ server {
         proxy_pass http://app:8080;
     }
 
-    # Next assets may be requested at the root after final cutover.
     location ^~ /_next/ {
         proxy_pass http://storefront:${STOREFRONT_PORT};
     }
 
-    # Checkpoint A preview: Next receives its built-in base path unchanged.
-    location = /storefront-preview {
-        proxy_pass http://storefront:${STOREFRONT_PORT};
-    }
-
-    location ^~ /storefront-preview/ {
-        proxy_pass http://storefront:${STOREFRONT_PORT};
-    }
-
-    # Legacy's root-relative shell files remain Go-owned after eventual cutover.
+    # Legacy's root-relative shell files, needed by /legacy until it is retired.
     location = /app.js { proxy_pass http://app:8080; }
     location = /migration.js { proxy_pass http://app:8080; }
     location = /styles.css { proxy_pass http://app:8080; }
@@ -60,8 +50,9 @@ server {
         proxy_pass http://app:8080/;
     }
 
-    # Primary route ownership remains Go until the later cutover checkpoint.
+    # Next owns / and every other path, including its own 404s.
+    # Rollback: EDGE_ROUTE_MAP=legacy-root selects legacy-root.conf.template.
     location / {
-        proxy_pass http://app:8080;
+        proxy_pass http://storefront:${STOREFRONT_PORT};
     }
 }
