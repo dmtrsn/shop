@@ -24,7 +24,7 @@ function Probe({ initialize = true }: { initialize?: boolean }) {
   </>;
 }
 function mount({ controls = true, initialize = true, strict = false } = {}) {
-  const tree = <FavoritesProvider loginHref={null}><Probe initialize={initialize} />{controls ? <>
+  const tree = <FavoritesProvider><Probe initialize={initialize} />{controls ? <>
     <FavoriteButton productID="p01" productName="First" />
     <FavoriteButton productID="p01" productName="First copy" />
     <FavoriteButton productID="p02" productName="Second" />
@@ -247,7 +247,7 @@ describe("confirmed mutations and recovery", () => {
     respond(sessionResponse()); respond(favoriteResponse());
     const { rerender } = mount(); await ready([]);
     const write = deferred<Response>(); fetcher.mockReturnValueOnce(write.promise); fireEvent.click(first());
-    rerender(<FavoritesProvider loginHref={null}><Probe /></FavoritesProvider>);
+    rerender(<FavoritesProvider><Probe /></FavoritesProvider>);
     await act(async () => write.resolve(jsonResponse(favoriteResponse(p1)))); await ready(["p01"]);
     expect(requests()).toHaveLength(3);
   });

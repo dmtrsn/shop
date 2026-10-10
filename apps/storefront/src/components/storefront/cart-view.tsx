@@ -1,6 +1,6 @@
 "use client";
 
-import { LegacyLoginLink } from "./legacy-login-link";
+import { LoginLink } from "./login-link";
 
 import Link from "next/link";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
@@ -174,7 +174,7 @@ export function CartView({ initialSession }: { initialSession: CartRouteSession 
               <h2>Войдите, чтобы открыть корзину</h2>
               <p>Корзина доступна в вашем аккаунте. После входа вернитесь на эту страницу.</p>
               <div className={styles.actions}>
-                {state.loginHref ? <LegacyLoginLink href={state.loginHref}>Войти</LegacyLoginLink> : null}
+                <LoginLink>Войти</LoginLink>
                 <Button onClick={() => void state.refresh()} variant="secondary">Проверить вход</Button>
                 <Link href="/catalog">Перейти в каталог</Link>
               </div>

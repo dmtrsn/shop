@@ -77,7 +77,6 @@ services:
       PORT: ${STOREFRONT_PORT:-3000}
       # Private server-to-server target; it is never exposed as NEXT_PUBLIC_*.
       STOREFRONT_API_BASE_URL: ${STOREFRONT_API_BASE_URL:-http://app:8080}
-      STOREFRONT_LEGACY_LOGIN_URL: ${STOREFRONT_LEGACY_LOGIN_URL:-/legacy/#/login}
     expose:
       - "${STOREFRONT_PORT:-3000}"
     healthcheck:

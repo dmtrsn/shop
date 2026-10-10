@@ -1,6 +1,6 @@
 "use client";
 
-import { LegacyLoginLink } from "./legacy-login-link";
+import { LoginLink } from "./login-link";
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
@@ -44,7 +44,7 @@ function OrderSummary({ order }: { order: Order }) {
   </article>;
 }
 
-export function OrdersView({ initialSession, loginHref }: { initialSession: RouteSession; loginHref: string | null }) {
+export function OrdersView({ initialSession }: { initialSession: RouteSession }) {
   const store = useBrowserSessionStore();
   const session = useBrowserSession();
   const routeKey = initialSession.status === "authenticated" ? `user:${initialSession.userID}` : initialSession.status;
@@ -91,7 +91,7 @@ export function OrdersView({ initialSession, loginHref }: { initialSession: Rout
       <h2>Войдите, чтобы увидеть заказы</h2>
       <p>История покупок доступна в вашем аккаунте.</p>
       <div className={cartStyles.actions}>
-        {loginHref ? <LegacyLoginLink href={loginHref}>Войти</LegacyLoginLink> : null}
+        <LoginLink>Войти</LoginLink>
         <Button onClick={() => void store.refresh()} variant="secondary">Проверить вход</Button>
       </div>
     </section>;

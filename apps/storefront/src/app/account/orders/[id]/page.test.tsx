@@ -22,7 +22,7 @@ describe("order server boundary", () => {
     getServerSession.mockResolvedValue({ status: "authenticated", user: sessionResponse().user, csrfToken: "csrf-sensitive" });
     const element = await Page({ params: Promise.resolve({ id: "ord-2026-10484" }) });
     expect(element.props).toEqual({ initialSession: { status: "authenticated", userID: "A" }, orderID: "ord-2026-10484" });
-    const html = renderToStaticMarkup(<FavoritesProvider loginHref={null}>{element}</FavoritesProvider>);
+    const html = renderToStaticMarkup(<FavoritesProvider>{element}</FavoritesProvider>);
     expect(html).not.toContain("csrf-sensitive");
     expect(html).toContain("Загружаем заказ");
   });

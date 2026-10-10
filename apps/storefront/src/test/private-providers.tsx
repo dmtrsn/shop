@@ -8,11 +8,11 @@ export { useFavorites, type FavoritesRouteSession } from "@/components/storefron
 
 // Same composition as the root layout: one shared browser session and two
 // independent lazy private features.
-export function PrivateProviders({ children, loginHref }: { children: ReactNode; loginHref: string | null }) {
+export function PrivateProviders({ children }: { children: ReactNode }) {
   return (
     <BrowserSessionProvider>
-      <FavoritesFeatureProvider loginHref={loginHref}>
-        <CartProvider loginHref={loginHref}>{children}</CartProvider>
+      <FavoritesFeatureProvider>
+        <CartProvider>{children}</CartProvider>
       </FavoritesFeatureProvider>
     </BrowserSessionProvider>
   );

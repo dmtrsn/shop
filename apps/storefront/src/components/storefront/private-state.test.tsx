@@ -49,7 +49,7 @@ function FavoritesProbe({ initialize = true }: { initialize?: boolean }) {
 type Feature = "cart" | "favorites";
 function mount(feature: Feature | "both" = "both") {
   return render(
-    <PrivateProviders loginHref={null}>
+    <PrivateProviders>
       <FavoritesProbe initialize={feature !== "cart"} />
       <CartProbe initialize={feature !== "favorites"} />
     </PrivateProviders>,
@@ -84,8 +84,8 @@ describe("shared private initialization", () => {
       if (String(path) === "/api/auth/session") return jsonResponse(sessionResponse(), 200, null);
       return jsonResponse(String(path) === "/api/cart" ? cartResponse(cartItem()) : favoriteResponse(product));
     });
-    render(<PrivateProviders loginHref={null}>
-      <AccountView initialSession={{ status: "authenticated", userID: "A" }} loginHref={null} />
+    render(<PrivateProviders>
+      <AccountView initialSession={{ status: "authenticated", userID: "A" }} />
       <CartProbe /><FavoritesProbe />
     </PrivateProviders>);
     await ready("cart", ["p01"]);
@@ -124,10 +124,10 @@ describe("shared private initialization", () => {
       <FavoriteButton productID="p01" productName="One" /><CartControl product={product} />
       <FavoriteButton productID="p02" productName="Two" /><CartControl product={favoriteProduct("p02")} />
     </>;
-    const { rerender } = render(<StrictMode><PrivateProviders loginHref={null}>{controls}</PrivateProviders></StrictMode>);
+    const { rerender } = render(<StrictMode><PrivateProviders>{controls}</PrivateProviders></StrictMode>);
     await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(signedIn ? 3 : 1));
     // More cards mounting later never re-initialize.
-    rerender(<StrictMode><PrivateProviders loginHref={null}>{controls}
+    rerender(<StrictMode><PrivateProviders>{controls}
       <CartControl product={favoriteProduct("p03")} /><FavoriteButton productID="p03" productName="Three" />
     </PrivateProviders></StrictMode>);
     await act(async () => {});
@@ -138,7 +138,7 @@ describe("shared private initialization", () => {
   });
 
   it("the header alone never initializes the session, Favorites or Cart", async () => {
-    render(<PrivateProviders loginHref={null}><StorefrontHeader /></PrivateProviders>);
+    render(<PrivateProviders><StorefrontHeader /></PrivateProviders>);
     await act(async () => {});
     expect(screen.getAllByRole("link", { name: "Корзина" })).toHaveLength(2);
     expect(screen.getAllByRole("link", { name: "Аккаунт" })).toHaveLength(2);
@@ -388,7 +388,7 @@ describe("cart sequencing and failures", () => {
     }
     respond(sessionResponse(), 200, null);
     respond(cartResponse());
-    render(<PrivateProviders loginHref={null}><Route /><CartProbe initialize={false} /></PrivateProviders>);
+    render(<PrivateProviders><Route /><CartProbe initialize={false} /></PrivateProviders>);
     const add = await screen.findByRole("button", { name: `Добавить в корзину: ${product.name}` });
     await waitFor(() => expect(add).toHaveAttribute("aria-disabled", "false"));
     const write = deferred<Response>();

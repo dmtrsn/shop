@@ -36,19 +36,17 @@ type Runtime = {
 };
 
 type FavoritesContextValue = State & {
-  loginHref: string | null;
   favorites: Favorites | null;
   ensure: () => Promise<void>;
   refresh: () => Promise<void>;
   enterRoute: (session: FavoritesRouteSession) => void;
   toggle: (productID: string) => Promise<void>;
-  signInRequired: () => void;
 };
 const FavoritesContext = createContext<FavoritesContextValue | null>(null);
 
 const saving = "Сохраняем избранное…";
 
-export function FavoritesProvider({ children, loginHref }: { children: ReactNode; loginHref: string | null }) {
+export function FavoritesProvider({ children }: { children: ReactNode }) {
   const store = useBrowserSessionStore();
   const session = useBrowserSession();
   const [state, setState] = useState<State>(initial);
@@ -205,7 +203,6 @@ export function FavoritesProvider({ children, loginHref }: { children: ReactNode
         if (route.status !== "authenticated") message("");
       },
       toggle,
-      signInRequired: () => message("Чтобы сохранять избранное, войдите в свой аккаунт."),
     };
   }, [store]);
 
@@ -231,7 +228,7 @@ export function FavoritesProvider({ children, loginHref }: { children: ReactNode
     state.snapshot.generation === session.generation;
   const favorites = state.status === "ready" && owned ? state.snapshot!.favorites : null;
   return (
-    <FavoritesContext.Provider value={{ ...state, ...actions, favorites, loginHref }}>
+    <FavoritesContext.Provider value={{ ...state, ...actions, favorites }}>
       {children}
       <div aria-atomic="true" aria-label="Уведомления избранного" aria-live="polite" className={styles.feedback} role="status">
         {state.message ? <span>{state.message}</span> : null}

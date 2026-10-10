@@ -17,8 +17,8 @@ export function mapLegacyHash(hash: string): string | null {
   if (extra.length || route.includes("#") || query.includes("#")) return null;
   if (route === "") return "/";
   if (Object.hasOwn(migrated, route)) return migrated[route];
-  // Account is the safe sign-in gate; no Next login form is introduced.
-  if (route === "login") return "/account";
+  // Next owns sign-in. Old hashes carry no returnTo, so /login falls back to home.
+  if (route === "login") return "/login";
   // Demo delivery/payment/bonus claims are not migrated.
   if (route === "delivery") return "/";
   if (route !== "catalog") return null;

@@ -5,7 +5,6 @@ import { BrowserSessionProvider } from "@/components/storefront/browser-session-
 import { CartProvider } from "@/components/storefront/cart-provider";
 import { FavoritesProvider } from "@/components/storefront/favorites-provider";
 import { StorefrontHeader } from "@/components/storefront/header";
-import { getLegacyLoginHref } from "@/lib/legacy-login";
 import { LegacyHashBridge } from "@/components/storefront/legacy-hash-bridge";
 
 import "@/styles/globals.css";
@@ -21,7 +20,6 @@ export const viewport: Viewport = {
 };
 
 export default function RootLayout({ children }: Readonly<{ children: ReactNode }>) {
-  const loginHref = getLegacyLoginHref();
   return (
     <html lang="ru">
       <body>
@@ -33,8 +31,8 @@ export default function RootLayout({ children }: Readonly<{ children: ReactNode 
         {/* Lazy private features share one in-memory browser session. The header
             stays outside them and never initializes Favorites or Cart. */}
         <BrowserSessionProvider>
-          <FavoritesProvider loginHref={loginHref}>
-            <CartProvider loginHref={loginHref}>{children}</CartProvider>
+          <FavoritesProvider>
+            <CartProvider>{children}</CartProvider>
           </FavoritesProvider>
         </BrowserSessionProvider>
       </body>

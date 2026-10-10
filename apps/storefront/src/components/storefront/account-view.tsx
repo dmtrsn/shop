@@ -1,6 +1,6 @@
 "use client";
 
-import { LegacyLoginLink } from "./legacy-login-link";
+import { LoginLink } from "./login-link";
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
@@ -16,7 +16,7 @@ import cartStyles from "./cart.module.css";
 
 type Feedback = { generation: number; kind: "failed" | "signedOut" };
 
-export function AccountView({ initialSession, loginHref }: { initialSession: RouteSession; loginHref: string | null }) {
+export function AccountView({ initialSession }: { initialSession: RouteSession }) {
   const store = useBrowserSessionStore();
   const session = useBrowserSession();
   const routeKey = initialSession.status === "authenticated" ? `user:${initialSession.userID}` : initialSession.status;
@@ -88,7 +88,7 @@ export function AccountView({ initialSession, loginHref }: { initialSession: Rou
       <h2 ref={signedOutHeading} tabIndex={-1}>Вы вышли из аккаунта</h2>
       <p>Войдите, чтобы увидеть данные аккаунта и свои покупки.</p>
       <div className={cartStyles.actions}>
-        {loginHref ? <LegacyLoginLink href={loginHref}>Войти</LegacyLoginLink> : null}
+        <LoginLink>Войти</LoginLink>
         <Button variant="secondary" onClick={() => void store.refresh()}>Проверить вход</Button>
       </div>
     </section>;

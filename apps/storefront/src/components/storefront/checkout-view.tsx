@@ -1,6 +1,6 @@
 "use client";
 
-import { LegacyLoginLink } from "./legacy-login-link";
+import { LoginLink } from "./login-link";
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -287,7 +287,7 @@ export function CheckoutView({ initialSession }: { initialSession: RouteSession 
         <h2>Войдите, чтобы оформить заказ</h2>
         <p>Оформление доступно в вашем аккаунте. После входа вернитесь в корзину.</p>
         <div className={cartStyles.actions}>
-          {cart.loginHref ? <LegacyLoginLink href={cart.loginHref}>Войти</LegacyLoginLink> : null}
+          <LoginLink>Войти</LoginLink>
           <Button onClick={() => void cart.refresh()} variant="secondary">Проверить вход</Button>
           <Link href="/cart">Вернуться в корзину</Link>
         </div>

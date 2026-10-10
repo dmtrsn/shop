@@ -90,3 +90,19 @@ export async function getServerSession(
     return unavailable(error instanceof ApiRequestError ? error.requestId : undefined);
   }
 }
+
+/**
+ * Whether Go advertises its seeded demo account. Asks the session endpoint
+ * without any browser cookie and returns only the boolean; any failure or an
+ * absent/malformed flag is false, so the hint appears only on explicit demo mode.
+ */
+export async function getDemoLoginAllowed(
+  options: Pick<ApiRequestOptions, "fetcher" | "signal" | "timeoutMs"> = {},
+): Promise<boolean> {
+  try {
+    const response = await requestApiJsonWithMeta("/api/auth/session", options);
+    return response.status === 200 && isRecord(response.body) && response.body.demoLogin === true;
+  } catch {
+    return false;
+  }
+}

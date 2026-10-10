@@ -20,7 +20,7 @@ let cart: ReturnType<typeof useCart>;
 function Probe() { store = useBrowserSessionStore(); cart = useCart(); return null; }
 const route: RouteSession = { status: "authenticated", userID: "A" };
 function Tree({ initial = route, page = "repeat" }: { initial?: RouteSession; page?: "repeat" | "cart" | "none" }) {
-  return <PrivateProviders loginHref="/legacy/#/login"><Probe />{page === "repeat" ? <RepeatView orderID="ord-1" initialSession={initial} />
+  return <PrivateProviders><Probe />{page === "repeat" ? <RepeatView orderID="ord-1" initialSession={initial} />
     : page === "cart" ? <CartView initialSession={initial} /> : null}</PrivateProviders>;
 }
 function respond(body: unknown, status = 200, owner: string | null = "A") { fetcher.mockResolvedValueOnce(jsonResponse(body, status, owner)); }
@@ -179,6 +179,7 @@ describe("commit and recovery", () => {
   it("401 invalidates and discards the attempt", async () => {
     await ready(); error("unauthorized", 401, null); fireEvent.click(submit());
     await screen.findByText("Войдите, чтобы повторить заказ"); expect(store.get().status).toBe("anonymous");
+    expect(screen.getByRole("link", { name: "Войти" })).toHaveAttribute("href", "/login?returnTo=%2Faccount%2Forders%2Ford-1%2Frepeat");
     expect(screen.queryByText("Исторический p01")).toBeNull(); expect(fetcher).toHaveBeenCalledTimes(3);
   });
   it.each(["foreign", "authenticated_user_changed"])("%s recovers owner and never replays old attempt", async (kind) => {

@@ -5,7 +5,7 @@ describe("actual legacy hash routes", () => {
   it.each([
     ["#/", "/"], ["#/home", "/"], ["#/catalog", "/catalog"], ["#/favorites", "/favorites"],
     ["#/cart", "/cart"], ["#/orders", "/account/orders"], ["#/profile", "/account"],
-    ["#/login", "/account"], ["#/delivery", "/"],
+    ["#/login", "/login"], ["#/delivery", "/"],
   ])("maps %s to %s", (hash, path) => { expect(mapLegacyHash(hash)).toBe(path); });
   it.each(["", "#main-content", "#details", "#cart", "#/unknown", "#/product/p01", "#/orders/ord123",
     "#/checkout", "#/bonuses", "#/addresses", "#//evil.example", "#/catalog?q=%", "#/catalog?q=%0a", "#/cart\\evil",

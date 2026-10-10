@@ -1,6 +1,6 @@
 "use client";
 
-import { LegacyLoginLink } from "./legacy-login-link";
+import { LoginLink } from "./login-link";
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -33,7 +33,7 @@ export function RepeatSkeleton() {
 export function RepeatView({ initialSession, orderID }: { initialSession: RouteSession; orderID: string }) {
   const store = useBrowserSessionStore();
   const session = useBrowserSession();
-  const { beginRepeatReview, loginHref } = useCart();
+  const { beginRepeatReview } = useCart();
   const routeKey = `${initialSession.status === "authenticated" ? initialSession.userID : initialSession.status}:${orderID}`;
   const [entered, setEntered] = useState("");
   const [owner, setOwner] = useState<string | null>(null);
@@ -55,7 +55,7 @@ export function RepeatView({ initialSession, orderID }: { initialSession: RouteS
     <header className={cartStyles.heading}><h1>Повторить заказ</h1></header>
     {status === "anonymous" ? <section className={cartStyles.state}>
       <h2>Войдите, чтобы повторить заказ</h2>
-      {loginHref ? <LegacyLoginLink href={loginHref}>Войти</LegacyLoginLink> : null}
+      <LoginLink>Войти</LoginLink>
       <Button onClick={() => void store.refresh()} variant="secondary">Проверить вход</Button>
     </section> : status === "unavailable" ? <section className={cartStyles.state}>
       <h2>Повтор заказа временно недоступен</h2>

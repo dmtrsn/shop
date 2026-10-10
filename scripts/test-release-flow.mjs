@@ -151,22 +151,25 @@ async function run() {
   await open("/checkout");
   await waitFor(pageHas("Войдите, чтобы оформить заказ"), "signed-out checkout");
   const loginHref = await waitFor(`(() => { const a = ${mainLink("Войти")}; const h = a && a.getAttribute('href'); return h && h.includes('returnTo') ? h : null; })()`, "sign-in link");
-  check("signed-out /checkout links to same-origin legacy login with returnTo", loginHref === "/legacy/?returnTo=%2Fcheckout#/login", loginHref);
+  check("signed-out /checkout links to the Next login page with returnTo", loginHref === "/login?returnTo=%2Fcheckout", loginHref);
 
-  // 2. Legacy login through /legacy.
+  // 2. Next-native login: the form POSTs once to Go's same-origin session endpoint.
   await evaluate(`${mainLink("Войти")}.click()`);
-  await waitFor("location.pathname === '/legacy/' && location.hash === '#/login' && !!document.querySelector('#login-form')", "legacy login form");
-  check("legacy login is served under /legacy on the same origin", (await evaluate("location.origin")) === EDGE);
-  await evaluate(`(() => {
-    const form = document.querySelector('#login-form');
-    form.querySelector('#login-email').value = ${text(EMAIL)};
-    form.querySelector('#login-password').value = ${text(PASSWORD)};
-    form.requestSubmit();
-  })()`);
+  await waitFor("location.pathname === '/login' && !!document.querySelector('main form #login-email')", "Next login form");
+  check("login is the Next /login page on the same origin", (await evaluate("location.origin")) === EDGE && (await here()) === "/login?returnTo=%2Fcheckout", await here());
+  check("login page loads no legacy UI", !(await evaluate("!!document.querySelector('#app-main, #login-form')")));
+  await waitFor(ready(button("Войти")), "hydrated login form");
+  await typeInto("#login-email", EMAIL);
+  await typeInto("#login-password", PASSWORD);
+  const beforeLogin = requests.length;
+  await evaluate(`${button("Войти")}.click()`);
 
   // 3. Return to the exact Next route.
   await waitFor("location.pathname === '/checkout'", "return to /checkout");
   check("successful login returns to /checkout", (await here()) === "/checkout", await here());
+  const loginPosts = requests.slice(beforeLogin).filter((request) => request.method === "POST" && new URL(request.url).pathname.startsWith("/api/auth/"));
+  check("login sent exactly one same-origin POST /api/auth/session", loginPosts.length === 1 && loginPosts[0].url === `${EDGE}/api/auth/session`,
+    loginPosts.map((request) => request.url).join(" "));
   await waitFor(`document.readyState === 'complete' && !${pageHas("Войдите, чтобы оформить заказ")} && !!document.querySelector('main h1')`, "authenticated checkout");
   check("Next discovers the cookie session on /checkout", !(await evaluate(pageHas("Войдите, чтобы оформить заказ"))));
 
@@ -232,6 +235,11 @@ async function run() {
   const leaked = [...navigations, ...requests.map((request) => request.url)]
     .filter((url) => /token|csrf|password|userid|sugar\.ru/i.test(decodeURIComponent(url)));
   check("no secrets or credentials in any URL", leaked.length === 0, leaked.join(" "));
+  const legacy = [...navigations, ...requests.map((request) => request.url)].filter((url) => {
+    const { pathname } = new URL(url);
+    return /^\/legacy(\/|$)/.test(pathname) || ["/app.js", "/migration.js", "/styles.css"].includes(pathname);
+  });
+  check("no legacy frontend page or shell file was loaded", legacy.length === 0, legacy.join(" "));
   const foreign = requests.filter((request) => /^https?:/.test(request.url) && !request.url.startsWith(EDGE + "/"));
   check("every request stays on the edge origin", foreign.length === 0, foreign.map((request) => request.url).join(" "));
 }

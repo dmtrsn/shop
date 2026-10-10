@@ -16,9 +16,9 @@ let store: BrowserSessionStore;
 function SessionProbe() { store = useBrowserSessionStore(); return null; }
 const initialSession: RouteSession = { status: "authenticated", userID: "A" };
 function Tree({ route = initialSession, detail = false }: { route?: RouteSession; detail?: boolean }) {
-  return <PrivateProviders loginHref={null}><SessionProbe />
+  return <PrivateProviders><SessionProbe />
     {detail ? <OrderView initialSession={route} orderID="ord-2026-10484" />
-      : <OrdersView initialSession={route} loginHref="/legacy/#/login" />}
+      : <OrdersView initialSession={route} />}
   </PrivateProviders>;
 }
 function requests() { return fetcher.mock.calls.map(([path, init]) => `${init?.method} ${path}`); }
@@ -34,6 +34,7 @@ describe("order history", () => {
     expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
     expect(screen.getByRole("heading", { name: status === "anonymous" ? "Войдите, чтобы увидеть заказы" : "История заказов временно недоступна" })).toBeInTheDocument();
     expect(screen.queryByText("Заказов пока нет")).toBeNull();
+    if (status === "anonymous") expect(screen.getByRole("link", { name: "Войти" })).toHaveAttribute("href", "/login?returnTo=%2F");
     expect(fetcher).not.toHaveBeenCalled();
   });
 

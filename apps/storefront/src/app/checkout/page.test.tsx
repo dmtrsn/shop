@@ -21,7 +21,7 @@ describe("checkout server boundary", () => {
     getServerSession.mockResolvedValue({ status: "authenticated", user: sessionResponse().user, csrfToken: "csrf-sensitive", token: "raw-cookie-sensitive" });
     const element = await Page();
     expect(element.props).toEqual({ initialSession: { status: "authenticated", userID: "A" } });
-    const html = renderToStaticMarkup(<FavoritesProvider loginHref={null}>{element}</FavoritesProvider>);
+    const html = renderToStaticMarkup(<FavoritesProvider>{element}</FavoritesProvider>);
     for (const secret of ["csrf-sensitive", "raw-cookie-sensitive", "user@example.test"]) expect(html).not.toContain(secret);
     expect(html).toContain("Оформление заказа");
     expect(html).toContain("Загружаем заказ");
@@ -32,7 +32,7 @@ describe("checkout server boundary", () => {
     getServerSession.mockResolvedValue({ status, csrfToken: "should-not-pass" });
     const element = await Page();
     expect(element.props).toEqual({ initialSession: { status } });
-    expect(renderToStaticMarkup(<FavoritesProvider loginHref={null}>{element}</FavoritesProvider>)).not.toContain("should-not-pass");
+    expect(renderToStaticMarkup(<FavoritesProvider>{element}</FavoritesProvider>)).not.toContain("should-not-pass");
   });
 
   it("has a stable loading state and an actionable error boundary without internals", () => {

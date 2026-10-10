@@ -7,7 +7,6 @@ import { sessionResponse } from "@/test/favorites-fixtures";
 
 const { getServerSession } = vi.hoisted(() => ({ getServerSession: vi.fn() }));
 vi.mock("@/lib/api/session", () => ({ getServerSession }));
-vi.mock("@/lib/legacy-login", () => ({ getLegacyLoginHref: () => "/legacy/#/login" }));
 
 import Page, { dynamic, metadata } from "./page";
 import Loading from "./loading";
@@ -16,14 +15,14 @@ import ErrorPage from "./error";
 beforeEach(() => { vi.clearAllMocks(); });
 
 describe("account server boundary", () => {
-  it("passes only the dynamic session gate and login URL; no private history or credentials", async () => {
+  it("passes only the dynamic session gate; no private history or credentials", async () => {
     expect(dynamic).toBe("force-dynamic");
     expect(metadata.robots).toEqual({ index: false, follow: false });
     getServerSession.mockResolvedValue({ status: "authenticated", user: sessionResponse().user, csrfToken: "secret" });
     const element = await Page();
     expect(getServerSession).toHaveBeenCalledTimes(1);
-    expect(element.props).toEqual({ initialSession: { status: "authenticated", userID: "A" }, loginHref: "/legacy/#/login" });
-    const html = renderToStaticMarkup(<PrivateProviders loginHref={null}>{element}</PrivateProviders>);
+    expect(element.props).toEqual({ initialSession: { status: "authenticated", userID: "A" } });
+    const html = renderToStaticMarkup(<PrivateProviders>{element}</PrivateProviders>);
     expect(html).toContain("Проверяем аккаунт…");
     expect(html).not.toContain("secret");
     expect(html).not.toContain("user@example.test");

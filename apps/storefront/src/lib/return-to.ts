@@ -23,19 +23,19 @@ export function normalizeReturnTo(candidate: unknown, origin: string): string | 
   }
 }
 
-export const defaultLegacyLogin = "/legacy/#/login";
+// Fixed placeholder: normalizeReturnTo compares origins, so only same-origin
+// relative paths survive. Return targets are app paths without basePath; Next's
+// redirect() and Link add it, and the login form restores it before navigating.
+const placeholderOrigin = "https://storefront.invalid";
 
-// Relative entries keep auth on the public host, independently of the internal API.
-export function normalizeLegacyLogin(candidate: string): string {
-  const url = new URL(candidate, "https://storefront.invalid");
-  if (!candidate.startsWith("/") || candidate.startsWith("//") || /[\\\s%]/.test(candidate)
-    || url.origin !== "https://storefront.invalid" || url.pathname !== "/legacy/"
-    || url.search || url.hash !== "#/login") throw new Error("STOREFRONT_LEGACY_LOGIN_URL must be /legacy/#/login");
-  return defaultLegacyLogin;
+export const loginPath = "/login";
+
+// The only accepted shape is exactly one string value. Anything else, including
+// a repeated returnTo, falls back to the storefront home.
+export function loginReturnTarget(candidate: unknown): string {
+  return typeof candidate === "string" ? normalizeReturnTo(candidate, placeholderOrigin) ?? "/" : "/";
 }
 
-export function buildLegacyLoginHref(loginHref: string, target: string, origin: string): string {
-  const entry = new URL(normalizeLegacyLogin(loginHref), origin);
-  entry.searchParams.set("returnTo", normalizeReturnTo(target, origin) ?? "/");
-  return entry.pathname + entry.search + entry.hash;
+export function buildLoginHref(target: string): string {
+  return `${loginPath}?${new URLSearchParams({ returnTo: loginReturnTarget(target) })}`;
 }

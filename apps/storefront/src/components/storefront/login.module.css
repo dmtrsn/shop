@@ -1,0 +1,67 @@
+/* Current tokens only; the legacy login card proportions (about 460px wide). */
+.card {
+  width: min(100%, 28.75rem);
+  margin-inline: auto;
+  padding: clamp(var(--space-5), 4vw, var(--space-6));
+  border: var(--border-control);
+  border-radius: var(--radius-overlay);
+  background: var(--color-surface);
+  overflow-wrap: anywhere;
+}
+
+.card h1 {
+  margin: 0 0 var(--space-2);
+  font-size: var(--font-size-xl);
+  line-height: var(--line-height-heading);
+}
+
+.lede {
+  margin: 0 0 var(--space-5);
+  color: var(--color-text-muted);
+}
+
+.notice {
+  margin: 0 0 var(--space-5);
+  padding: var(--space-3) var(--space-4);
+  border: var(--border-control);
+  border-radius: var(--radius-control);
+  background: var(--color-surface-subtle);
+  font-size: var(--font-size-sm);
+}
+
+.form {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.fieldError,
+.error {
+  margin: 0;
+  color: var(--color-error);
+  font-size: var(--font-size-sm);
+  font-weight: var(--weight-medium);
+}
+
+.submit {
+  width: 100%;
+  margin-top: var(--space-2);
+}
+
+.hint {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.demo {
+  margin: var(--space-5) 0 0;
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-control);
+  background: var(--color-surface-subtle);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.demo strong {
+  color: var(--color-text);
+}

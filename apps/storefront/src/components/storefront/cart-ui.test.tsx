@@ -20,13 +20,13 @@ function requests() { return fetcher.mock.calls.map(([path, init]) => `${init?.m
 function sentBody(index: number) { return JSON.parse(fetcher.mock.calls[index][1]?.body as string); }
 function page(status: "authenticated" | "anonymous" | "unavailable" = "authenticated") {
   return render(
-    <PrivateProviders loginHref="/legacy/#/login">
+    <PrivateProviders>
       <CartView initialSession={status === "authenticated" ? { status, userID: "A" } : { status }} />
     </PrivateProviders>,
   );
 }
 function control(product: Product, detail = false) {
-  return render(<PrivateProviders loginHref={null}><CartControl detail={detail} product={product} /></PrivateProviders>);
+  return render(<PrivateProviders><CartControl detail={detail} product={product} /></PrivateProviders>);
 }
 async function openCart(cart: ReturnType<typeof cartResponse>) {
   respond(sessionResponse(), 200, null);
@@ -46,7 +46,7 @@ describe("/cart route states", () => {
       name: status === "anonymous" ? "Войдите, чтобы открыть корзину" : "Корзина временно недоступна",
     })).toBeInTheDocument();
     expect(screen.queryByText("В корзине пока нет товаров")).toBeNull();
-    if (status === "anonymous") expect(screen.getByRole("link", { name: "Войти" })).toHaveAttribute("href", "/legacy/?returnTo=%2F#/login");
+    if (status === "anonymous") expect(screen.getByRole("link", { name: "Войти" })).toHaveAttribute("href", "/login?returnTo=%2F");
     expect(fetcher).not.toHaveBeenCalled();
   });
 
@@ -256,8 +256,8 @@ describe("product Cart control", () => {
 
   it("anonymous shoppers get sign-in guidance and no guest Cart", async () => {
     respond({ authenticated: false }, 200, null);
-    render(<PrivateProviders loginHref="/legacy/#/login"><CartControl product={favoriteProduct()} /></PrivateProviders>);
-    expect(await screen.findByRole("link", { name: "Войдите, чтобы купить: Шоколад p01" })).toHaveAttribute("href", "/legacy/?returnTo=%2F#/login");
+    render(<PrivateProviders><CartControl product={favoriteProduct()} /></PrivateProviders>);
+    expect(await screen.findByRole("link", { name: "Войдите, чтобы купить: Шоколад p01" })).toHaveAttribute("href", "/login?returnTo=%2F");
     expect(requests()).toEqual(["GET /api/auth/session"]);
   });
 
@@ -269,7 +269,7 @@ describe("product Cart control", () => {
       ? jsonResponse(sessionResponse(), 200, null)
       : jsonResponse(String(path) === "/api/cart" ? cartResponse() : { items: [], groups: [], total: 0 }));
     const product = favoriteProduct();
-    const { container } = render(<PrivateProviders loginHref={null}><Card product={product} /></PrivateProviders>);
+    const { container } = render(<PrivateProviders><Card product={product} /></PrivateProviders>);
     const add = screen.getByRole("button", { name: `Добавить в корзину: ${product.name}` });
     await waitFor(() => expect(add).toHaveAttribute("aria-disabled", "false"));
     expect(add.closest("a")).toBeNull();

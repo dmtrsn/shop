@@ -1,6 +1,6 @@
 "use client";
 
-import { LegacyLoginLink } from "./legacy-login-link";
+import { LoginLink } from "./login-link";
 
 import Link from "next/link";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
@@ -19,7 +19,7 @@ export function FavoritesSkeleton() {
 }
 
 export function FavoritesView({ initialSession }: { initialSession: FavoritesRouteSession }) {
-  const { status, favorites, loginHref, refresh, enterRoute } = useFavorites();
+  const { status, favorites, refresh, enterRoute } = useFavorites();
   const routeKey = initialSession.status === "authenticated" ? `user:${initialSession.userID}` : initialSession.status;
   const [enteredKey, setEnteredKey] = useState<string | null>(null);
   const root = useRef<HTMLDivElement>(null);
@@ -66,7 +66,7 @@ export function FavoritesView({ initialSession }: { initialSession: FavoritesRou
               <h2>Войдите, чтобы открыть избранное</h2>
               <p>Сохранённые товары доступны в вашем аккаунте. После входа вернитесь на эту страницу.</p>
               <div className={styles.actions}>
-                {loginHref ? <LegacyLoginLink href={loginHref}>Войти</LegacyLoginLink> : null}
+                <LoginLink>Войти</LoginLink>
                 <Button onClick={() => void refresh()} variant="secondary">Проверить вход</Button>
                 <Link href="/catalog">Перейти в каталог</Link>
               </div>

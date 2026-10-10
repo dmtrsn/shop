@@ -1,6 +1,6 @@
 "use client";
 
-import { LegacyLoginLink } from "./legacy-login-link";
+import { LoginLink } from "./login-link";
 
 import Link from "next/link";
 import { useEffect, useId, useState } from "react";
@@ -56,15 +56,9 @@ export function CartControl({ product, detail = false, compact = false }: {
   if (cart.status === "anonymous") {
     return (
       <div className={className}>
-        {cart.loginHref ? (
-          <LegacyLoginLink aria-label={`Войдите, чтобы купить: ${product.name}`} className={styles.signIn} href={cart.loginHref}>
-            Войти, чтобы купить
-          </LegacyLoginLink>
-        ) : (
-          <Button aria-label={`Войдите, чтобы купить: ${product.name}`} onClick={cart.signInRequired} variant="secondary">
-            Для покупки нужно войти
-          </Button>
-        )}
+        <LoginLink aria-label={`Войдите, чтобы купить: ${product.name}`} className={styles.signIn}>
+          Войти, чтобы купить
+        </LoginLink>
       </div>
     );
   }

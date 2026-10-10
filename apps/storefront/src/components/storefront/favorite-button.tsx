@@ -1,6 +1,6 @@
 "use client";
 
-import { LegacyLoginLink } from "./legacy-login-link";
+import { LoginLink } from "./login-link";
 
 import { useEffect } from "react";
 
@@ -12,23 +12,22 @@ import { useFavorites } from "./favorites-provider";
 import styles from "./favorites.module.css";
 
 export function FavoriteButton({ productID, productName, text = false }: { productID: string; productName: string; text?: boolean }) {
-  const { status, favorites, mutationPending, pendingProductID, ensure, refresh, toggle, loginHref, signInRequired } = useFavorites();
+  const { status, favorites, mutationPending, pendingProductID, ensure, refresh, toggle } = useFavorites();
   useEffect(() => { void ensure(); }, [ensure]);
   const selected = favorites?.items.some((product) => product.id === productID) ?? false;
   const className = `${styles.control} ${text ? styles.textControl : ""}`;
-  if (status === "anonymous" && loginHref) {
+  if (status === "anonymous") {
     return (
-      <LegacyLoginLink aria-label={`Войдите, чтобы сохранить: ${productName}`} className={className} href={loginHref} title="Войдите, чтобы сохранять избранное">
+      <LoginLink aria-label={`Войдите, чтобы сохранить: ${productName}`} className={className} title="Войдите, чтобы сохранять избранное">
         <HeartIcon />{text ? <span>Войти, чтобы сохранить</span> : null}
-      </LegacyLoginLink>
+      </LoginLink>
     );
   }
   const ready = status === "ready" && favorites !== null;
   const loading = status === "idle" || status === "loading";
   const label = ready ? `Избранное: ${productName}`
-    : status === "anonymous" ? `Войдите, чтобы сохранить: ${productName}`
-      : status === "unavailable" ? `Избранное недоступно. Повторить проверку: ${productName}`
-        : `Проверяем избранное: ${productName}`;
+    : status === "unavailable" ? `Избранное недоступно. Повторить проверку: ${productName}`
+      : `Проверяем избранное: ${productName}`;
   const props = {
     "aria-label": label,
     "aria-pressed": ready ? selected : undefined,
@@ -40,10 +39,9 @@ export function FavoriteButton({ productID, productName, text = false }: { produ
     onClick: () => {
       if (loading || mutationPending) return;
       if (ready) void toggle(productID);
-      else if (status === "anonymous") signInRequired();
       else void refresh();
     },
-    children: <><HeartIcon fill={ready && selected ? "currentColor" : "none"} />{text ? <span>{ready ? (selected ? "В избранном" : "В избранное") : status === "anonymous" ? "Для избранного нужно войти" : loading ? "Проверяем избранное…" : "Повторить проверку избранного"}</span> : null}</>,
+    children: <><HeartIcon fill={ready && selected ? "currentColor" : "none"} />{text ? <span>{ready ? (selected ? "В избранном" : "В избранное") : loading ? "Проверяем избранное…" : "Повторить проверку избранного"}</span> : null}</>,
   };
   return text ? <Button {...props} variant="secondary" /> : <IconButton {...props} />;
 }

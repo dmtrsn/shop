@@ -79,7 +79,6 @@ type Runtime = {
 };
 
 type CartContextValue = State & {
-  loginHref: string | null;
   cart: Cart | null;
   ensure: () => Promise<void>;
   refresh: () => Promise<void>;
@@ -91,7 +90,6 @@ type CartContextValue = State & {
   commitRepeat: (attempt: RepeatAttempt) => Promise<RepeatCommitResult>;
   enterCartRoute: (session: CartRouteSession) => RepeatHandoff | null;
   takePlacedOrder: (userID: string, orderID: string) => boolean;
-  signInRequired: () => void;
 };
 const CartContext = createContext<CartContextValue | null>(null);
 
@@ -112,7 +110,7 @@ function errorKey(command: CartCommand): string {
   return command.kind === "selection" ? selectionKey : command.productID;
 }
 
-export function CartProvider({ children, loginHref }: { children: ReactNode; loginHref: string | null }) {
+export function CartProvider({ children }: { children: ReactNode }) {
   const store = useBrowserSessionStore();
   const session = useBrowserSession();
   const pathname = usePathname();
@@ -494,7 +492,6 @@ export function CartProvider({ children, loginHref }: { children: ReactNode; log
       commitRepeat,
       enterCartRoute,
       takePlacedOrder,
-      signInRequired: () => message("Чтобы пользоваться корзиной, войдите в свой аккаунт."),
       dismissMessage: (text: string) => { if (rt.state.message === text) message(""); },
     };
   }, [store]);
@@ -529,7 +526,7 @@ export function CartProvider({ children, loginHref }: { children: ReactNode; log
     state.snapshot.generation === session.generation;
   const cart = state.status === "ready" && owned ? state.snapshot!.cart : null;
   return (
-    <CartContext.Provider value={{ ...state, ...actions, cart, loginHref }}>
+    <CartContext.Provider value={{ ...state, ...actions, cart }}>
       {children}
       <div aria-atomic="true" aria-label="Уведомления корзины" aria-live="polite" className={styles.feedback} role="status">
         {state.message ? <span>{state.message}</span> : null}

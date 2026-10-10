@@ -47,7 +47,7 @@ const reviewBody = (cart: Cart) => ({
 
 function mountCheckout(status: "authenticated" | "anonymous" | "unavailable" = "authenticated") {
   return render(
-    <PrivateProviders loginHref="/legacy/#/login">
+    <PrivateProviders>
       <CheckoutView initialSession={status === "authenticated" ? { status, userID: "A" } : { status }} />
     </PrivateProviders>,
   );
@@ -81,6 +81,7 @@ describe("/checkout states", () => {
     expect(screen.getByRole("heading", { level: 1, name: "Оформление заказа" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: status === "anonymous" ? "Войдите, чтобы оформить заказ" : "Оформление временно недоступно" })).toBeInTheDocument();
     expect(screen.queryByLabelText("Адрес доставки")).toBeNull();
+    if (status === "anonymous") expect(screen.getByRole("link", { name: "Войти" })).toHaveAttribute("href", "/login?returnTo=%2Fcheckout");
     expect(fetcher).not.toHaveBeenCalled();
   });
 
@@ -411,7 +412,7 @@ describe("order confirmation", () => {
   it("the success handoff shows the banner once with the session/order/Cart pattern", async () => {
     respond(sessionResponse(), 200, null);
     respond(baseCart());
-    render(<PrivateProviders loginHref={null}><Flow /></PrivateProviders>);
+    render(<PrivateProviders><Flow /></PrivateProviders>);
     await screen.findByRole("heading", { name: "Товары в заказе" });
     fill();
     fetcher.mockResolvedValueOnce(placed());
@@ -428,7 +429,7 @@ describe("order confirmation", () => {
   });
 
   function mountOrder(status: "authenticated" | "anonymous" | "unavailable" = "authenticated", id = "ord-2026-10484") {
-    return render(<PrivateProviders loginHref={null}>
+    return render(<PrivateProviders>
       <OrderView initialSession={status === "authenticated" ? { status, userID: "A" } : { status }} orderID={id} />
     </PrivateProviders>);
   }
@@ -467,6 +468,7 @@ describe("order confirmation", () => {
   it.each(["anonymous", "unavailable"] as const)("%s gates without requests", (status) => {
     mountOrder(status);
     expect(screen.getByRole("heading", { name: status === "anonymous" ? "Войдите, чтобы открыть заказ" : "Заказ временно недоступен" })).toBeInTheDocument();
+    if (status === "anonymous") expect(screen.getByRole("link", { name: "Войти" }).getAttribute("href")).toMatch(/^\/login\?returnTo=%2F/);
     expect(fetcher).not.toHaveBeenCalled();
   });
 
@@ -482,7 +484,7 @@ describe("order confirmation", () => {
 
 describe("Cart checkout link", () => {
   function mountCart() {
-    return render(<PrivateProviders loginHref={null}><CartView initialSession={{ status: "authenticated", userID: "A" }} /></PrivateProviders>);
+    return render(<PrivateProviders><CartView initialSession={{ status: "authenticated", userID: "A" }} /></PrivateProviders>);
   }
   async function openCart(cart: Cart) {
     respond(sessionResponse(), 200, null);
@@ -541,7 +543,7 @@ describe("placeOrder shares the global Cart write lock", () => {
     results.length = 0;
     respond(sessionResponse(), 200, null);
     respond(baseCart());
-    render(<PrivateProviders loginHref={null}><Probe /></PrivateProviders>);
+    render(<PrivateProviders><Probe /></PrivateProviders>);
     fireEvent.click(screen.getByText("ensure"));
     await waitFor(() => expect(screen.getByTestId("status")).toHaveTextContent("ready"));
     const write = deferred<Response>();

@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { getServerSession, parseServerSession, sessionCookieHeader } from "./session";
+import { getDemoLoginAllowed, getServerSession, parseServerSession, sessionCookieHeader } from "./session";
 
 // The raw incoming Cookie header, which (unlike a name-keyed map) can repeat names.
 const cookieJar = vi.hoisted(() => ({ pairs: [] as [string, string][] }));
@@ -210,5 +210,31 @@ describe("session cookie header", () => {
 describe("parseServerSession", () => {
   it("omits requestId when none is known", () => {
     expect(parseServerSession({ nope: true })).toEqual({ status: "unavailable" });
+  });
+});
+
+describe("getDemoLoginAllowed", () => {
+  it("is true only for an explicit demoLogin: true and never forwards browser cookies", async () => {
+    cookieJar.pairs.push([SECURE, TOKEN]);
+    fetcher.mockResolvedValueOnce(json({ authenticated: false, demoLogin: true }));
+    await expect(getDemoLoginAllowed({ fetcher })).resolves.toBe(true);
+    expect(fetcher).toHaveBeenCalledOnce();
+    expect(String(fetcher.mock.calls[0][0])).toMatch(/\/api\/auth\/session$/);
+    expect(sentCookie()).toBeNull();
+  });
+
+  it.each([
+    ["false", { authenticated: false, demoLogin: false }], ["missing", { authenticated: false }],
+    ["truthy string", { authenticated: false, demoLogin: "true" }], ["not an object", [true]],
+  ])("is false when the flag is %s", async (_, body) => {
+    fetcher.mockResolvedValueOnce(json(body));
+    await expect(getDemoLoginAllowed({ fetcher })).resolves.toBe(false);
+  });
+
+  it("is false when Go fails or is unreachable", async () => {
+    fetcher.mockResolvedValueOnce(json({ error: { code: "internal_error" } }, 500));
+    await expect(getDemoLoginAllowed({ fetcher })).resolves.toBe(false);
+    fetcher.mockRejectedValueOnce(new TypeError("offline"));
+    await expect(getDemoLoginAllowed({ fetcher })).resolves.toBe(false);
   });
 });

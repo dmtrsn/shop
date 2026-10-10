@@ -21,7 +21,7 @@ describe("cart server boundary", () => {
     });
     const element = await Page();
     expect(element.props).toEqual({ initialSession: { status: "authenticated", userID: "A" } });
-    const html = renderToStaticMarkup(<FavoritesProvider loginHref={null}>{element}</FavoritesProvider>);
+    const html = renderToStaticMarkup(<FavoritesProvider>{element}</FavoritesProvider>);
     for (const secret of ["csrf-sensitive", "raw-cookie-sensitive", "private-expiry", "http://internal", "user@example.test", favoriteProduct().name]) {
       expect(html).not.toContain(secret);
       expect(JSON.stringify(element.props)).not.toContain(secret);
@@ -32,7 +32,7 @@ describe("cart server boundary", () => {
     getServerSession.mockResolvedValue({ status, requestId: "id", csrfToken: "should-not-pass" });
     const element = await Page();
     expect(element.props).toEqual({ initialSession: { status } });
-    const html = renderToStaticMarkup(<FavoritesProvider loginHref={null}>{element}</FavoritesProvider>);
+    const html = renderToStaticMarkup(<FavoritesProvider>{element}</FavoritesProvider>);
     expect(html).toContain(status === "anonymous" ? "Войдите" : "временно недоступна");
     expect(html).not.toContain("should-not-pass");
   });

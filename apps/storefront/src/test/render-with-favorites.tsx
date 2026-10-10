@@ -13,5 +13,5 @@ vi.mock("@/lib/api/browser-request", async (importOriginal) => ({
 }));
 
 export function render(ui: ReactElement, options?: RenderOptions) {
-  return testingRender(ui, { wrapper: ({ children }) => <FavoritesProvider loginHref={null}>{children}</FavoritesProvider>, ...options });
+  return testingRender(ui, { wrapper: ({ children }) => <FavoritesProvider>{children}</FavoritesProvider>, ...options });
 }

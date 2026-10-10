@@ -16,13 +16,13 @@ vi.mock("next/link", () => ({ default: ({ href, children, prefetch }: ComponentP
 const fetcher = vi.fn<typeof fetch>();
 let store: BrowserSessionStore;
 function Probe() { store = useBrowserSessionStore(); return null; }
-function tree(initialSession: RouteSession, loginHref: string | null = "/legacy/#/login") {
-  return <StrictMode><PrivateProviders loginHref={loginHref}>
-    <Probe /><AccountView initialSession={initialSession} loginHref={loginHref} />
+function tree(initialSession: RouteSession) {
+  return <StrictMode><PrivateProviders>
+    <Probe /><AccountView initialSession={initialSession} />
   </PrivateProviders></StrictMode>;
 }
-function mount(initialSession: RouteSession = { status: "authenticated", userID: "A" }, loginHref: string | null = "/legacy/#/login") {
-  return render(tree(initialSession, loginHref));
+function mount(initialSession: RouteSession = { status: "authenticated", userID: "A" }) {
+  return render(tree(initialSession));
 }
 function account(userID = "A", phone?: string) {
   return { ...sessionResponse(userID), user: { id: userID, name: `Name ${userID}`, email: `${userID}@test.ru`, ...(phone !== undefined ? { phone } : {}) } };
@@ -80,14 +80,14 @@ describe("account summary", () => {
 
   it.each(["anonymous", "unavailable"] as const)("respects the %s server gate without browser reads", async (status) => {
     mount({ status });
-    if (status === "anonymous") expect(screen.getByRole("link", { name: "Войти" })).toHaveAttribute("href", "/legacy/?returnTo=%2F#/login");
+    if (status === "anonymous") expect(screen.getByRole("link", { name: "Войти" })).toHaveAttribute("href", "/login?returnTo=%2F");
     else expect(screen.queryByRole("link", { name: "Войти" })).toBeNull();
     expect(fetcher).not.toHaveBeenCalled();
   });
 
-  it("does not invent a login URL and rechecks explicitly", async () => {
-    mount({ status: "anonymous" }, null);
-    expect(screen.queryByRole("link", { name: "Войти" })).toBeNull();
+  it("signed out offers the Next sign-in page and an explicit recheck", async () => {
+    mount({ status: "anonymous" });
+    expect(screen.getByRole("link", { name: "Войти" })).toHaveAttribute("href", "/login?returnTo=%2F");
     fetcher.mockResolvedValueOnce(jsonResponse(account()));
     fireEvent.click(screen.getByRole("button", { name: "Проверить вход" }));
     await ready();
