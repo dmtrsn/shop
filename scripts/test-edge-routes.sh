@@ -99,6 +99,27 @@ request legacy-unknown /migration-owner-check
 expect_status 200 "$status" legacy-unknown
 expect_legacy legacy-unknown
 
+# Fragments never reach HTTP. Test the login pathname/query here;
+# browser/unit tests cover #/login and post-login navigation.
+for path in /legacy /legacy/ '/legacy/?returnTo=%2Fstorefront-preview%2Fcart' /legacy/migration-owner-check; do
+  request legacy-entry "$path"
+  expect_status 200 "$status" legacy-entry
+  expect_legacy legacy-entry
+  grep -Eqi '^x-frame-options:[[:space:]]*DENY[[:space:]]*$' "$temporary_dir/legacy-entry.headers"
+done
+for file in app.js migration.js styles.css; do
+  request legacy-shell "/$file"
+  expect_status 200 "$status" legacy-shell
+  test -s "$temporary_dir/legacy-shell.body"
+  if grep -qi '<!doctype html' "$temporary_dir/legacy-shell.body"; then
+    echo "$file: legacy shell asset was swallowed by SPA fallback" >&2
+    exit 1
+  fi
+  request legacy-prefixed-shell "/legacy/$file"
+  expect_status 200 "$status" legacy-prefixed-shell
+  cmp "$temporary_dir/legacy-shell.body" "$temporary_dir/legacy-prefixed-shell.body"
+done
+
 request preview-missing /storefront-preview/migration-owner-check
 expect_status 404 "$status" preview-missing
 expect_next preview-missing

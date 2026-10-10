@@ -1,5 +1,7 @@
 "use client";
 
+import { LegacyLoginLink } from "./legacy-login-link";
+
 import { useEffect } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -16,9 +18,9 @@ export function FavoriteButton({ productID, productName, text = false }: { produ
   const className = `${styles.control} ${text ? styles.textControl : ""}`;
   if (status === "anonymous" && loginHref) {
     return (
-      <a aria-label={`Войдите, чтобы сохранить: ${productName}`} className={className} href={loginHref} title="Войдите, чтобы сохранять избранное">
+      <LegacyLoginLink aria-label={`Войдите, чтобы сохранить: ${productName}`} className={className} href={loginHref} title="Войдите, чтобы сохранять избранное">
         <HeartIcon />{text ? <span>Войти, чтобы сохранить</span> : null}
-      </a>
+      </LegacyLoginLink>
     );
   }
   const ready = status === "ready" && favorites !== null;

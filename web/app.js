@@ -255,6 +255,8 @@
     await revokeLegacyToken();
     try {
       await refreshSession();
+      // Only a real cookie-session response permits an authenticated entry return.
+      if (state.session.authenticated && state.route === "login") window.SloyMigration.returnAfterLogin(window.location);
     } catch (error) {
       // Leave `known` false: neither signed in nor signed out is confirmed.
       console.info("Слой: не удалось проверить сессию", error?.message || error);
@@ -1735,6 +1737,8 @@
         return;
       }
       state.apiOnline = true;
+      // A full navigation lets Next discover the installed HttpOnly cookie itself.
+      if (window.SloyMigration.returnAfterLogin(window.location)) return;
       const loaded = await loadAccountData();
       render();
       if (!state.session.authenticated) return;

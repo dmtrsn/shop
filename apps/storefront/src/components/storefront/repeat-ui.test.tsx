@@ -20,7 +20,7 @@ let cart: ReturnType<typeof useCart>;
 function Probe() { store = useBrowserSessionStore(); cart = useCart(); return null; }
 const route: RouteSession = { status: "authenticated", userID: "A" };
 function Tree({ initial = route, page = "repeat" }: { initial?: RouteSession; page?: "repeat" | "cart" | "none" }) {
-  return <PrivateProviders loginHref="/#/login"><Probe />{page === "repeat" ? <RepeatView orderID="ord-1" initialSession={initial} />
+  return <PrivateProviders loginHref="/legacy/#/login"><Probe />{page === "repeat" ? <RepeatView orderID="ord-1" initialSession={initial} />
     : page === "cart" ? <CartView initialSession={initial} /> : null}</PrivateProviders>;
 }
 function respond(body: unknown, status = 200, owner: string | null = "A") { fetcher.mockResolvedValueOnce(jsonResponse(body, status, owner)); }

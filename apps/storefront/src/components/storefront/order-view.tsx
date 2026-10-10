@@ -14,6 +14,7 @@ import { pluralRu } from "@/lib/plural";
 
 import { useBrowserSession, useBrowserSessionStore } from "./browser-session-provider";
 import { useCart } from "./cart-provider";
+import { LegacyLoginLink } from "./legacy-login-link";
 import cartStyles from "./cart.module.css";
 import styles from "./checkout.module.css";
 
@@ -90,7 +91,7 @@ function OrderDetails({ order, placed }: { order: Order; placed: boolean }) {
 export function OrderView({ initialSession, orderID }: { initialSession: RouteSession; orderID: string }) {
   const store = useBrowserSessionStore();
   const session = useBrowserSession();
-  const { takePlacedOrder } = useCart();
+  const { takePlacedOrder, loginHref } = useCart();
   const routeKey = `${initialSession.status === "authenticated" ? `user:${initialSession.userID}` : initialSession.status}:${orderID}`;
   const [enteredKey, setEnteredKey] = useState<string | null>(null);
   const [loaded, setLoaded] = useState<Loaded | null>(null);
@@ -145,6 +146,7 @@ export function OrderView({ initialSession, orderID }: { initialSession: RouteSe
       <section className={cartStyles.state}>
         <h2>Войдите, чтобы открыть заказ</h2>
         <p>Заказы доступны в вашем аккаунте.</p>
+        {loginHref ? <LegacyLoginLink href={loginHref}>Войти</LegacyLoginLink> : null}
         <Button onClick={() => void store.refresh()} variant="secondary">Проверить вход</Button>
       </section>
     </>;

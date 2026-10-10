@@ -46,6 +46,20 @@ server {
         proxy_pass http://storefront:${STOREFRONT_PORT};
     }
 
+    # Legacy's root-relative shell files remain Go-owned after eventual cutover.
+    location = /app.js { proxy_pass http://app:8080; }
+    location = /migration.js { proxy_pass http://app:8080; }
+    location = /styles.css { proxy_pass http://app:8080; }
+
+    # Strip the compatibility mount: Go serves files relative to web/.
+    location = /legacy {
+        proxy_pass http://app:8080/;
+    }
+
+    location ^~ /legacy/ {
+        proxy_pass http://app:8080/;
+    }
+
     # Primary route ownership remains Go until the later cutover checkpoint.
     location / {
         proxy_pass http://app:8080;

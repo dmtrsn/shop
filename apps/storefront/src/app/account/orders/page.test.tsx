@@ -7,7 +7,7 @@ import { sessionResponse } from "@/test/favorites-fixtures";
 
 const { getServerSession } = vi.hoisted(() => ({ getServerSession: vi.fn() }));
 vi.mock("@/lib/api/session", () => ({ getServerSession }));
-vi.mock("@/lib/legacy-login", () => ({ getLegacyLoginHref: () => "https://shop.test/#/login" }));
+vi.mock("@/lib/legacy-login", () => ({ getLegacyLoginHref: () => "/legacy/#/login" }));
 
 import Page, { dynamic, metadata } from "./page";
 import Loading from "./loading";
@@ -22,7 +22,7 @@ describe("history server boundary", () => {
     getServerSession.mockResolvedValue({ status: "authenticated", user: sessionResponse().user, csrfToken: "secret" });
     const element = await Page();
     expect(getServerSession).toHaveBeenCalledTimes(1);
-    expect(element.props).toEqual({ initialSession: { status: "authenticated", userID: "A" }, loginHref: "https://shop.test/#/login" });
+    expect(element.props).toEqual({ initialSession: { status: "authenticated", userID: "A" }, loginHref: "/legacy/#/login" });
     const html = renderToStaticMarkup(<PrivateProviders loginHref={null}>{element}</PrivateProviders>);
     expect(html).toContain("Загружаем историю заказов");
     expect(html).not.toContain("secret");

@@ -1,5 +1,7 @@
 "use client";
 
+import { LegacyLoginLink } from "./legacy-login-link";
+
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, type FormEvent } from "react";
@@ -53,7 +55,7 @@ export function RepeatView({ initialSession, orderID }: { initialSession: RouteS
     <header className={cartStyles.heading}><h1>Повторить заказ</h1></header>
     {status === "anonymous" ? <section className={cartStyles.state}>
       <h2>Войдите, чтобы повторить заказ</h2>
-      {loginHref ? <a href={loginHref}>Войти</a> : null}
+      {loginHref ? <LegacyLoginLink href={loginHref}>Войти</LegacyLoginLink> : null}
       <Button onClick={() => void store.refresh()} variant="secondary">Проверить вход</Button>
     </section> : status === "unavailable" ? <section className={cartStyles.state}>
       <h2>Повтор заказа временно недоступен</h2>

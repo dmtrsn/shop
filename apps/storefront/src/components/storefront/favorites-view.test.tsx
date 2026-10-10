@@ -21,9 +21,9 @@ afterEach(() => { vi.unstubAllGlobals(); });
 
 describe("favorites route states and list", () => {
   it("anonymous server gate does not load private data and uses a full-document sign-in link", () => {
-    page({ status: "anonymous" }, "https://shop.test/#/login");
+    page({ status: "anonymous" }, "/legacy/#/login");
     expect(screen.getByRole("heading", { name: "Войдите, чтобы открыть избранное" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Войти" })).toHaveAttribute("href", "https://shop.test/#/login");
+    expect(screen.getByRole("link", { name: "Войти" })).toHaveAttribute("href", "/legacy/?returnTo=%2F#/login");
     expect(fetcher).not.toHaveBeenCalled();
     expect(screen.queryByText("В избранном пока нет товаров")).not.toBeInTheDocument();
   });
@@ -84,9 +84,9 @@ describe("favorites route states and list", () => {
 describe("shared controls", () => {
   it("names anonymous navigation without a fake pressed state", async () => {
     respond({ authenticated: false });
-    render(<FavoritesProvider loginHref="https://shop.test/#/login"><FavoriteButton productID="one" productName="Шоколад" /></FavoritesProvider>);
+    render(<FavoritesProvider loginHref="/legacy/#/login"><FavoriteButton productID="one" productName="Шоколад" /></FavoritesProvider>);
     const link = await screen.findByRole("link", { name: "Войдите, чтобы сохранить: Шоколад" });
-    expect(link).toHaveAttribute("href", "https://shop.test/#/login");
+    expect(link).toHaveAttribute("href", "/legacy/?returnTo=%2F#/login");
     expect(link).not.toHaveAttribute("aria-pressed");
     expect(fetcher).toHaveBeenCalledTimes(1);
   });

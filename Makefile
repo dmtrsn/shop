@@ -69,3 +69,4 @@ check-api: ## Validate OpenAPI and exercise every current HTTP operation
 
 check-js: ## Validate legacy JavaScript syntax
 	node --check web/app.js
+	node --check web/migration.js

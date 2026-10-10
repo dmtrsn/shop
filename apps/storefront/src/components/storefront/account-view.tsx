@@ -1,5 +1,7 @@
 "use client";
 
+import { LegacyLoginLink } from "./legacy-login-link";
+
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 
@@ -86,7 +88,7 @@ export function AccountView({ initialSession, loginHref }: { initialSession: Rou
       <h2 ref={signedOutHeading} tabIndex={-1}>Вы вышли из аккаунта</h2>
       <p>Войдите, чтобы увидеть данные аккаунта и свои покупки.</p>
       <div className={cartStyles.actions}>
-        {loginHref ? <a href={loginHref}>Войти</a> : null}
+        {loginHref ? <LegacyLoginLink href={loginHref}>Войти</LegacyLoginLink> : null}
         <Button variant="secondary" onClick={() => void store.refresh()}>Проверить вход</Button>
       </div>
     </section>;

@@ -6,6 +6,7 @@ import { CartProvider } from "@/components/storefront/cart-provider";
 import { FavoritesProvider } from "@/components/storefront/favorites-provider";
 import { StorefrontHeader } from "@/components/storefront/header";
 import { getLegacyLoginHref } from "@/lib/legacy-login";
+import { LegacyHashBridge } from "@/components/storefront/legacy-hash-bridge";
 
 import "@/styles/globals.css";
 
@@ -24,6 +25,7 @@ export default function RootLayout({ children }: Readonly<{ children: ReactNode 
   return (
     <html lang="ru">
       <body>
+        <LegacyHashBridge />
         <a className="skip-link" href="#main-content">
           Перейти к содержимому
         </a>

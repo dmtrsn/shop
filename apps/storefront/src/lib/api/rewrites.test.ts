@@ -7,7 +7,12 @@ describe("storefront rewrites", () => {
     const rewrites = getStorefrontRewrites({ NODE_ENV: "development" });
 
     expect(rewrites).toEqual({
-      beforeFiles: [],
+      beforeFiles: [
+        { source: "/legacy/:path*", destination: "http://127.0.0.1:8080/:path*", basePath: false },
+        { source: "/app.js", destination: "http://127.0.0.1:8080/app.js", basePath: false },
+        { source: "/migration.js", destination: "http://127.0.0.1:8080/migration.js", basePath: false },
+        { source: "/styles.css", destination: "http://127.0.0.1:8080/styles.css", basePath: false },
+      ],
       afterFiles: [{ source: "/assets/:path*", destination: "http://127.0.0.1:8080/assets/:path*" }],
       fallback: [{ source: "/api/:path*", destination: "http://127.0.0.1:8080/api/:path*" }],
     });

@@ -18,7 +18,7 @@ const initialSession: RouteSession = { status: "authenticated", userID: "A" };
 function Tree({ route = initialSession, detail = false }: { route?: RouteSession; detail?: boolean }) {
   return <PrivateProviders loginHref={null}><SessionProbe />
     {detail ? <OrderView initialSession={route} orderID="ord-2026-10484" />
-      : <OrdersView initialSession={route} loginHref="https://shop.test/#/login" />}
+      : <OrdersView initialSession={route} loginHref="/legacy/#/login" />}
   </PrivateProviders>;
 }
 function requests() { return fetcher.mock.calls.map(([path, init]) => `${init?.method} ${path}`); }

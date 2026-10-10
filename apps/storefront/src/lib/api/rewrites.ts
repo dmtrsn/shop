@@ -4,7 +4,7 @@ import {
   type ApiBaseEnvironment,
 } from "./config";
 
-type RewriteRule = { source: string; destination: string };
+type RewriteRule = { source: string; destination: string; basePath?: false };
 
 export type StorefrontRewrites = {
   beforeFiles: RewriteRule[];
@@ -18,7 +18,14 @@ export function getStorefrontRewrites(environment: ApiBaseEnvironment = process.
   const assetRewriteBaseUrl = getOptionalAssetRewriteBaseUrl(environment);
   const apiProxyBaseUrl = getDevelopmentApiProxyBaseUrl(environment);
   return {
-    beforeFiles: [],
+    // Development has no edge. Mirror legacy's mount and shell resources;
+    // production ownership remains exclusively at Nginx.
+    beforeFiles: apiProxyBaseUrl ? [
+      { source: "/legacy/:path*", destination: apiProxyBaseUrl + "/:path*", basePath: false },
+      ...["app.js", "migration.js", "styles.css"].map(file => ({
+        source: "/" + file, destination: apiProxyBaseUrl + "/" + file, basePath: false as const,
+      })),
+    ] : [],
     afterFiles: assetRewriteBaseUrl
       ? [{ source: "/assets/:path*", destination: `${assetRewriteBaseUrl}/assets/:path*` }]
       : [],

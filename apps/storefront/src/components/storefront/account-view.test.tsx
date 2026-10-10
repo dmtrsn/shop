@@ -16,12 +16,12 @@ vi.mock("next/link", () => ({ default: ({ href, children, prefetch }: ComponentP
 const fetcher = vi.fn<typeof fetch>();
 let store: BrowserSessionStore;
 function Probe() { store = useBrowserSessionStore(); return null; }
-function tree(initialSession: RouteSession, loginHref: string | null = "https://shop.test/#/login") {
+function tree(initialSession: RouteSession, loginHref: string | null = "/legacy/#/login") {
   return <StrictMode><PrivateProviders loginHref={loginHref}>
     <Probe /><AccountView initialSession={initialSession} loginHref={loginHref} />
   </PrivateProviders></StrictMode>;
 }
-function mount(initialSession: RouteSession = { status: "authenticated", userID: "A" }, loginHref: string | null = "https://shop.test/#/login") {
+function mount(initialSession: RouteSession = { status: "authenticated", userID: "A" }, loginHref: string | null = "/legacy/#/login") {
   return render(tree(initialSession, loginHref));
 }
 function account(userID = "A", phone?: string) {
@@ -80,7 +80,7 @@ describe("account summary", () => {
 
   it.each(["anonymous", "unavailable"] as const)("respects the %s server gate without browser reads", async (status) => {
     mount({ status });
-    if (status === "anonymous") expect(screen.getByRole("link", { name: "Войти" })).toHaveAttribute("href", "https://shop.test/#/login");
+    if (status === "anonymous") expect(screen.getByRole("link", { name: "Войти" })).toHaveAttribute("href", "/legacy/?returnTo=%2F#/login");
     else expect(screen.queryByRole("link", { name: "Войти" })).toBeNull();
     expect(fetcher).not.toHaveBeenCalled();
   });

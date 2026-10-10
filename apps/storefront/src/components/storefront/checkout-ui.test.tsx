@@ -47,7 +47,7 @@ const reviewBody = (cart: Cart) => ({
 
 function mountCheckout(status: "authenticated" | "anonymous" | "unavailable" = "authenticated") {
   return render(
-    <PrivateProviders loginHref="https://shop.test/#/login">
+    <PrivateProviders loginHref="/legacy/#/login">
       <CheckoutView initialSession={status === "authenticated" ? { status, userID: "A" } : { status }} />
     </PrivateProviders>,
   );

@@ -1,5 +1,7 @@
 "use client";
 
+import { LegacyLoginLink } from "./legacy-login-link";
+
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
@@ -89,7 +91,7 @@ export function OrdersView({ initialSession, loginHref }: { initialSession: Rout
       <h2>Войдите, чтобы увидеть заказы</h2>
       <p>История покупок доступна в вашем аккаунте.</p>
       <div className={cartStyles.actions}>
-        {loginHref ? <a href={loginHref}>Войти</a> : null}
+        {loginHref ? <LegacyLoginLink href={loginHref}>Войти</LegacyLoginLink> : null}
         <Button onClick={() => void store.refresh()} variant="secondary">Проверить вход</Button>
       </div>
     </section>;

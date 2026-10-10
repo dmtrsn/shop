@@ -111,9 +111,11 @@ bash scripts/test-edge-routes.sh
 `STOREFRONT_API_BASE_URL=http://app:8080` — только внутренний server-to-server адрес Next → Go.
 Он не передаётся в browser JavaScript: браузер всегда вызывает текущий origin по `/api`.
 Для публичного запуска TLS завершается перед edge; укажите exact HTTPS public origin в
-`TRUSTED_ORIGINS` и включите secure cookie согласно production-конфигурации Go. Будущий
-same-host `/legacy/...` login может быть смонтирован без смены cookie origin, но в Checkpoint A
-его bridge и `returnTo` намеренно не реализованы.
+`TRUSTED_ORIGINS` и включите secure cookie согласно production-конфигурации Go. Edge также
+отдаёт legacy-приложение по `/legacy` и `/legacy/*` (префикс снимается, Go получает обычный
+путь), а shell-файлы `/app.js`, `/migration.js`, `/styles.css` всегда направляет в Go. Это
+same-origin вход для Next (см. «Вход через legacy» ниже). Root `/` и неизвестные пути по-прежнему
+принадлежат Go: финальное переключение root на Next ещё не выполнено.
 
 Структура текущего frontend-среза:
 
@@ -287,15 +289,55 @@ Go владеет HttpOnly cookie-сессией. Браузер сначала 
 восстановления. Возврат к скрытой/восстановленной вкладке вызывает ограниченную проверку;
 синхронизации вкладок в реальном времени нет.
 
-Для перехода на существующий legacy-вход используется отдельная server-only переменная
-`STOREFRONT_LEGACY_LOGIN_URL` (без `NEXT_PUBLIC_`). Явное значение должно быть абсолютным
-HTTP(S) URL без credentials; неверная конфигурация отклоняется. При отсутствии в development
-используется `http://127.0.0.1:8080/#/login`, в production — `null`: сборка проходит, а UI
-объясняет необходимость входа без неработающей ссылки. URL не выводится из
-`STOREFRONT_API_BASE_URL`; в browser props передаётся только проверенный navigation href.
-Переход выполняется обычной ссылкой с полной загрузкой документа. После входа нужно вернуться
-в Next самостоятельно: `returnTo` не реализован. При локальной работе используйте одинаковый
-hostname для Go и Next (например, `127.0.0.1`), чтобы host-only cookie была общей.
+**Вход через legacy.** Собственной формы входа в Next нет. Server-only переменная
+`STOREFRONT_LEGACY_LOGIN_URL` (без `NEXT_PUBLIC_`) допускает единственное значение
+`/legacy/#/login`; оно же используется по умолчанию во всех окружениях. Любое другое значение
+(абсолютный URL, другой путь или fragment) отклоняется. В `.env`-файлах значение нужно брать
+в кавычки: без них dotenv считает `#` началом комментария. URL не выводится из
+`STOREFRONT_API_BASE_URL`.
+
+Ссылка «Войти» на приватных страницах Next (избранное, корзина, оформление, аккаунт, история,
+заказ, повтор заказа) — обычная ссылка с полной загрузкой документа вида
+`/legacy/?returnTo=<текущий путь>#/login`. `returnTo` стоит до fragment и содержит фактический
+путь браузера вместе с query и hash, включая preview basePath (например,
+`/storefront-preview/cart`). Токены, CSRF и идентификатор пользователя в URL не попадают.
+
+Legacy-приложение (`web/migration.js`) проверяет `returnTo` и после настоящего входа через
+`POST /api/auth/session` выполняет `location.replace` на этот путь; дальше Next сам определяет
+сессию по HttpOnly cookie. Если пользователь уже вошёл и открыл `#/login` с `returnTo`, возврат
+происходит только после ответа `GET /api/auth/session`. Ошибка входа оставляет пользователя на
+форме с прежним `returnTo`. Без `returnTo` legacy-вход работает как раньше. Недопустимый
+`returnTo` заменяется на `/`. Допускаются только same-origin пути, начинающиеся с одного `/`, не
+длиннее 2048 символов. Отклоняются:
+
+- абсолютные и protocol-relative URL, а также `javascript:` и `data:`;
+- обратный слэш, управляющие символы, повреждённое или двойное percent-кодирование;
+- пути, которые после нормализации ведут к `//`;
+- сегменты `legacy`, `login`, `auth`, `api`, `_next`;
+- fragment `#/login` и `#/profile`;
+- query-ключи `returnTo`, токенов, CSRF, пароля и user ID.
+
+Правила одинаковы в `apps/storefront/src/lib/return-to.ts` и `web/migration.js` и проверяются
+общими тестовыми векторами.
+
+Next также переводит старые закладки вида `#/…` (`LegacyHashBridge` в root layout) через
+`router.replace`, с учётом basePath:
+
+| Legacy hash | Next |
+|---|---|
+| `#/` и `#/home` | `/` |
+| `#/catalog?…` | `/catalog` с совместимыми фильтрами |
+| `#/favorites` | `/favorites` |
+| `#/cart` | `/cart` |
+| `#/orders` | `/account/orders` |
+| `#/profile` и `#/login` | `/account` |
+| `#/delivery` | `/` (демо-страница не перенесена) |
+
+Неизвестные hash и обычные якоря (`#main-content`) не трогаются. Пока root принадлежит Go, bridge
+работает только внутри preview.
+
+При локальной работе Next dev server проксирует `/legacy/*` и shell-файлы legacy в Go, поэтому
+вход и возврат выполняются на одном origin Next.
 
 Первый mount товарных controls (избранное и корзина вместе) делает один session GET для гостя
 или три GET для вошедшего пользователя (session, favorites, cart) независимо от числа карточек.

@@ -1,5 +1,7 @@
 "use client";
 
+import { LegacyLoginLink } from "./legacy-login-link";
+
 import Link from "next/link";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
@@ -64,7 +66,7 @@ export function FavoritesView({ initialSession }: { initialSession: FavoritesRou
               <h2>Войдите, чтобы открыть избранное</h2>
               <p>Сохранённые товары доступны в вашем аккаунте. После входа вернитесь на эту страницу.</p>
               <div className={styles.actions}>
-                {loginHref ? <a href={loginHref}>Войти</a> : null}
+                {loginHref ? <LegacyLoginLink href={loginHref}>Войти</LegacyLoginLink> : null}
                 <Button onClick={() => void refresh()} variant="secondary">Проверить вход</Button>
                 <Link href="/catalog">Перейти в каталог</Link>
               </div>
