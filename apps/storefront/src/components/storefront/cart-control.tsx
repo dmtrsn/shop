@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useEffect, useId, useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import { PlusIcon } from "@/components/ui/icons";
 import type { Product } from "@/lib/api/product-dto";
 
 import { useCart } from "./cart-provider";
@@ -124,7 +125,7 @@ export function CartControl({ product, detail = false, compact = false }: {
         className={styles.add}
         onClick={() => void add()}
       >
-        {pending ? "Добавляем…" : "В корзину"}
+        {pending ? "Добавляем…" : <><PlusIcon />В корзину</>}
       </Button>
       <p aria-live="polite" className={styles.error} id={errorID}>{error}</p>
     </div>

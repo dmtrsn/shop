@@ -60,7 +60,18 @@
   padding-inline: var(--space-3);
   border: var(--border-strong);
   border-radius: var(--radius-control);
+  line-height: 1.2;
+  text-align: center;
   text-decoration: none;
+}
+
+/* Narrow two-up product cards. */
+@media (max-width: 40rem) {
+  .signIn,
+  .add {
+    padding-inline: var(--space-2);
+    font-size: 0.8125rem;
+  }
 }
 
 .inCart {

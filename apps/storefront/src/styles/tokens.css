@@ -49,6 +49,8 @@
   --color-info: #3f6079;
   --color-scrim: rgb(17 24 20 / 56%);
   --color-skeleton: #e1dfd8;
+  /* Warm backdrop behind product photos and their fallback tile. */
+  --color-media-placeholder: #ece4d6;
   /* Tints for the backend collection accents (lime, cocoa, coral, sky); unknown
      accents use --color-surface-subtle. Secondary text on any tint uses
      --color-text-on-tint (≥5.4:1; the regular muted grey fails on three). */

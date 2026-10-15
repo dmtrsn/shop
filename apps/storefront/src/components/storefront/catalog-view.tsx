@@ -1,6 +1,10 @@
 import Link from "next/link";
 
+import { ButtonLink } from "@/components/ui/button";
 import { Container } from "@/components/ui/container";
+import { EmptyState } from "@/components/ui/empty-state";
+import { CheckIcon, SearchIcon } from "@/components/ui/icons";
+import { PageHeader } from "@/components/ui/page-header";
 import type { CatalogData } from "@/lib/api/catalog";
 import {
   catalogHiddenFields,
@@ -99,6 +103,30 @@ function ActiveFilters({ data, state }: CatalogViewProps) {
   );
 }
 
+// Shortcuts for three existing canonical params (stock, new, sale). They are
+// plain links built by catalogUrl, exactly like the filter form's checkboxes.
+const quickFilters = [
+  { key: "inStock", label: "В наличии" },
+  { key: "newOnly", label: "Новинки" },
+  { key: "onSale", label: "Сниженная цена" },
+] as const;
+
+function QuickFilters({ state }: { state: CatalogState }) {
+  return (
+    <div aria-label="Быстрые фильтры" className={styles.quickFilters} role="group">
+      {quickFilters.map(({ key, label }) => {
+        const active = state[key];
+        return (
+          <Link aria-pressed={active} href={catalogUrl(state, { [key]: !active })} key={key} role="button">
+            {active ? <CheckIcon /> : null}
+            {label}
+          </Link>
+        );
+      })}
+    </div>
+  );
+}
+
 function Pagination({ state, total, totalPages }: { state: CatalogState; total: number; totalPages: number }) {
   if (totalPages <= 1) return null;
   const start = (state.page - 1) * state.pageSize + 1;
@@ -172,16 +200,18 @@ export function CatalogView({ data, state }: CatalogViewProps) {
           ) : <span aria-current="page">Каталог</span>}
         </nav>
 
-        <header className={styles.heading}>
-          <div>
-            <p className={styles.eyebrow}>Кондитерские изделия</p>
-            <h1>{category?.name ?? (state.query ? `Поиск: «${state.query}»` : "Каталог")}</h1>
-            <p>Категории и производители остаются независимыми — сочетайте их для точного выбора.</p>
-          </div>
-          <p className={styles.resultCount} aria-live="polite">
-            {data.page.total} {pluralProducts(data.page.total)}
-          </p>
-        </header>
+        <PageHeader
+          actions={(
+            <p className={styles.resultCount} aria-live="polite">
+              {data.page.total} {pluralProducts(data.page.total)}
+            </p>
+          )}
+          className={styles.heading}
+          eyebrow="Кондитерские изделия"
+          subtitle="Категории и производители остаются независимыми — сочетайте их для точного выбора."
+          title={category?.name ?? (state.query ? `Поиск: «${state.query}»` : "Каталог")}
+        />
+        <QuickFilters state={state} />
 
         <div className={styles.categoryHeading}>
           <span aria-hidden="true">Категории</span>
@@ -263,16 +293,20 @@ export function CatalogView({ data, state }: CatalogViewProps) {
                 </ol>
               </>
             ) : (
-              <div className={styles.emptyState}>
-                <p className={styles.eyebrow}>0 товаров</p>
-                <h2>Ничего не найдено</h2>
-                <p>Уберите один или несколько фильтров или измените поисковый запрос.</p>
-                <Link href={catalogUrl(state, {
-                  query: undefined, category: undefined, manufacturer: undefined,
-                  brand: undefined, collection: undefined, series: undefined, tags: [], minPriceMinor: undefined,
-                  maxPriceMinor: undefined, inStock: false, onSale: false, newOnly: false,
-                })}>Очистить фильтры</Link>
-              </div>
+              <EmptyState
+                actions={(
+                  <ButtonLink href={catalogUrl(state, {
+                    query: undefined, category: undefined, manufacturer: undefined,
+                    brand: undefined, collection: undefined, series: undefined, tags: [], minPriceMinor: undefined,
+                    maxPriceMinor: undefined, inStock: false, onSale: false, newOnly: false,
+                  })}>Очистить фильтры</ButtonLink>
+                )}
+                className={styles.emptyState}
+                icon={<SearchIcon />}
+                title="Ничего не найдено"
+              >
+                Уберите один или несколько фильтров или измените поисковый запрос.
+              </EmptyState>
             )}
 
             <Pagination state={state} total={data.page.total} totalPages={data.page.totalPages} />

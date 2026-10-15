@@ -56,6 +56,21 @@ describe("CatalogView", () => {
     expect(screen.queryByText(/6006|4004|2002/)).not.toBeInTheDocument();
   });
 
+  it("offers quick filters as canonical links to the existing stock/new/sale params", () => {
+    render(<CatalogView data={data()} state={parseCatalogState({ category: "chocolate", page: "3", sale: "1" })} />);
+
+    const group = screen.getByRole("group", { name: "Быстрые фильтры" });
+    const chips = within(group).getAllByRole("button");
+    expect(chips.map((chip) => [chip.textContent, chip.getAttribute("aria-pressed"), chip.getAttribute("href")])).toEqual([
+      ["В наличии", "false", "/catalog?category=chocolate&stock=1&sale=1"],
+      ["Новинки", "false", "/catalog?category=chocolate&sale=1&new=1"],
+      // Active: pressed, with a check mark, and the link removes it again.
+      ["Сниженная цена", "true", "/catalog?category=chocolate"],
+    ]);
+    expect(chips[2].querySelector("svg")).not.toBeNull();
+    expect(chips[0].querySelector("svg")).toBeNull();
+  });
+
   it("names search results by the query unless a category heading applies", () => {
     render(<CatalogView data={data()} state={parseCatalogState({ q: "шоколад" })} />);
 
@@ -75,6 +90,8 @@ describe("CatalogView", () => {
 
     expect(screen.getByRole("heading", { name: "Ничего не найдено" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Очистить фильтры" })).toHaveAttribute("href", "/catalog");
+    expect(screen.getByRole("heading", { level: 2, name: "Ничего не найдено" })).toBeInTheDocument();
+    expect(screen.queryByRole("listitem")).toBeNull();
   });
 
   it("keeps a deep category's root active and links its ancestors to category pages", () => {

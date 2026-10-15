@@ -17,6 +17,14 @@ function productLineage(product: Product): string {
   return values.join(" · ");
 }
 
+// Backend badges only, shown verbatim. Tone follows the text: "Новинка" is lime,
+// a reduced-price badge ("-10%", "Скидка …") is the sale tone, anything else neutral.
+function badgeTone(badge: string): string {
+  if (/^новинк/i.test(badge)) return styles.badgeNew;
+  if (/^[-−]\s?\d+\s?%$|скидк/i.test(badge)) return styles.badgeSale;
+  return "";
+}
+
 function ProductMedia({ product }: { product: Product }) {
   return (
     <Link
@@ -28,7 +36,7 @@ function ProductMedia({ product }: { product: Product }) {
       {product.badges.length ? (
         <span className={styles.badges}>
           {product.badges.slice(0, 2).map((badge) => (
-            <span key={badge}>{badge}</span>
+            <span className={badgeTone(badge)} key={badge}>{badge}</span>
           ))}
         </span>
       ) : null}
@@ -59,16 +67,15 @@ export function ProductCard({
         ) : (
           <h2 className={styles.productName}>{title}</h2>
         )}
+        {/* Unit and SKU stay as an accessible secondary line (UX spec); the
+            image and title are the product links, so no separate "Подробнее". */}
         <p className={styles.productMeta}>
-          <span>Арт. {product.sku}</span>
           <span>{product.unit}</span>
+          <span>Арт. {product.sku}</span>
         </p>
-        <ProductOffer product={product} part="stock" />
         <div className={styles.cardFooter}>
           <ProductOffer product={product} part="price" />
-          <Link className={styles.productLink} href={`/products/${product.slug}`}>
-            Подробнее
-          </Link>
+          <ProductOffer product={product} part="stock" />
         </div>
         <div className={styles.cardCart}><CartControl product={product} /></div>
       </div>
