@@ -61,7 +61,7 @@
 .directoryTools {
   position: sticky;
   z-index: var(--z-sticky);
-  top: 4.25rem;
+  top: var(--header-height);
   display: grid;
   grid-template-columns: minmax(18rem, 28rem) minmax(0, 1fr);
   gap: var(--space-5);

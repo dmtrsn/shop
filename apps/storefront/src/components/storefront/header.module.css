@@ -2,106 +2,78 @@
   position: sticky;
   z-index: var(--z-header);
   top: 0;
-  border-bottom: var(--border-control);
-  background: color-mix(in srgb, var(--color-canvas) 96%, transparent);
-  box-shadow: var(--shadow-sticky);
+  border-bottom: var(--border-width) solid color-mix(in srgb, var(--color-border) 80%, transparent);
+  background: color-mix(in srgb, var(--color-canvas) 94%, transparent);
+  backdrop-filter: blur(18px);
 }
 
-.desktop {
+.bar {
   display: grid;
-  min-height: 4.25rem;
-  grid-template-columns: auto auto auto auto minmax(12rem, 1fr) auto auto auto;
+  min-height: var(--header-height);
+  grid-template-columns: auto auto minmax(14rem, 1fr) auto;
   align-items: center;
-  gap: clamp(0.625rem, 1.2vw, 1.25rem);
+  gap: var(--space-5);
 }
 
 .logo {
-  color: var(--color-text);
-  font-size: 1.3rem;
-  font-weight: var(--weight-bold);
-  letter-spacing: -0.035em;
-  text-decoration: none;
-}
-
-.navLink,
-.utilityLink {
   display: inline-flex;
   min-height: var(--control-height);
   align-items: center;
-  justify-content: center;
-  gap: var(--space-2);
   border-radius: var(--radius-control);
-  font-size: var(--font-size-sm);
-  font-weight: var(--weight-medium);
   text-decoration: none;
-  white-space: nowrap;
-}
-
-.navLink:hover,
-.utilityLink:hover {
-  color: var(--color-accent-hover);
-  text-decoration: underline;
-  text-underline-offset: 0.3em;
 }
 
 .search {
   min-width: 0;
 }
 
-.utilityLabel {
-  display: inline;
-}
-
-.cart {
-  padding-inline: var(--space-3);
-  border: var(--border-strong);
-  background: var(--color-surface);
-}
-
-.mobile {
-  display: none;
-  padding-block: var(--space-2) var(--space-3);
-}
-
-.mobileTop {
+.actions {
   display: flex;
-  min-height: var(--control-height);
-  align-items: center;
-  justify-content: space-between;
   gap: var(--space-3);
-  margin-bottom: var(--space-2);
 }
 
-.mobileCart {
-  display: inline-flex;
+/* Icon over a visible label, as in the original shop. */
+.action {
+  display: flex;
+  min-width: 3.25rem;
   min-height: var(--control-height);
-  align-items: center;
-  gap: var(--space-2);
-  padding-inline: var(--space-3);
-  border: var(--border-strong);
-  border-radius: var(--radius-control);
-  background: var(--color-surface);
-  font-weight: var(--weight-semibold);
-  text-decoration: none;
-}
-
-.mobileUtilities { display: flex; align-items: center; gap: var(--space-2); }
-.mobileFavorite {
-  display: inline-flex;
-  width: var(--control-height);
-  height: var(--control-height);
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  border-radius: var(--radius-control);
+  gap: var(--space-1);
+  border-radius: var(--radius-small);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-eyebrow);
+  font-weight: var(--weight-medium);
+  line-height: 1.1;
+  text-decoration: none;
+  white-space: nowrap;
 }
 
-@media (max-width: 78rem) {
-  .desktop {
-    grid-template-columns: auto auto auto auto minmax(10rem, 1fr) auto auto auto;
+.action:hover {
+  color: var(--color-text);
+}
+
+.action svg {
+  width: 1.3125rem;
+  height: 1.3125rem;
+}
+
+/* 1180px: labels move to the accessible name only; icons stay. */
+@media (max-width: 73.75rem) {
+  .bar {
+    gap: var(--space-3);
+  }
+
+  .actions {
     gap: var(--space-2);
   }
 
-  .utilityLabel {
+  .action {
+    min-width: var(--control-height);
+  }
+
+  .actionLabel {
     position: absolute;
     width: 1px;
     height: 1px;
@@ -109,22 +81,16 @@
     clip: rect(0, 0, 0, 0);
     white-space: nowrap;
   }
-
-  .utilityLink {
-    width: var(--control-height);
-  }
-
-  .cart {
-    width: auto;
-  }
 }
 
-@media (max-width: 61rem) {
-  .desktop {
-    display: none;
+/* 900px: compact logo + search row; the bottom tab bar takes over navigation. */
+@media (max-width: 56.25rem) {
+  .bar {
+    grid-template-columns: auto minmax(0, 1fr);
   }
 
-  .mobile {
-    display: block;
+  .catalog,
+  .actions {
+    display: none;
   }
 }

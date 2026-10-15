@@ -14,6 +14,8 @@ import { useCart } from "./cart-provider";
 import { FavoriteButton } from "./favorite-button";
 import { useFavorites } from "./favorites-provider";
 import { StorefrontHeader } from "./header";
+import { MobileTabBar } from "./mobile-tab-bar";
+import { SiteFooter } from "./site-footer";
 
 const fetcher = vi.fn<typeof fetch>();
 const product = favoriteProduct();
@@ -137,11 +139,12 @@ describe("shared private initialization", () => {
     expect(requests().some((request) => request.includes("/api/products"))).toBe(false);
   });
 
-  it("the header alone never initializes the session, Favorites or Cart", async () => {
-    render(<PrivateProviders><StorefrontHeader /></PrivateProviders>);
+  it("the header, footer and tab bar never initialize the session, Favorites or Cart", async () => {
+    render(<PrivateProviders><StorefrontHeader /><SiteFooter /><MobileTabBar /></PrivateProviders>);
     await act(async () => {});
-    expect(screen.getAllByRole("link", { name: "Корзина" })).toHaveLength(2);
-    expect(screen.getAllByRole("link", { name: "Аккаунт" })).toHaveLength(2);
+    // Header action, footer link and tab: one each, all plain links.
+    expect(screen.getAllByRole("link", { name: "Корзина" })).toHaveLength(3);
+    expect(screen.getAllByRole("link", { name: "Аккаунт" })).toHaveLength(3);
     expect(fetcher).not.toHaveBeenCalled();
   });
 

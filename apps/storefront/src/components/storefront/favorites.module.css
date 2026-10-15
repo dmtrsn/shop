@@ -29,6 +29,13 @@
   justify-content: center;
 }
 
+/* Above the fixed mobile tab bar. */
+@media (max-width: 56.25rem) {
+  .feedback {
+    bottom: calc(var(--tab-bar-height) + env(safe-area-inset-bottom) + var(--space-3));
+  }
+}
+
 .feedback > span {
   max-width: 36rem;
   padding: var(--space-2) var(--space-3);

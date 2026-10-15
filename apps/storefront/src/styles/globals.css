@@ -15,6 +15,8 @@ html {
 body {
   min-height: 100vh;
   margin: 0;
+  /* viewport-fit=cover: keep content clear of landscape notches. */
+  padding-inline: env(safe-area-inset-left) env(safe-area-inset-right);
   background: var(--color-canvas);
   color: var(--color-text);
   font-family: var(--font-sans);
@@ -98,6 +100,13 @@ a {
 
 .skip-link:focus {
   transform: translateY(0);
+}
+
+/* 900px: the fixed mobile tab bar must never cover the end of the page. */
+@media (max-width: 56.25rem) {
+  body {
+    padding-bottom: calc(var(--tab-bar-height) + env(safe-area-inset-bottom));
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

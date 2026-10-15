@@ -128,6 +128,9 @@
   --gutter: clamp(1rem, 2.5vw, 1.5rem);
   --control-height: 2.75rem;
   --control-height-compact: 2.375rem;
+  --tab-bar-height: 4.25rem;
+  /* Sticky header row; page sticky offsets start below it. */
+  --header-height: 5rem;
   --row-height-comfortable: 4.5rem;
   --row-height-compact: 3.25rem;
 
@@ -146,6 +149,7 @@
 @media (max-width: 56.25rem) {
   :root {
     --gutter: 1rem;
+    --header-height: 4.375rem;
   }
 }
 

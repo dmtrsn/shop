@@ -1,0 +1,91 @@
+/* Dark inverse band, as in the original shop. */
+.footer {
+  /* The blue focus ring is too weak on the dark surface. */
+  --color-focus: var(--color-focus-on-inverse);
+  margin-top: var(--section-gap);
+  padding-block: var(--space-7) var(--space-5);
+  background: var(--color-surface-inverse);
+  color: var(--color-on-inverse);
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) repeat(2, minmax(0, 1fr));
+  gap: var(--space-7);
+}
+
+.logo {
+  display: inline-flex;
+  border-radius: var(--radius-control);
+  text-decoration: none;
+}
+
+.brand p {
+  max-width: 20rem;
+  margin: var(--space-4) 0 0;
+  color: var(--color-on-inverse-subtle);
+  font-size: var(--font-size-xs);
+  line-height: 1.6;
+}
+
+.column h2 {
+  margin: 0 0 var(--space-3);
+  font-size: var(--font-size-sm);
+  font-weight: var(--weight-semibold);
+  letter-spacing: 0;
+}
+
+.column ul {
+  display: grid;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.column a {
+  display: inline-flex;
+  min-height: 2rem;
+  align-items: center;
+  border-radius: var(--radius-small);
+  color: var(--color-on-inverse-subtle);
+  font-size: var(--font-size-sm);
+  text-decoration: none;
+}
+
+.column a:hover {
+  color: var(--color-on-inverse);
+  text-decoration: underline;
+  text-underline-offset: 0.25em;
+}
+
+.bottom {
+  margin-top: var(--space-7);
+  padding-top: var(--space-5);
+  border-top: var(--border-width) solid color-mix(in srgb, var(--color-on-inverse) 12%, transparent);
+  color: var(--color-on-inverse-subtle);
+  font-size: var(--font-size-xs);
+}
+
+/* 900px: brand row above two link columns. */
+@media (max-width: 56.25rem) {
+  .grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-6) var(--space-5);
+  }
+
+  .brand {
+    grid-column: 1 / -1;
+  }
+}
+
+/* 640px: single column. */
+@media (max-width: 40rem) {
+  .grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .bottom {
+    margin-top: var(--space-6);
+  }
+}
