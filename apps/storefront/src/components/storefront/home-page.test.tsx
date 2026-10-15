@@ -91,13 +91,21 @@ describe("HomePage", () => {
   it("has one H1 and a logical section order", () => {
     render(<HomePage data={ready()} />);
 
-    expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
+    expect(screen.getAllByRole("heading", { level: 1 }).map((heading) => heading.textContent)).toEqual([
+      "Хороший вкус. Ничего лишнего.",
+    ]);
     expect(screen.getAllByRole("heading", { level: 2 }).map((heading) => heading.textContent)).toEqual([
-      "Категории",
-      "Новинки недели",
+      "Найдите свой вкус",
+      "Выбрали за вас",
       "Производители",
     ]);
-    expect(screen.getByRole("heading", { level: 3, name: "Товар p03" })).toBeInTheDocument();
+    // Collection cards, then the featured collection's products, all under "Выбрали за вас".
+    expect(screen.getAllByRole("heading", { level: 3 }).map((heading) => heading.textContent)).toEqual([
+      "Новинки недели",
+      "Подарки до 2 000 ₽",
+      "Товар p03",
+      "Товар p02",
+    ]);
   });
 
   it("links only to canonical storefront routes", () => {
@@ -128,28 +136,58 @@ describe("HomePage", () => {
     expect(
       within(list).getAllByRole("heading", { level: 3 }).map((heading) => heading.textContent),
     ).toEqual(["Товар p03", "Товар p02"]);
-    expect(screen.getByText("В редакционном порядке")).toBeInTheDocument();
+    expect(screen.getByText("Из подборки «Новинки недели», в редакционном порядке")).toBeInTheDocument();
   });
 
-  it("uses the neutral fallback for a missing product image and no slot for a collection without image", () => {
+  it("renders the hero as a decorative, sized, high-priority image owned by Next", () => {
     const { container } = render(<HomePage data={ready()} />);
 
-    expect(screen.getByRole("img", { name: "Нет изображения: Товар p02" })).toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: /Открыть подборку/ })).not.toBeInTheDocument();
-    const hero = container.querySelector('img[src="/assets/hero-confectionery.webp"]');
+    const hero = container.querySelector('section[aria-labelledby="home-title"] img')!;
+    expect(hero).toHaveAttribute("src", "/brand/hero-confectionery.webp");
     expect(hero).toHaveAttribute("alt", "");
     expect(hero).toHaveAttribute("width", "1672");
     expect(hero).toHaveAttribute("height", "941");
+    expect(hero).toHaveAttribute("fetchpriority", "high");
+    expect(hero).not.toHaveAttribute("loading", "lazy");
+    expect(container.querySelector('img[src="/assets/hero-confectionery.webp"]')).toBeNull();
   });
 
-  it("renders a real collection image when the API provides one", () => {
+  it("uses the neutral fallback for a missing product image and no photo for a collection without image", () => {
+    render(<HomePage data={ready()} />);
+
+    expect(screen.getByRole("img", { name: "Нет изображения: Товар p02" })).toBeInTheDocument();
+    const card = screen.getByRole("link", { name: /^Главная подборка Новинки недели/ });
+    expect(card.querySelector("img")).toBeNull();
+  });
+
+  it("renders the real collection image as decoration inside its card", () => {
     const data = ready();
     if (data.collection.status === "ready" && data.collection.data) {
       data.collection.data.collection = { ...collection, image: "/assets/collection.webp" };
     }
     render(<HomePage data={data} />);
 
-    expect(screen.getByRole("link", { name: "Открыть подборку: Новинки недели" })).toBeInTheDocument();
+    const card = screen.getByRole("link", { name: /^Главная подборка Новинки недели/ });
+    expect(card).toHaveAttribute("href", "/collections/new");
+    expect(card.querySelector("img")).toHaveAttribute("src", "/assets/collection.webp");
+    expect(card.querySelector("img")).toHaveAttribute("alt", "");
+  });
+
+  it("tints collections only with accents Go serves; anything else stays neutral", () => {
+    const data = ready();
+    if (data.collection.status === "ready" && data.collection.data) {
+      data.collection.data.others = [
+        { ...otherCollection, accent: "cocoa" },
+        { ...otherCollection, id: "col-x", slug: "x", name: "Подборка X", accent: "magenta" },
+      ];
+    }
+    render(<HomePage data={data} />);
+
+    const className = (name: RegExp) => screen.getByRole("link", { name }).className;
+    expect(className(/^Главная подборка Новинки недели/)).toMatch(/accent-lime/);
+    expect(className(/^Подборка Подарки до 2 000/)).toMatch(/accent-cocoa/);
+    expect(className(/^Подборка Подборка X/)).toMatch(/accentNeutral/);
+    expect(className(/^Подборка Подборка X/)).not.toMatch(/accent-/);
   });
 
   it("offers the featured collection from the hero only when one exists", () => {
@@ -158,11 +196,13 @@ describe("HomePage", () => {
       "href",
       "/collections/new",
     );
+    expect(screen.getByRole("link", { name: "Перейти в каталог" })).toHaveAttribute("href", "/catalog");
     unmount();
 
     render(<HomePage data={ready({ collection: { status: "ready", data: undefined } })} />);
     expect(screen.queryByRole("link", { name: /Подборка:/ })).not.toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Открыть каталог" })).toHaveAttribute("href", "/catalog");
+    expect(screen.queryByRole("heading", { name: "Выбрали за вас" })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Перейти в каталог" })).toHaveAttribute("href", "/catalog");
   });
 
   it("omits failed or empty optional sections without a notice", () => {
@@ -175,29 +215,28 @@ describe("HomePage", () => {
       />,
     );
 
-    expect(screen.queryByRole("heading", { name: "Категории" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Найдите свой вкус" })).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Производители" })).not.toBeInTheDocument();
-    expect(screen.getByRole("heading", { level: 2, name: "Новинки недели" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 2, name: "Выбрали за вас" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 3, name: "Новинки недели" })).toBeInTheDocument();
     expect(within(screen.getByRole("main")).queryByRole("status")).not.toBeInTheDocument();
   });
 
-  it("keeps the hero and navigation with an honest notice when every section failed", () => {
+  it("keeps the hero and a catalog exit with an honest notice when every section failed", () => {
     render(
       <HomePage
         data={{ categories: unavailable, collection: unavailable, manufacturers: unavailable }}
       />,
     );
 
-    expect(within(screen.getByRole("main")).getByRole("status")).toHaveTextContent("Не удалось загрузить разделы каталога");
+    const notice = within(screen.getByRole("main")).getByRole("status");
+    expect(notice).toHaveTextContent("Не удалось загрузить разделы каталога");
+    expect(within(notice).getByRole("link", { name: "откройте каталог" })).toHaveAttribute("href", "/catalog");
     expect(screen.getByRole("heading", { level: 1 })).toBeInTheDocument();
     expect(screen.queryAllByRole("heading", { level: 2 })).toHaveLength(0);
-    const nav = screen.getByRole("navigation", { name: "Разделы магазина" });
-    expect(within(nav).getAllByRole("link").map((link) => link.getAttribute("href"))).toEqual([
-      "/catalog",
-      "/categories",
-      "/manufacturers",
-      "/collections",
-    ]);
+    expect(screen.getByRole("link", { name: "Перейти в каталог" })).toHaveAttribute("href", "/catalog");
+    // Site-wide section links live in the footer (layout), not in the page.
+    expect(screen.queryByRole("navigation", { name: "Разделы магазина" })).not.toBeInTheDocument();
   });
 
   it("shows neutral category and manufacturer metadata", () => {
@@ -215,6 +254,8 @@ describe("HomePage", () => {
 
     const text = container.textContent ?? "";
     expect(text).not.toMatch(/популяр|рекоменд|хит|бестселлер|выбор покупателей|доставк|скидк|отзыв|рейтинг/i);
+    // Legacy demo claims stay out: delivery windows, trust strip, freshness, counts.
+    expect(text).not.toMatch(/сегодня|16:00|19:00|2 час|свежие партии|контролируем|повтор за минуту|★|берут чаще/i);
     // Backend editorial badges are shown verbatim, never invented or relabelled.
     expect(screen.getByText("Новинка")).toBeInTheDocument();
   });
@@ -241,8 +282,8 @@ describe("HomePage", () => {
 
     expect(screen.getByRole("heading", { level: 3, name: longName })).toBeInTheDocument();
     expect(screen.getByText(longDescription)).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Шоколадные конфеты ручной работы без добавленного сахара" }))
-      .toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /^Шоколадные конфеты ручной работы без добавленного сахара/ }))
+      .toHaveAttribute("href", "/categories/c");
     expect(screen.getByRole("link", { name: /Все категории \(12\)/ })).toHaveAttribute("href", "/categories");
   });
 });

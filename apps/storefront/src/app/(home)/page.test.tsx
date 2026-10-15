@@ -18,7 +18,7 @@ describe("homepage route", () => {
     render(await Page());
 
     expect(getHomePageData).toHaveBeenCalledOnce();
-    expect(screen.getByRole("heading", { level: 1, name: "Кондитерские изделия" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 1, name: "Хороший вкус. Ничего лишнего." })).toBeInTheDocument();
     expect(dynamic).toBe("force-dynamic");
     expect(metadata.title).toBe("Слой — кондитерские изделия");
   });

@@ -1,93 +1,108 @@
-/* break-word (not anywhere) keeps controls such as card buttons at their min-content width. */
+/* Home: «Слой, evolved». The photographic hero is the main feature; sections
+   are open typography and tiles on the canvas, not nested panels. */
 .main {
   overflow-wrap: break-word;
 }
 
-/* Hero: bounded image/text split; the next section begins within the first viewport. */
+/* Hero: full-width photo card, directional dark scrim, light copy. */
 .hero {
-  padding-block: var(--space-6) var(--space-7);
+  padding-block: var(--space-5) 0;
 }
 
-.heroInner {
-  display: grid;
-  grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
+.heroCard {
+  /* Lime focus ring over the dark photo. */
+  --color-focus: var(--color-focus-on-inverse);
+  position: relative;
+  display: flex;
+  min-height: 35.625rem;
   align-items: center;
-  gap: clamp(var(--space-5), 5vw, var(--space-8));
+  overflow: hidden;
+  isolation: isolate;
+  border-radius: var(--radius-feature);
+  background: var(--color-surface-inverse);
+  color: var(--color-on-inverse);
+}
+
+/* The card's height never depends on the image, so loading cannot shift layout. */
+.heroImage {
+  position: absolute;
+  z-index: -2;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
+}
+
+.heroScrim {
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--color-surface-inverse) 88%, transparent) 0%,
+    color-mix(in srgb, var(--color-surface-inverse) 72%, transparent) 33%,
+    color-mix(in srgb, var(--color-surface-inverse) 12%, transparent) 70%
+  );
 }
 
 .heroCopy {
-  min-width: 0;
+  max-width: 41.25rem;
+  padding: clamp(var(--space-6), 4.5vw, 4rem);
 }
 
-.title {
+.heroEyebrow {
   margin: 0;
-  font-size: var(--font-size-display);
-  letter-spacing: -0.04em;
-  line-height: var(--line-height-tight);
+  color: var(--color-brand);
+  font-size: var(--font-size-eyebrow);
+  font-weight: var(--weight-black);
+  letter-spacing: var(--tracking-eyebrow);
+  text-transform: uppercase;
 }
 
-.lede {
-  max-width: 34rem;
-  margin: var(--space-4) 0 0;
-  color: var(--color-text-muted);
-  font-size: var(--font-size-lg);
+.heroTitle {
+  max-width: 40rem;
+  margin: 1.0625rem 0 1.25rem;
+  font-size: var(--font-size-hero);
+  font-weight: var(--weight-heavy);
+  letter-spacing: var(--tracking-hero);
+  line-height: var(--line-height-hero);
+  overflow-wrap: normal;
+}
+
+.heroLede {
+  max-width: 32rem;
+  margin: 0 0 var(--space-6);
+  color: var(--color-on-inverse-muted);
+  font-size: 1.0625rem;
 }
 
 .heroActions {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-3) var(--space-5);
-  margin-top: var(--space-6);
+  gap: var(--space-3);
 }
 
-.primaryLink {
-  display: inline-flex;
-  min-height: var(--control-height);
-  align-items: center;
-  justify-content: center;
-  padding-inline: var(--space-5);
-  border: var(--border-width) solid var(--color-accent);
-  border-radius: var(--radius-control);
-  background: var(--color-accent);
-  color: var(--color-on-accent);
-  font-weight: var(--weight-semibold);
-  text-decoration: none;
+.heroActions svg {
+  width: 1.125rem;
+  height: 1.125rem;
 }
 
-.primaryLink:hover {
-  border-color: var(--color-accent-hover);
-  background: var(--color-accent-hover);
+/* Glass secondary action on the photo. */
+.heroActions .heroSecondary {
+  border-color: color-mix(in srgb, var(--color-on-inverse) 24%, transparent);
+  background: color-mix(in srgb, var(--color-on-inverse) 10%, transparent);
+  color: var(--color-on-inverse);
+  backdrop-filter: blur(8px);
 }
 
-.textLink {
-  display: inline-flex;
-  min-height: var(--control-height);
-  align-items: center;
-  gap: 0.35em;
-  color: var(--color-accent-hover);
-  font-weight: var(--weight-semibold);
-  text-underline-offset: 0.25em;
-}
-
-.heroMedia {
-  overflow: hidden;
-  aspect-ratio: 16 / 9;
-  max-height: 26rem;
-  border-radius: var(--radius-panel);
-  background: var(--color-surface-subtle);
-}
-
-.heroImage {
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  object-position: 72% center;
+.heroActions .heroSecondary:hover {
+  border-color: color-mix(in srgb, var(--color-on-inverse) 40%, transparent);
+  background: color-mix(in srgb, var(--color-on-inverse) 18%, transparent);
 }
 
 .notice {
-  margin: 0 0 var(--space-6);
+  margin: var(--space-6) 0 0;
   padding-block: var(--space-4);
   border-block: var(--border-control);
   color: var(--color-text-muted);
@@ -95,168 +110,207 @@
 
 /* Sections */
 .section {
-  padding-block: var(--space-7);
-  border-top: var(--border-control);
+  padding-top: var(--section-gap);
 }
 
-.sectionAlt {
-  background: var(--color-surface-subtle);
-}
-
-.sectionHeader {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: end;
-  justify-content: space-between;
-  gap: var(--space-2) var(--space-5);
-  margin-bottom: var(--space-5);
-}
-
-.sectionHeader h2,
-.collectionCopy h2 {
-  margin: 0;
-  font-size: var(--font-size-xl);
-  letter-spacing: -0.025em;
-  line-height: var(--line-height-heading);
-}
-
-.basis,
-.eyebrow {
-  margin: var(--space-1) 0 0;
+.basis {
+  margin: var(--space-6) 0 0;
   color: var(--color-text-muted);
   font-size: var(--font-size-sm);
 }
 
-.eyebrow {
-  margin: 0 0 var(--space-2);
-  color: var(--color-accent);
-  font-size: var(--font-size-xs);
-  font-weight: var(--weight-bold);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.categoryList,
-.manufacturerList,
+.categoryGrid,
+.collectionGrid,
 .productGrid,
-.otherCollections ul,
-.closingNav ul {
-  padding: 0;
+.manufacturerRail {
   margin: 0;
+  padding: 0;
   list-style: none;
 }
 
-/* Ruled typographic directories instead of tiles. */
-.categoryList,
-.manufacturerList {
+/* Category tiles: dense on desktop, never forced to a fixed column count;
+   auto-fit lets the real number of tiles fill the row. */
+.categoryGrid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  column-gap: var(--space-6);
-  border-top: var(--border-strong);
+  grid-template-columns: repeat(auto-fit, minmax(10.5rem, 1fr));
+  gap: var(--space-3);
 }
 
-.manufacturerList {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-}
-
-.categoryItem,
-.manufacturerItem {
-  display: grid;
-  min-width: 0;
-  align-content: start;
-  gap: var(--space-1);
-  padding-block: var(--space-4);
-  border-bottom: var(--border-control);
-}
-
-.itemName {
-  display: inline-flex;
-  min-height: var(--control-height-compact);
-  align-items: center;
-  font-size: var(--font-size-md);
-  font-weight: var(--weight-semibold);
+.categoryTile {
+  display: flex;
+  height: 100%;
+  min-height: 10.5rem;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: var(--space-4);
+  border-radius: var(--radius-tile);
   text-decoration: none;
 }
 
-.categoryItem .itemName {
-  font-size: var(--font-size-lg);
+.monogram {
+  display: grid;
+  width: 3.625rem;
+  height: 3.625rem;
+  place-items: center;
+  border-radius: var(--radius-control);
+  background: var(--color-surface-subtle);
+  color: var(--color-text);
+  font-size: 1.5rem;
+  font-weight: var(--weight-black);
+  letter-spacing: -0.04em;
 }
 
-.itemName:hover {
-  text-decoration: underline;
+.categoryText {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.categoryText strong {
+  font-size: var(--font-size-md);
+  font-weight: var(--weight-bold);
+  letter-spacing: -0.02em;
+  line-height: 1.25;
 }
 
 .meta,
-.metaEmpty {
+.metaEmpty,
+.description {
   color: var(--color-text-muted);
-  font-size: var(--font-size-sm);
-  font-variant-numeric: tabular-nums;
+  font-size: var(--font-size-xs);
 }
 
 .metaEmpty {
   font-style: italic;
 }
 
-.description {
-  max-width: 28rem;
-  margin: 0;
-  color: var(--color-text-muted);
-  font-size: var(--font-size-sm);
-}
-
-/* Featured collection */
-.collectionIntro,
-.collectionIntroWithImage {
+/* Collections: editorial, asymmetric when there is enough real data. */
+.collectionGrid {
   display: grid;
-  gap: var(--space-5) var(--space-7);
+  grid-template-columns: 1.2fr 0.8fr 0.8fr;
+  gap: var(--space-4);
 }
 
-.collectionIntroWithImage {
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
-  align-items: center;
+.collectionGrid[data-count="1"] {
+  grid-template-columns: minmax(0, 1fr);
 }
 
-.collectionCopy {
+.collectionGrid[data-count="2"] {
+  grid-template-columns: 1.2fr 0.8fr;
+}
+
+.collectionGrid > li {
+  display: grid;
   min-width: 0;
-  max-width: 42rem;
 }
 
-.collectionCopy h2 a {
+.collectionFeatured {
+  grid-row: span 2;
+}
+
+.collectionGrid[data-count="1"] .collectionFeatured,
+.collectionGrid[data-count="2"] .collectionFeatured {
+  grid-row: auto;
+}
+
+/* With four cards the last one spans the right-hand columns. */
+.collectionGrid[data-count="4"] > li:last-child {
+  grid-column: span 2;
+}
+
+.collectionCard {
+  position: relative;
+  display: flex;
+  min-height: 17.5rem;
+  flex-direction: column;
+  justify-content: flex-end;
+  overflow: hidden;
+  isolation: isolate;
+  padding: var(--space-6) 1.75rem 1.75rem;
+  border-radius: var(--radius-panel);
+  color: var(--color-text);
   text-decoration: none;
 }
 
-.collectionCopy h2 a:hover {
-  text-decoration: underline;
+.collectionFeatured .collectionCard {
+  min-height: 23.75rem;
+}
+
+/* Decorative ring, behind the text. */
+.collectionCard::after {
+  position: absolute;
+  z-index: -1;
+  top: -2.1875rem;
+  right: -1.375rem;
+  width: 10.625rem;
+  height: 10.625rem;
+  border: var(--border-width) solid color-mix(in srgb, var(--color-text) 13%, transparent);
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 2rem color-mix(in srgb, var(--color-surface) 14%, transparent);
+  content: "";
+}
+
+.accent-lime { background: var(--color-collection-lime); }
+.accent-cocoa { background: var(--color-collection-cocoa); }
+.accent-coral { background: var(--color-collection-coral); }
+.accent-sky { background: var(--color-collection-sky); }
+.accentNeutral { background: var(--color-surface-subtle); }
+
+/* Photo fades into the tint from the top-right and never sits under the text. */
+.collectionPhoto {
+  position: absolute;
+  z-index: -1;
+  top: 0;
+  right: 0;
+  width: 62%;
+  height: 72%;
+  border-radius: 0 0 0 46%;
+  mix-blend-mode: multiply;
+  object-fit: cover;
+  opacity: 0.84;
+  /* Only the alpha channel matters for the mask. */
+  mask-image: linear-gradient(140deg, black 35%, transparent 88%);
+}
+
+.collectionFeatured .collectionPhoto {
+  width: 68%;
+  height: 78%;
+}
+
+.collectionEyebrow {
+  font-size: var(--font-size-eyebrow);
+  font-weight: var(--weight-black);
+  letter-spacing: var(--tracking-eyebrow);
+  text-transform: uppercase;
+}
+
+.collectionTitle {
+  max-width: 21rem;
+  margin: 0.625rem 0 0.5625rem;
+  font-size: 1.625rem;
+  font-weight: var(--weight-bold);
+  letter-spacing: var(--tracking-section-title);
+  line-height: 1;
+}
+
+.collectionFeatured .collectionTitle {
+  font-size: clamp(1.4375rem, 3vw, 2.375rem);
 }
 
 .collectionDescription {
-  margin: var(--space-3) 0 0;
-  color: var(--color-text-muted);
-  font-size: var(--font-size-lg);
+  max-width: 24rem;
+  margin-bottom: var(--space-4);
+  color: var(--color-text-on-tint);
 }
 
 .collectionCount {
-  margin: var(--space-3) 0 0;
-  font-variant-numeric: tabular-nums;
-  font-weight: var(--weight-semibold);
+  color: var(--color-text-on-tint);
+  font-size: var(--font-size-xs);
 }
 
-.collectionImage {
-  display: block;
-  overflow: hidden;
-  aspect-ratio: 16 / 9;
-  border-radius: var(--radius-panel);
-  background: var(--color-surface);
-}
-
-.collectionImage > * {
-  width: 100%;
-  height: 100%;
-}
-
-.collectionIntro + .basis,
-.collectionIntroWithImage + .basis {
-  margin-top: var(--space-6);
+.collectionCard:hover .collectionTitle {
+  text-decoration: underline;
+  text-decoration-thickness: 0.06em;
+  text-underline-offset: 0.12em;
 }
 
 .productGrid {
@@ -270,63 +324,64 @@
   min-width: 0;
 }
 
-.otherCollections {
+/* Manufacturers: a horizontal rail of name chips; scroll stays inside it. */
+.manufacturerRail {
+  display: grid;
+  grid-auto-columns: minmax(11rem, 1fr);
+  grid-auto-flow: column;
+  gap: var(--space-3);
+  /* Room for the focus ring inside the scroll container. */
+  padding: var(--focus-offset) var(--focus-offset) var(--space-3);
+  margin-inline: calc(-1 * var(--focus-offset));
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+  /* No scroll snapping: it pulled keyboard-focused chips back out of view. */
+  scrollbar-width: thin;
+}
+
+.manufacturerChip {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-2) var(--space-5);
-  margin-top: var(--space-6);
-  padding-top: var(--space-4);
-  border-top: var(--border-control);
-}
-
-.otherCollections h3 {
-  margin: 0;
-  font-size: var(--font-size-sm);
-  font-weight: var(--weight-semibold);
-}
-
-.otherCollections ul {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0 var(--space-5);
-}
-
-.otherCollections li a {
-  display: inline-flex;
-  min-height: var(--control-height);
-  align-items: center;
-}
-
-/* Closing navigation */
-.closingNav {
-  padding-block: var(--space-5);
-  border-top: var(--border-control);
-}
-
-.closingNav ul {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0 var(--space-6);
-}
-
-.closingNav a {
-  display: inline-flex;
-  min-height: var(--control-height);
-  align-items: center;
-  color: var(--color-text-muted);
-  font-weight: var(--weight-semibold);
+  height: 100%;
+  min-height: 6rem;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border-radius: var(--radius-tile);
   text-decoration: none;
 }
 
-.closingNav a:hover {
-  color: var(--color-text);
-  text-decoration: underline;
+.manufacturerChip:hover {
+  border-color: var(--color-border-strong);
 }
 
-@media (max-width: 64rem) {
-  .manufacturerList {
+.manufacturerChip strong {
+  font-size: 1.4375rem;
+  font-weight: var(--weight-black);
+  letter-spacing: -0.06em;
+  line-height: 1.05;
+}
+
+.manufacturerChip span {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+}
+
+/* 1180px */
+@media (max-width: 73.75rem) {
+  .collectionGrid,
+  .collectionGrid[data-count="2"] {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .collectionFeatured,
+  .collectionGrid[data-count="4"] > li:last-child {
+    grid-column: span 2;
+    grid-row: auto;
+  }
+
+  .collectionGrid[data-count="3"] > li:last-child {
+    grid-column: auto;
   }
 
   .productGrid {
@@ -334,59 +389,103 @@
   }
 }
 
-@media (max-width: 48rem) {
+/* 900px: copy sits at the bottom over a bottom-up scrim. */
+@media (max-width: 56.25rem) {
   .hero {
-    padding-block: var(--space-5) var(--space-6);
+    padding-top: var(--space-4);
   }
 
-  .heroInner,
-  .collectionIntroWithImage {
-    grid-template-columns: 1fr;
+  .heroCard {
+    min-height: 35rem;
+    align-items: flex-end;
+  }
+
+  .heroImage {
+    object-position: 80% center;
+  }
+
+  .heroScrim {
+    background: linear-gradient(
+      0deg,
+      color-mix(in srgb, var(--color-surface-inverse) 95%, transparent) 0%,
+      color-mix(in srgb, var(--color-surface-inverse) 60%, transparent) 52%,
+      color-mix(in srgb, var(--color-surface-inverse) 10%, transparent) 100%
+    );
+  }
+
+  .heroCopy {
+    padding: 2.375rem 1.875rem 2.75rem;
+  }
+
+  .heroTitle {
+    font-size: clamp(2.875rem, 10vw, 4.375rem);
+  }
+}
+
+/* 640px: stacked, compact. */
+@media (max-width: 40rem) {
+  .heroCard {
+    min-height: 34.375rem;
+  }
+
+  .heroImage {
+    object-position: 82% center;
+  }
+
+  .heroCopy {
+    padding: 1.9375rem 1.375rem 2.1875rem;
+  }
+
+  .heroTitle {
+    margin-top: 0.6875rem;
+    font-size: 2.8125rem;
+  }
+
+  .heroLede {
+    font-size: var(--font-size-body);
   }
 
   .heroActions {
-    margin-top: var(--space-5);
-  }
-
-  .primaryLink {
-    width: 100%;
-  }
-
-  .heroMedia {
-    aspect-ratio: 2 / 1;
-  }
-
-  .section {
-    padding-block: var(--space-6);
-  }
-
-  .categoryList {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    column-gap: var(--space-4);
-  }
-
-  .manufacturerList {
-    grid-template-columns: 1fr;
-  }
-
-  .otherCollections,
-  .otherCollections ul {
     display: grid;
-  }
-}
-
-@media (max-width: 30rem) {
-  .lede,
-  .collectionDescription {
-    font-size: var(--font-size-md);
+    grid-template-columns: minmax(0, 1fr);
   }
 
-  .categoryItem .itemName {
-    font-size: var(--font-size-md);
+  .categoryGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.5625rem;
   }
 
-  /* The shared product card needs a full column at this width, as on /collections/:slug. */
-  .productGrid {
-    grid-template-columns: 1fr;
+  .categoryTile {
+    min-height: 8.875rem;
+    padding: var(--space-4);
+  }
+
+  .monogram {
+    width: 3rem;
+    height: 3rem;
+    font-size: 1.25rem;
+  }
+
+  .collectionGrid,
+  .collectionGrid[data-count] {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .collectionGrid > li,
+  .collectionGrid[data-count] > li:last-child {
+    grid-column: auto;
+  }
+
+  .collectionCard {
+    min-height: 14.375rem;
+    padding: 1.375rem;
+  }
+
+  .collectionFeatured .collectionCard {
+    min-height: 19.6875rem;
+  }
+
+  .manufacturerRail {
+    grid-auto-columns: 79%;
   }
 }

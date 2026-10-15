@@ -49,6 +49,14 @@
   --color-info: #3f6079;
   --color-scrim: rgb(17 24 20 / 56%);
   --color-skeleton: #e1dfd8;
+  /* Tints for the backend collection accents (lime, cocoa, coral, sky); unknown
+     accents use --color-surface-subtle. Secondary text on any tint uses
+     --color-text-on-tint (≥5.4:1; the regular muted grey fails on three). */
+  --color-collection-lime: #d9e7b8;
+  --color-collection-cocoa: #ded0c2;
+  --color-collection-coral: #ead0c7;
+  --color-collection-sky: #cfe0e2;
+  --color-text-on-tint: #4a5048;
 
   /* Typography: system Inter stack; heavy, tightly tracked headings. */
   --font-sans: Inter, "SF Pro Display", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;

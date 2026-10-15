@@ -102,6 +102,13 @@ a {
   transform: translateY(0);
 }
 
+/* Each route's main fills at least the first screen, so the footer starts
+   below the fold while a loading fallback streams and never jumps into view
+   (layout shift). Short pages simply keep the footer at the bottom. */
+main {
+  min-height: calc(100svh - var(--header-height));
+}
+
 /* 900px: the fixed mobile tab bar must never cover the end of the page. */
 @media (max-width: 56.25rem) {
   body {

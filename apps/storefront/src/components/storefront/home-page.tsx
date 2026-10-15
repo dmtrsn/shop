@@ -1,6 +1,12 @@
 import Link from "next/link";
 
+import { ButtonLink } from "@/components/ui/button";
 import { Container } from "@/components/ui/container";
+import { ArrowRightIcon } from "@/components/ui/icons";
+import { Panel } from "@/components/ui/panel";
+import { SectionHeader } from "@/components/ui/section-header";
+import type { Category } from "@/lib/api/catalog";
+import type { Collection } from "@/lib/api/collection";
 import type {
   HomeCategories,
   HomeCollection,
@@ -10,53 +16,82 @@ import type {
 import { categoryUrl } from "@/lib/category-tree";
 import { productCountText } from "@/lib/plural";
 
-import { CatalogProductImage } from "./catalog-product-image";
 import { categoryCountText } from "./category-navigation";
 import { collectionUrl } from "./collection-navigation";
 import { ProductCard } from "./product-card";
+import { ScrollRail } from "./scroll-rail";
 import styles from "./home-page.module.css";
 
-export const HOME_TITLE = "Кондитерские изделия";
+export const HOME_TITLE = "Хороший вкус. Ничего лишнего.";
+
+/** Frontend chrome owned by Next; catalogue media stays on the Go /assets host. */
+export const HERO_IMAGE = { src: "/brand/hero-confectionery.webp", width: 1672, height: 941 };
 
 function manufacturerUrl(slug: string): string {
   return `/manufacturers/${encodeURIComponent(slug)}`;
 }
 
+// Only the accents Go actually serves get a tint; anything else stays neutral.
+const ACCENTS = new Set(["lime", "cocoa", "coral", "sky"]);
+function accentClass(accent: string): string {
+  return ACCENTS.has(accent) ? styles[`accent-${accent}`] : styles.accentNeutral;
+}
+
 export function HomeHero({ collection }: { collection?: HomeCollection["collection"] }) {
   return (
     <section aria-labelledby="home-title" className={styles.hero}>
-      <Container className={styles.heroInner}>
-        <div className={styles.heroCopy}>
-          <h1 className={styles.title} id="home-title">{HOME_TITLE}</h1>
-          <p className={styles.lede}>
-            Шоколад, конфеты, печенье и пастила. Ищите по названию, артикулу, производителю или
-            бренду — или начните с категории.
-          </p>
-          <div className={styles.heroActions}>
-            <Link className={styles.primaryLink} href="/catalog">
-              Открыть каталог
-            </Link>
-            {collection ? (
-              <Link className={styles.textLink} href={collectionUrl(collection)}>
-                Подборка: {collection.name} <span aria-hidden="true">→</span>
-              </Link>
-            ) : null}
-          </div>
-        </div>
-        <div className={styles.heroMedia}>
-          {/* Decorative confectionery photograph served by the legacy Go assets. */}
+      <Container>
+        <div className={styles.heroCard}>
+          {/* LCP element: a real image with intrinsic size, high priority, never lazy. */}
           <img
             alt=""
             className={styles.heroImage}
             decoding="async"
             fetchPriority="high"
-            height={941}
-            src="/assets/hero-confectionery.webp"
-            width={1672}
+            height={HERO_IMAGE.height}
+            src={HERO_IMAGE.src}
+            width={HERO_IMAGE.width}
           />
+          <div aria-hidden="true" className={styles.heroScrim} />
+          <div className={styles.heroCopy}>
+            <p className={styles.heroEyebrow}>Кондитерские изделия</p>
+            <h1 className={styles.heroTitle} id="home-title">{HOME_TITLE}</h1>
+            <p className={styles.heroLede}>
+              Шоколад, конфеты, печенье и пастила. Ищите по названию, артикулу, производителю или
+              бренду — или начните с категории.
+            </p>
+            <div className={styles.heroActions}>
+              <ButtonLink href="/catalog" variant="brand">
+                Перейти в каталог <ArrowRightIcon />
+              </ButtonLink>
+              {collection ? (
+                <ButtonLink className={styles.heroSecondary} href={collectionUrl(collection)} variant="secondary">
+                  Подборка: {collection.name}
+                </ButtonLink>
+              ) : null}
+            </div>
+          </div>
         </div>
       </Container>
     </section>
+  );
+}
+
+function CategoryTile({ category }: { category: Category }) {
+  return (
+    <li>
+      <Panel as={Link} className={styles.categoryTile} href={categoryUrl(category.slug)} lift>
+        {/* Neutral monogram from the real name: no per-category artwork is invented. */}
+        <span aria-hidden="true" className={styles.monogram}>{category.name.charAt(0)}</span>
+        <span className={styles.categoryText}>
+          <strong>{category.name}</strong>
+          <span className={category.productCount ? styles.meta : styles.metaEmpty}>
+            {categoryCountText(category.productCount)}
+          </span>
+          {category.description ? <span className={styles.description}>{category.description}</span> : null}
+        </span>
+      </Panel>
+    </li>
   );
 }
 
@@ -64,69 +99,55 @@ function CategoriesSection({ data }: { data: HomeCategories }) {
   return (
     <section aria-labelledby="home-categories" className={styles.section}>
       <Container>
-        <div className={styles.sectionHeader}>
-          <h2 id="home-categories">Категории</h2>
-          <Link className={styles.textLink} href="/categories">
-            {data.totalRoots > data.categories.length
-              ? `Все категории (${data.totalRoots})`
-              : "Все категории"}{" "}
-            <span aria-hidden="true">→</span>
-          </Link>
-        </div>
-        <ul className={styles.categoryList}>
-          {data.categories.map((category) => (
-            <li className={styles.categoryItem} key={category.id}>
-              <Link className={styles.itemName} href={categoryUrl(category.slug)}>
-                {category.name}
-              </Link>
-              <span className={category.productCount ? styles.meta : styles.metaEmpty}>
-                {categoryCountText(category.productCount)}
-              </span>
-              {category.description ? (
-                <p className={styles.description}>{category.description}</p>
-              ) : null}
-            </li>
-          ))}
+        <SectionHeader
+          id="home-categories"
+          kicker="Категории"
+          link={{
+            href: "/categories",
+            label: data.totalRoots > data.categories.length ? `Все категории (${data.totalRoots})` : "Все категории",
+          }}
+          title="Найдите свой вкус"
+        />
+        <ul className={styles.categoryGrid}>
+          {data.categories.map((category) => <CategoryTile category={category} key={category.id} />)}
         </ul>
       </Container>
     </section>
   );
 }
 
+function CollectionCard({ collection, featured }: { collection: Collection; featured: boolean }) {
+  return (
+    <li className={featured ? styles.collectionFeatured : undefined}>
+      <Link className={`${styles.collectionCard} ${accentClass(collection.accent)}`} href={collectionUrl(collection)}>
+        {collection.image ? (
+          // Decorative: the card's own text names the collection.
+          <img alt="" className={styles.collectionPhoto} loading="lazy" src={collection.image} />
+        ) : null}
+        <span className={styles.collectionEyebrow}>{featured ? "Главная подборка" : "Подборка"}</span>
+        <h3 className={styles.collectionTitle}>{collection.name}</h3>
+        {collection.description ? <span className={styles.collectionDescription}>{collection.description}</span> : null}
+        <span className={styles.collectionCount}>
+          {productCountText(collection.productCount)} <span aria-hidden="true">→</span>
+        </span>
+      </Link>
+    </li>
+  );
+}
+
 function CollectionSection({ data }: { data: HomeCollection }) {
   const { collection, others, products } = data;
-  const href = collectionUrl(collection);
+  const cards = [collection, ...others];
   return (
-    <section aria-labelledby="home-collection" className={`${styles.section} ${styles.sectionAlt}`}>
+    <section aria-labelledby="home-collections" className={styles.section}>
       <Container>
-        <div className={collection.image ? styles.collectionIntroWithImage : styles.collectionIntro}>
-          <div className={styles.collectionCopy}>
-            <p className={styles.eyebrow}>Подборка</p>
-            <h2 id="home-collection">
-              <Link href={href}>{collection.name}</Link>
-            </h2>
-            {collection.description ? (
-              <p className={styles.collectionDescription}>{collection.description}</p>
-            ) : null}
-            <p className={styles.collectionCount}>{productCountText(collection.productCount)}</p>
-            <Link className={styles.textLink} href={href}>
-              Смотреть подборку <span aria-hidden="true">→</span>
-            </Link>
-          </div>
-          {collection.image ? (
-            <Link
-              aria-label={`Открыть подборку: ${collection.name}`}
-              className={styles.collectionImage}
-              href={href}
-            >
-              <CatalogProductImage image={collection.image} name={`Подборка «${collection.name}»`} />
-            </Link>
-          ) : null}
-        </div>
-
+        <SectionHeader id="home-collections" kicker="Подборки" link={{ href: "/collections", label: "Все подборки" }} title="Выбрали за вас" />
+        <ul className={styles.collectionGrid} data-count={cards.length}>
+          {cards.map((item, index) => <CollectionCard collection={item} featured={index === 0} key={item.id} />)}
+        </ul>
         {products.length ? (
           <>
-            <p className={styles.basis}>В редакционном порядке</p>
+            <p className={styles.basis}>Из подборки «{collection.name}», в редакционном порядке</p>
             <ol aria-label={`Товары подборки «${collection.name}»`} className={styles.productGrid}>
               {products.map((product) => (
                 <li key={product.id}>
@@ -136,24 +157,6 @@ function CollectionSection({ data }: { data: HomeCollection }) {
             </ol>
           </>
         ) : null}
-
-        <div className={styles.otherCollections}>
-          {others.length ? (
-            <>
-              <h3 id="home-other-collections">Ещё подборки</h3>
-              <ul aria-labelledby="home-other-collections">
-                {others.map((item) => (
-                  <li key={item.id}>
-                    <Link href={collectionUrl(item)}>{item.name}</Link>
-                  </li>
-                ))}
-              </ul>
-            </>
-          ) : null}
-          <Link className={styles.textLink} href="/collections">
-            Все подборки <span aria-hidden="true">→</span>
-          </Link>
-        </div>
       </Container>
     </section>
   );
@@ -163,47 +166,27 @@ function ManufacturersSection({ data }: { data: HomeManufacturers }) {
   return (
     <section aria-labelledby="home-manufacturers" className={styles.section}>
       <Container>
-        <div className={styles.sectionHeader}>
-          <div>
-            <h2 id="home-manufacturers">Производители</h2>
-            <p className={styles.basis}>По алфавиту</p>
-          </div>
-          <Link className={styles.textLink} href="/manufacturers">
-            Все производители, A–Z / А–Я{" "}
-            <span aria-hidden="true">→</span>
-          </Link>
-        </div>
-        <ul className={styles.manufacturerList}>
+        <SectionHeader
+          id="home-manufacturers"
+          kicker="По алфавиту"
+          link={{ href: "/manufacturers", label: "Все производители" }}
+          title="Производители"
+        />
+        {/* A CSS scroll rail of links; a focused chip is brought fully into view. */}
+        <ScrollRail className={styles.manufacturerRail}>
           {data.manufacturers.map((manufacturer) => (
-            <li className={styles.manufacturerItem} key={manufacturer.id}>
-              <Link className={styles.itemName} href={manufacturerUrl(manufacturer.slug)}>
-                {manufacturer.name}
-              </Link>
-              <span className={styles.meta}>
-                {[manufacturer.country, productCountText(manufacturer.productCount)]
-                  .filter(Boolean)
-                  .join(" · ")}
-              </span>
+            <li key={manufacturer.id}>
+              <Panel as={Link} className={styles.manufacturerChip} href={manufacturerUrl(manufacturer.slug)} padding="none">
+                <strong>{manufacturer.name}</strong>
+                <span>
+                  {[manufacturer.country, productCountText(manufacturer.productCount)].filter(Boolean).join(" · ")}
+                </span>
+              </Panel>
             </li>
           ))}
-        </ul>
+        </ScrollRail>
       </Container>
     </section>
-  );
-}
-
-function ClosingNavigation() {
-  return (
-    <nav aria-label="Разделы магазина" className={styles.closingNav}>
-      <Container>
-        <ul>
-          <li><Link href="/catalog">Каталог</Link></li>
-          <li><Link href="/categories">Категории</Link></li>
-          <li><Link href="/manufacturers">Производители</Link></li>
-          <li><Link href="/collections">Подборки</Link></li>
-        </ul>
-      </Container>
-    </nav>
   );
 }
 
@@ -228,14 +211,14 @@ export function HomePage({ data }: { data: HomePageData }) {
       {allUnavailable ? (
         <Container>
           <p className={styles.notice} role="status">
-            Не удалось загрузить разделы каталога. Обновите страницу чуть позже.
+            Не удалось загрузить разделы каталога. Обновите страницу чуть позже или{" "}
+            <Link href="/catalog">откройте каталог</Link>.
           </p>
         </Container>
       ) : null}
       {categories ? <CategoriesSection data={categories} /> : null}
       {collection ? <CollectionSection data={collection} /> : null}
       {manufacturers ? <ManufacturersSection data={manufacturers} /> : null}
-      <ClosingNavigation />
     </main>
   );
 }
