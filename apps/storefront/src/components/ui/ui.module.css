@@ -9,8 +9,8 @@
   align-items: center;
   justify-content: center;
   gap: var(--space-2);
-  padding: 0.625rem 1rem;
-  border: var(--border-control);
+  padding: 0.5rem 1.125rem;
+  border: var(--border-width) solid transparent;
   border-radius: var(--radius-control);
   cursor: pointer;
   font-weight: var(--weight-semibold);
@@ -18,7 +18,15 @@
   text-decoration: none;
   transition: background-color var(--motion-short) var(--ease-standard),
     border-color var(--motion-short) var(--ease-standard),
-    color var(--motion-short) var(--ease-standard);
+    color var(--motion-short) var(--ease-standard),
+    transform var(--motion-short) var(--ease-standard);
+}
+
+.buttonSmall {
+  min-height: var(--control-height-compact);
+  padding-inline: 0.875rem;
+  border-radius: var(--radius-small);
+  font-size: var(--font-size-xs);
 }
 
 .button:disabled,
@@ -41,24 +49,60 @@
   background: var(--color-accent-hover);
 }
 
+.buttonPrimary:active:not(:disabled) {
+  background: var(--color-accent-pressed);
+}
+
+.buttonBrand {
+  border-color: var(--color-brand);
+  background: var(--color-brand);
+  color: var(--color-on-brand);
+}
+
+.buttonBrand:hover:not(:disabled) {
+  border-color: var(--color-brand-hover);
+  background: var(--color-brand-hover);
+}
+
 .buttonSecondary {
+  border-color: var(--color-border);
   background: var(--color-surface);
   color: var(--color-text);
 }
 
 .buttonSecondary:hover:not(:disabled) {
   border-color: var(--color-border-strong);
+  background: var(--color-canvas);
+}
+
+.buttonQuiet {
   background: var(--color-surface-subtle);
+  color: var(--color-text);
+}
+
+.buttonQuiet:hover:not(:disabled) {
+  border-color: var(--color-border-strong);
 }
 
 .buttonTertiary {
-  border-color: transparent;
+  padding-inline: var(--space-1);
   background: transparent;
-  color: var(--color-accent-hover);
+  color: var(--color-text);
+  text-decoration: underline;
+  text-decoration-color: transparent;
+  text-underline-offset: 0.25em;
 }
 
 .buttonTertiary:hover:not(:disabled) {
-  background: var(--color-surface-selected);
+  text-decoration-color: currentColor;
+}
+
+/* Filled actions rise slightly on hover; never while unavailable. */
+@media (prefers-reduced-motion: no-preference) {
+  .buttonPrimary:hover:not(:disabled, [aria-disabled="true"]),
+  .buttonBrand:hover:not(:disabled, [aria-disabled="true"]) {
+    transform: translateY(-1px);
+  }
 }
 
 .iconButton {
@@ -148,7 +192,7 @@
   width: 9.5rem;
   grid-template-columns: var(--control-height) minmax(0, 1fr) var(--control-height);
   overflow: hidden;
-  border: var(--border-strong);
+  border: var(--border-width) solid var(--color-border-control);
   border-radius: var(--radius-control);
   background: var(--color-surface);
 }

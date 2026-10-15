@@ -1,5 +1,10 @@
 # Storefront visual specification
 
+> **Superseded (2026-10-11) for visual language** by [design-language.md](design-language.md).
+> Where this document conflicts with it (colour system, lime/orange emphasis, radii, framed tiles,
+> dark panels, logo), `design-language.md` wins. Behaviour remains governed by the
+> [storefront UX specification](storefront-ux-spec.md). The text below is kept for history.
+
 Status: Proposed. Date: 2026-09-25. Applies to the future React/Next.js customer storefront. The [storefront UX specification](storefront-ux-spec.md) remains the authority for behavior; this document defines visual hierarchy and composition.
 
 ## Non-negotiable hierarchy

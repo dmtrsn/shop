@@ -6,3 +6,6 @@ coverage.out
 *.log
 
 /bin/
+
+# Local visual-review screenshots (scripts/capture-storefront.mjs)
+/artifacts/

@@ -7,7 +7,8 @@ These documents describe the approved architectural and product direction for th
 - [Repository audit](repository-audit.md): current architecture, preserved behavior, gaps, security findings, and verification limits.
 - [Migration plan](migration-plan.md): sequence, parity gates, rollback, future structure, and anticipated file changes.
 - [Storefront UX specification](storefront-ux-spec.md): product and interaction specification for the future React/Next.js storefront.
-- [Storefront visual specification](storefront-visual-spec.md): visual system, responsive composition, homepage hierarchy, and visual guardrails for the future storefront.
+- [Design language](design-language.md): the authoritative «Слой, evolved» visual language, tokens and shared primitives.
+- [Storefront visual specification](storefront-visual-spec.md): visual system, responsive composition, homepage hierarchy, and visual guardrails for the future storefront; its visual direction is superseded by the design language.
 - [ADR 001: Target architecture](adr/001-target-architecture.md).
 - [ADR 002: Frontend migration](adr/002-frontend-migration.md).
 - [ADR 003: Information architecture](adr/003-information-architecture.md).

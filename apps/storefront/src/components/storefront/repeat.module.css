@@ -1,16 +1,16 @@
 .review { display: grid; gap: 20px; max-width: 920px; overflow-wrap: anywhere; }
 .list { list-style: none; padding: 0; margin: 0; display: grid; gap: 20px; }
-.row { border: 1px solid var(--border, #dedbd6); border-radius: 16px; padding: 24px; display: grid; gap: 16px; min-width: 0; background: var(--surface, #fff); }
+.row { border: var(--border-control); border-radius: var(--radius-panel); padding: 24px; display: grid; gap: 16px; min-width: 0; background: var(--color-surface); }
 .row p, .row h3, .row h4 { margin: 0; }
 .history { display: grid; gap: 8px; }
 .status { font-weight: 600; }
 .include { display: flex; align-items: center; gap: 12px; min-height: 44px; cursor: pointer; }
 .include input { width: 22px; height: 22px; flex: 0 0 22px; }
 .editor { display: grid; gap: 8px; }
-.editor input { width: 120px; max-width: 100%; min-height: 44px; padding: 8px 12px; border: 1px solid #8b8279; border-radius: 8px; font: inherit; }
+.editor input { width: 120px; max-width: 100%; min-height: 44px; padding: 8px 12px; border: var(--border-width) solid var(--color-border-control); border-radius: var(--radius-small); font: inherit; }
 .editor input:disabled { opacity: .65; }
-.error { color: #9d2929; }
-.notice { padding: 16px; border: 1px solid #a76b29; border-radius: 8px; background: #fff8ed; }
-.replacement { display: grid; gap: 8px; padding: 16px; background: #f6f3ee; border-radius: 8px; }
+.error { color: var(--color-error); }
+.notice { padding: 16px; border: var(--border-width) solid var(--color-warning); border-radius: var(--radius-control); background: var(--color-warning-surface); }
+.replacement { display: grid; gap: 8px; padding: 16px; background: var(--color-surface-subtle); border-radius: var(--radius-control); }
 .replacement a { display: flex; align-items: center; min-height: 44px; }
 @media (max-width: 600px) { .row { padding: 16px; } .review { gap: 16px; } }

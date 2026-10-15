@@ -1,0 +1,214 @@
+/* Shared "Слой, evolved" treatments. Pages compose these; they do not restyle them. */
+
+/* LogoMark: dark square with a lime downward triangle; inverse for dark bands. */
+.logo {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5625rem;
+  color: var(--color-text);
+}
+
+.logoSquare { fill: var(--color-surface-inverse); }
+.logoTriangle { fill: var(--color-brand); }
+.logoInverse { color: var(--color-on-inverse); }
+.logoInverse .logoSquare { fill: var(--color-on-inverse); }
+.logoInverse .logoTriangle { fill: var(--color-surface-inverse); }
+
+.wordmark {
+  font-size: 1.5625rem;
+  font-weight: var(--weight-black);
+  letter-spacing: -0.045em;
+  line-height: 1;
+}
+
+/* Panel: bordered surface, no resting shadow. */
+.panel {
+  min-width: 0;
+  border: var(--border-control);
+  border-radius: var(--radius-panel);
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.panelSubtle {
+  border-color: transparent;
+  background: var(--color-surface-subtle);
+}
+
+.panelInverse {
+  /* The blue focus ring is too weak on the dark surface. */
+  --color-focus: var(--color-focus-on-inverse);
+  border-color: transparent;
+  background: var(--color-surface-inverse);
+  color: var(--color-on-inverse);
+}
+
+.padMd { padding: var(--space-5); }
+.padLg { padding: clamp(var(--space-5), 3vw, var(--space-6)); }
+
+.lift {
+  transition: transform var(--motion-overlay) var(--ease-standard),
+    box-shadow var(--motion-overlay) var(--ease-standard),
+    border-color var(--motion-overlay) var(--ease-standard);
+}
+
+.lift:hover {
+  border-color: transparent;
+  box-shadow: var(--shadow-lift);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .lift:hover { transform: translateY(var(--lift-distance)); }
+}
+
+/* Eyebrow / kicker */
+.eyebrow,
+.kicker {
+  margin: 0 0 var(--space-2);
+  font-size: var(--font-size-eyebrow);
+  font-weight: var(--weight-black);
+  letter-spacing: var(--tracking-eyebrow);
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.eyebrow { color: var(--color-text-muted); }
+.kicker { color: var(--color-success); }
+
+/* PageHeader */
+.pageHeader {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-4) var(--space-6);
+  margin-bottom: var(--space-6);
+}
+
+.pageHeader > div:first-child { min-width: 0; }
+
+.pageTitle {
+  margin: 0;
+  font-size: var(--font-size-page-title);
+  font-weight: var(--weight-heavy);
+  letter-spacing: var(--tracking-page-title);
+  line-height: var(--line-height-page-title);
+  overflow-wrap: anywhere;
+}
+
+.pageSubtitle {
+  max-width: 37rem;
+  margin: var(--space-3) 0 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-md);
+}
+
+.headerActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+/* SectionHeader */
+.sectionHeader {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-3) var(--space-5);
+  margin-bottom: var(--space-5);
+}
+
+.sectionHeader > div:first-child { min-width: 0; }
+
+.sectionTitle {
+  margin: 0;
+  font-size: var(--font-size-section-title);
+  font-weight: var(--weight-bold);
+  letter-spacing: var(--tracking-section-title);
+  line-height: var(--line-height-section-title);
+  overflow-wrap: anywhere;
+}
+
+.sectionLink {
+  display: inline-flex;
+  min-height: var(--control-height);
+  align-items: center;
+  gap: var(--space-2);
+  font-weight: var(--weight-bold);
+  text-decoration: none;
+}
+
+.sectionLink:hover { text-decoration: underline; text-underline-offset: 0.25em; }
+
+/* EmptyState: dashed boundary, icon tile, one clear next step. */
+.emptyState {
+  display: grid;
+  justify-items: center;
+  padding: clamp(var(--space-6), 6vw, var(--space-8)) var(--space-5);
+  border: var(--border-width) dashed var(--color-border-strong);
+  border-radius: var(--radius-panel);
+  text-align: center;
+}
+
+.emptyIcon {
+  display: grid;
+  width: 4.25rem;
+  height: 4.25rem;
+  margin-bottom: var(--space-5);
+  place-items: center;
+  border-radius: var(--radius-tile);
+  background: var(--color-surface-subtle);
+}
+
+.emptyIcon svg { width: 1.875rem; height: 1.875rem; }
+
+.emptyTitle {
+  margin: 0 0 var(--space-2);
+  font-size: var(--font-size-xl);
+  font-weight: var(--weight-bold);
+  line-height: var(--line-height-heading);
+}
+
+.emptyText {
+  max-width: 27rem;
+  margin: 0 0 var(--space-5);
+  color: var(--color-text-muted);
+}
+
+.emptyText:last-child { margin-bottom: 0; }
+
+.emptyActions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--space-3);
+}
+
+/* Skeleton: decorative placeholder; shimmer only when motion is welcome. */
+.skeleton {
+  position: relative;
+  display: block;
+  overflow: hidden;
+  background: var(--color-skeleton);
+}
+
+.skeletonText { height: 0.875rem; border-radius: var(--radius-pill); }
+.skeletonTitle { height: 2rem; width: 60%; border-radius: var(--radius-small); }
+.skeletonBlock { height: 6rem; border-radius: var(--radius-panel); }
+.skeletonMedia { aspect-ratio: 1.17; border-radius: var(--radius-panel); }
+
+@media (prefers-reduced-motion: no-preference) {
+  .skeleton::after {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(90deg, transparent, rgb(255 255 255 / 55%), transparent);
+    animation: shimmer 1.4s infinite;
+    content: "";
+    transform: translateX(-100%);
+  }
+}
+
+@keyframes shimmer {
+  to { transform: translateX(100%); }
+}

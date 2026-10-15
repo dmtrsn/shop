@@ -18,7 +18,7 @@ body {
   background: var(--color-canvas);
   color: var(--color-text);
   font-family: var(--font-sans);
-  font-size: var(--font-size-md);
+  font-size: var(--font-size-body);
   line-height: var(--line-height-body);
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
@@ -35,6 +35,24 @@ textarea {
 button,
 input {
   margin: 0;
+}
+
+/* Text entry stays at 16px: smaller fields make mobile Safari zoom on focus. */
+input,
+select,
+textarea {
+  font-size: var(--font-size-control);
+}
+
+/* Heavy, tightly tracked headings; sizes stay with their components. */
+h1,
+h2,
+h3 {
+  letter-spacing: var(--tracking-heading);
+}
+
+h1 {
+  font-weight: var(--weight-heavy);
 }
 
 a {

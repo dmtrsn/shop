@@ -16,7 +16,8 @@ export const metadata: Metadata = {
 
 export const viewport: Viewport = {
   colorScheme: "light",
-  themeColor: "#f6f2e9",
+  // Browser chrome metadata cannot read CSS variables; mirrors --color-canvas.
+  themeColor: "#f4f2ed",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: ReactNode }>) {
