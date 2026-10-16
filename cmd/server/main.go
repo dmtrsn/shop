@@ -19,6 +19,7 @@ import (
 	"sweetshop/internal/application"
 	"sweetshop/internal/delivery/httpapi"
 	"sweetshop/internal/domain"
+	"sweetshop/internal/email"
 	"sweetshop/internal/repository/memory"
 	postgresrepo "sweetshop/internal/repository/postgres"
 )
@@ -43,6 +44,11 @@ func main() {
 		logger.Error("invalid staff session configuration", "error", err)
 		os.Exit(1)
 	}
+	mail, err := emailDispatcher(mode, sessions, logger)
+	if err != nil {
+		logger.Error("invalid email configuration", "error", err)
+		os.Exit(1)
+	}
 	repo, storage, cleanup, err := repository(ctx, logger)
 	if err != nil {
 		logger.Error("initialize repository", "error", err)
@@ -57,7 +63,9 @@ func main() {
 	}
 	handler := httpapi.New(service, logger, env("WEB_DIR", "web"), storage, sessions, options...)
 	server := &http.Server{Addr: env("HTTP_ADDR", ":"+env("PORT", "8080")), Handler: handler, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 75 * time.Second, MaxHeaderBytes: 1 << 20}
+	shutdownDone := make(chan struct{})
 	go func() {
+		defer close(shutdownDone)
 		<-ctx.Done()
 		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer shutdownCancel()
@@ -75,6 +83,54 @@ func main() {
 		logger.Error("http server stopped", "error", err)
 		os.Exit(1)
 	}
+	// ListenAndServe returns as soon as Shutdown starts; requests still in
+	// flight may enqueue email, so drain only after Shutdown has finished.
+	<-shutdownDone
+	if mail != nil {
+		drainCtx, drainCancel := context.WithTimeout(context.Background(), emailDrainTimeout)
+		defer drainCancel()
+		if err := mail.Shutdown(drainCtx); err != nil {
+			logger.Error("email drain", "error", err)
+		}
+	}
+}
+
+const emailDrainTimeout = 10 * time.Second
+
+// emailDispatcher validates the email configuration and starts the
+// dispatcher, or returns nil when no transport is configured. Self-service
+// (A7/A8) will enqueue through it; until then nothing does, and the shop works
+// without email. PUBLIC_SHOP_ORIGIN, which emailed links use, must be one of
+// the shop's own TRUSTED_ORIGINS.
+func emailDispatcher(mode string, sessions httpapi.SessionConfig, logger *slog.Logger) (*email.Dispatcher, error) {
+	config, err := email.LoadConfig(os.Getenv, mode == "production")
+	if err != nil {
+		return nil, err
+	}
+	if origin := config.PublicOrigin.String(); origin != "" {
+		trusted := false
+		for _, candidate := range sessions.TrustedOrigins {
+			trusted = trusted || candidate == origin
+		}
+		if !trusted {
+			return nil, errors.New("PUBLIC_SHOP_ORIGIN must be one of TRUSTED_ORIGINS")
+		}
+	}
+	if !config.Enabled() {
+		logger.Info("email disabled")
+		return nil, nil
+	}
+	mailer, err := config.NewMailer(logger)
+	if err != nil {
+		return nil, err
+	}
+	dispatcher, err := email.NewDispatcher(mailer, logger, email.DefaultDispatcherOptions())
+	if err != nil {
+		return nil, err
+	}
+	dispatcher.Start()
+	logger.Info("email transport configured", "transport", config.Describe())
+	return dispatcher, nil
 }
 
 func repository(ctx context.Context, logger *slog.Logger) (domain.Repository, string, func(), error) {

@@ -171,3 +171,40 @@ func TestStaffUsageErrorsNeedNoDatabase(t *testing.T) {
 		})
 	}
 }
+
+func TestEmailTestUsageAndConfiguration(t *testing.T) {
+	smtp := map[string]string{"EMAIL_TRANSPORT": "smtp", "SMTP_HOST": "127.0.0.1", "SMTP_PORT": "1", "SMTP_TLS": "implicit",
+		"SMTP_USERNAME": "shop-user", "SMTP_PASSWORD": "SENTINEL-SMTP-PASSWORD", "SMTP_FROM": "shop@example.com", "PUBLIC_SHOP_ORIGIN": "https://shop.example.com"}
+	for _, tc := range []struct {
+		name string
+		args []string
+		env  map[string]string
+		want int
+	}{
+		{"no subcommand", []string{"email"}, nil, exitUsage},
+		{"help", []string{"email", "help"}, nil, exitOK},
+		{"missing --to", []string{"email", "test"}, smtp, exitUsage},
+		{"invalid recipient", []string{"email", "test", "--to", "not an address"}, smtp, exitUsage},
+		{"header injection recipient", []string{"email", "test", "--to", "a@example.com\r\nBcc: x@evil.example"}, smtp, exitUsage},
+		{"email disabled", []string{"email", "test", "--to", "ops@example.com"}, map[string]string{}, exitUsage},
+		{"log transport", []string{"email", "test", "--to", "ops@example.com"}, map[string]string{"APP_MODE": "demo", "EMAIL_TRANSPORT": "log", "PUBLIC_SHOP_ORIGIN": "http://127.0.0.1:8080"}, exitUsage},
+		{"production plaintext", []string{"email", "test", "--to", "ops@example.com"}, map[string]string{"EMAIL_TRANSPORT": "smtp", "SMTP_HOST": "127.0.0.1", "SMTP_TLS": "none", "SMTP_FROM": "shop@example.com", "SMTP_USERNAME": "shop-user", "SMTP_PASSWORD": "SENTINEL-SMTP-PASSWORD", "PUBLIC_SHOP_ORIGIN": "https://shop.example.com"}, exitUsage},
+		// Port 1 refuses connections: a delivery failure, not a usage error.
+		{"unreachable server", []string{"email", "test", "--to", "ops@example.com", "--timeout=5s"}, smtp, exitFailure},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, key := range []string{"APP_MODE", "EMAIL_TRANSPORT", "SMTP_HOST", "SMTP_PORT", "SMTP_TLS", "SMTP_USERNAME", "SMTP_PASSWORD", "SMTP_FROM", "PUBLIC_SHOP_ORIGIN"} {
+				t.Setenv(key, tc.env[key])
+			}
+			var stdout, stderr bytes.Buffer
+			if got := run(tc.args, strings.NewReader(""), &stdout, &stderr); got != tc.want {
+				t.Fatalf("exit=%d want=%d stderr=%s", got, tc.want, stderr.String())
+			}
+			for _, secret := range []string{"SENTINEL-SMTP-PASSWORD", "shop-user", "evil"} {
+				if strings.Contains(stdout.String()+stderr.String(), secret) {
+					t.Fatalf("output leaks %q: %s", secret, stderr.String())
+				}
+			}
+		})
+	}
+}

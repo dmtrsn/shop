@@ -1,11 +1,12 @@
 // Command shopctl is the operator tool. It applies and reports database
-// migrations with the same engine the server uses, and provisions customer
-// and staff accounts:
+// migrations with the same engine the server uses, provisions customer and
+// staff accounts, and tests the SMTP configuration:
 //
 //	shopctl migrate [--timeout=10m] [--lock-timeout=5s]
 //	shopctl migrate --status
 //	shopctl customer create|set-password|disable|enable ...
 //	shopctl staff create|set-password|disable|enable ...
+//	shopctl email test --to ADDRESS
 //
 // Configuration follows the server: DATABASE_URL (required), MIGRATIONS_DIR
 // (default "migrations") and APP_MODE (production, development or demo).
@@ -52,6 +53,7 @@ const usage = `Usage:
   shopctl customer enable --email E
   shopctl staff create --email E --name DISPLAY_NAME --password-stdin
   shopctl staff set-password|disable|enable --email E [--password-stdin]
+  shopctl email test --to ADDRESS [--timeout=30s]       send one SMTP test message
 
 Environment: DATABASE_URL (required), MIGRATIONS_DIR (default migrations),
 APP_MODE (production, development or demo; default production). APP_MODE
@@ -79,6 +81,8 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return customer(args[1:], stdin, stdout, stderr)
 	case "staff":
 		return staff(args[1:], stdin, stdout, stderr)
+	case "email":
+		return emailCommand(args[1:], stdout, stderr)
 	case "help", "-h", "--help":
 		fmt.Fprint(stdout, usage)
 		return exitOK

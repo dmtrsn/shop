@@ -23,8 +23,6 @@ const (
 	// MaxPasswordBytes is bcrypt's input limit. Longer passwords are rejected,
 	// never truncated.
 	MaxPasswordBytes = 72
-	maxEmailBytes    = 254
-	maxEmailLocal    = 64
 	maxNameRunes     = 100
 	maxPhoneRunes    = 32
 )
@@ -135,40 +133,9 @@ func lookupEmail(raw string) (string, []domain.FieldError) {
 	return email, []domain.FieldError{}
 }
 
-// NormalizeEmail trims and lowercases an ASCII address and checks its shape.
-// Only ASCII is accepted, so Go's and PostgreSQL's lowercasing agree with the
-// users_email_lower_uidx index and with login's normalization.
+// NormalizeEmail is domain.NormalizeEmail, kept here for existing callers.
 func NormalizeEmail(raw string) (string, bool) {
-	email := strings.ToLower(strings.TrimSpace(raw))
-	if email == "" || len(email) > maxEmailBytes {
-		return "", false
-	}
-	local, host, ok := strings.Cut(email, "@")
-	if !ok || local == "" || len(local) > maxEmailLocal || strings.HasPrefix(local, ".") || strings.HasSuffix(local, ".") || strings.Contains(local, "..") {
-		return "", false
-	}
-	for i := 0; i < len(local); i++ {
-		c := local[i]
-		if !(c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || strings.IndexByte(".!#$%&'*+/=?^_`{|}~-", c) >= 0) {
-			return "", false
-		}
-	}
-	labels := strings.Split(host, ".")
-	if len(labels) < 2 {
-		return "", false
-	}
-	for _, label := range labels {
-		if label == "" || len(label) > 63 || label[0] == '-' || label[len(label)-1] == '-' {
-			return "", false
-		}
-		for i := 0; i < len(label); i++ {
-			c := label[i]
-			if !(c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '-') {
-				return "", false
-			}
-		}
-	}
-	return email, true
+	return domain.NormalizeEmail(raw)
 }
 
 // ValidateCustomerPassword returns a message for an unacceptable password:

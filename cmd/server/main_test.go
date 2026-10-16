@@ -193,3 +193,48 @@ func TestStaffRequiresPostgreSQL(t *testing.T) {
 		t.Fatal("staff enabled on the memory store")
 	}
 }
+
+func TestEmailDispatcherConfiguration(t *testing.T) {
+	sessions := httpapi.SessionConfig{Secure: true, TrustedOrigins: []string{"https://shop.example"}}
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	clear := func() {
+		for _, key := range []string{"EMAIL_TRANSPORT", "SMTP_HOST", "SMTP_PORT", "SMTP_TLS", "SMTP_USERNAME", "SMTP_PASSWORD", "SMTP_FROM", "PUBLIC_SHOP_ORIGIN"} {
+			t.Setenv(key, "")
+		}
+	}
+	clear()
+	if d, err := emailDispatcher("production", sessions, logger); err != nil || d != nil {
+		t.Fatalf("email disabled by default: %v", err)
+	}
+	t.Setenv("PUBLIC_SHOP_ORIGIN", "https://other.example")
+	if _, err := emailDispatcher("production", sessions, logger); err == nil {
+		t.Fatal("public origin outside TRUSTED_ORIGINS accepted")
+	}
+	t.Setenv("PUBLIC_SHOP_ORIGIN", "https://SHOP.example:443")
+	if d, err := emailDispatcher("production", sessions, logger); err != nil || d != nil {
+		t.Fatalf("normalized public origin without transport: %v", err)
+	}
+	t.Setenv("EMAIL_TRANSPORT", "log")
+	if _, err := emailDispatcher("production", sessions, logger); err == nil {
+		t.Fatal("log transport in production")
+	}
+	dev := httpapi.SessionConfig{TrustedOrigins: []string{"http://127.0.0.1:8080"}}
+	t.Setenv("PUBLIC_SHOP_ORIGIN", "http://127.0.0.1:8080")
+	d, err := emailDispatcher("development", dev, logger)
+	if err != nil || d == nil {
+		t.Fatalf("development log transport: %v", err)
+	}
+	if err := d.Shutdown(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	clear()
+	t.Setenv("EMAIL_TRANSPORT", "smtp")
+	t.Setenv("SMTP_HOST", "smtp.provider.example")
+	t.Setenv("SMTP_TLS", "none")
+	t.Setenv("SMTP_FROM", "shop@example.com")
+	t.Setenv("SMTP_PASSWORD", "SENTINEL-SMTP-PASSWORD")
+	t.Setenv("PUBLIC_SHOP_ORIGIN", "https://shop.example")
+	if _, err := emailDispatcher("production", sessions, logger); err == nil || strings.Contains(err.Error(), "SENTINEL") {
+		t.Fatalf("plaintext production SMTP: %v", err)
+	}
+}

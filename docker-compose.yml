@@ -40,6 +40,16 @@ services:
       TRUSTED_ORIGINS: ${TRUSTED_ORIGINS:-}
       # Empty: no staff API. Never reachable through this shop edge either.
       STAFF_TRUSTED_ORIGINS: ${STAFF_TRUSTED_ORIGINS:-}
+      # Email is disabled while EMAIL_TRANSPORT is empty. Production needs
+      # smtp with SMTP_TLS=implicit|starttls and credentials.
+      EMAIL_TRANSPORT: ${EMAIL_TRANSPORT:-}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-}
+      SMTP_TLS: ${SMTP_TLS:-}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-}
+      PUBLIC_SHOP_ORIGIN: ${PUBLIC_SHOP_ORIGIN:-}
       SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-}
       WEB_DIR: ${WEB_DIR:-/app/web}
       MIGRATIONS_DIR: ${MIGRATIONS_DIR:-/app/migrations}
@@ -127,6 +137,16 @@ services:
       retries: 3
       start_period: 5s
     stop_grace_period: 15s
+
+  # Development/CI mail capture only: started with `--profile mail`, never by
+  # the default stack. SMTP (1025) stays on the Compose network; the web UI
+  # is published on loopback only. No volume: captured mail is disposable.
+  mailpit:
+    image: axllent/mailpit:v1.27.10
+    profiles: ["mail"]
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${MAILPIT_UI_PORT:-8025}:8025"
 
 volumes:
   postgres_data:

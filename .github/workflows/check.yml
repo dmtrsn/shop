@@ -68,6 +68,8 @@ jobs:
         run: go vet -tags=integration ./tests/integration
       - name: Compile production binary
         run: make build
+      - name: SMTP delivery through a disposable Mailpit (shopctl email test)
+        run: bash scripts/test-email-smtp.sh
       - name: Compose configuration and whitespace
         run: |
           docker compose --env-file .env.example config --quiet
