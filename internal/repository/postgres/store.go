@@ -30,10 +30,10 @@ func (s *Store) Ping(ctx context.Context) error {
 func (s *Store) FindUserByEmail(ctx context.Context, email string) (domain.UserCredential, error) {
 	var credential domain.UserCredential
 	err := s.pool.QueryRow(ctx, `
-		SELECT id, name, email, phone, created_at, password_hash
+		SELECT id, name, email, phone, created_at, password_hash, disabled_at IS NOT NULL
 		FROM users WHERE lower(email) = lower($1)`, email).Scan(
 		&credential.User.ID, &credential.User.Name, &credential.User.Email, &credential.User.Phone,
-		&credential.User.CreatedAt, &credential.PasswordHash,
+		&credential.User.CreatedAt, &credential.PasswordHash, &credential.Disabled,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.UserCredential{}, domain.ErrNotFound
@@ -47,6 +47,12 @@ func (s *Store) FindUserByEmail(ctx context.Context, email string) (domain.UserC
 // CreateSession is one statement, so the purge/replacement DELETE and the
 // INSERT commit or roll back together; a single DELETE avoids two
 // sub-statements touching the same row.
+//
+// The user row is locked FOR SHARE, which conflicts with the row lock of a
+// password reset or disable. Whichever commits first wins: a reset that
+// commits first makes the PasswordHash guard fail (the row is rechecked after
+// the wait), and a reset that waits for this statement then deletes the new
+// session. Without a guard, a missing user is ErrNotFound as before.
 func (s *Store) CreateSession(ctx context.Context, session domain.NewSession, now time.Time) error {
 	if !session.Transport.Valid() {
 		return fmt.Errorf("create session: invalid transport %q", session.Transport)
@@ -54,15 +60,26 @@ func (s *Store) CreateSession(ctx context.Context, session domain.NewSession, no
 	if session.ReplacesTokenHash != "" && session.Transport != domain.SessionCookie {
 		return errors.New("create session: only cookie sessions can replace a session")
 	}
-	_, err := s.pool.Exec(ctx, `
-		WITH removed AS (
+	tag, err := s.pool.Exec(ctx, `
+		WITH allowed AS (
+			SELECT id FROM users
+			WHERE id = $1 AND ($7 = '' OR (password_hash = $7 AND disabled_at IS NULL))
+			FOR SHARE),
+		removed AS (
 			DELETE FROM sessions
-			WHERE (user_id = $1 AND expires_at <= $6)
-			   OR ($5 <> '' AND token_hash = $5 AND transport = 'cookie'))
-		INSERT INTO sessions(token_hash, user_id, transport, expires_at) VALUES ($2,$1,$3,$4)`,
-		session.UserID, session.TokenHash, string(session.Transport), session.ExpiresAt, session.ReplacesTokenHash, now)
+			WHERE EXISTS (SELECT 1 FROM allowed)
+			  AND ((user_id = $1 AND expires_at <= $6)
+			   OR ($5 <> '' AND token_hash = $5 AND transport = 'cookie')))
+		INSERT INTO sessions(token_hash, user_id, transport, expires_at) SELECT $2,$1,$3,$4 FROM allowed`,
+		session.UserID, session.TokenHash, string(session.Transport), session.ExpiresAt, session.ReplacesTokenHash, now, session.PasswordHash)
 	if err != nil {
 		return fmt.Errorf("create session: %w", err)
+	}
+	if tag.RowsAffected() != 1 {
+		if session.PasswordHash == "" {
+			return domain.ErrNotFound
+		}
+		return domain.ErrUnauthorized
 	}
 	return nil
 }
@@ -72,7 +89,7 @@ func (s *Store) SessionByTokenHash(ctx context.Context, hash string, transport d
 	err := s.pool.QueryRow(ctx, `
 		SELECT u.id, u.name, u.email, u.phone, u.created_at, s.expires_at
 		FROM sessions s JOIN users u ON u.id=s.user_id
-		WHERE s.token_hash=$1 AND s.transport=$2 AND s.expires_at>$3`, hash, string(transport), now).Scan(
+		WHERE s.token_hash=$1 AND s.transport=$2 AND s.expires_at>$3 AND u.disabled_at IS NULL`, hash, string(transport), now).Scan(
 		&record.User.ID, &record.User.Name, &record.User.Email, &record.User.Phone, &record.User.CreatedAt, &record.ExpiresAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.SessionRecord{}, domain.ErrUnauthorized

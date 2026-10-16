@@ -271,8 +271,12 @@ func (s *Store) CreateSession(_ context.Context, ns domain.NewSession, now time.
 	if ns.ReplacesTokenHash != "" && ns.Transport != domain.SessionCookie {
 		return fmt.Errorf("create session: only cookie sessions can replace a session")
 	}
-	if _, ok := s.usersByID[ns.UserID]; !ok {
+	user, ok := s.usersByID[ns.UserID]
+	if !ok {
 		return domain.ErrNotFound
+	}
+	if ns.PasswordHash != "" && s.usersByEmail[strings.ToLower(user.Email)].PasswordHash != ns.PasswordHash {
+		return domain.ErrUnauthorized
 	}
 	if _, exists := s.sessions[ns.TokenHash]; exists {
 		return fmt.Errorf("create session: %w", domain.ErrConflict)

@@ -237,10 +237,14 @@ func (s *Server) rejectCSRF(w http.ResponseWriter, r *http.Request, reason strin
 	s.writeError(w, r, errCSRF)
 }
 
-// logAuthFailure records refused demo principals; other failures are ordinary.
+// logAuthFailure records refused demo and disabled principals; other failures
+// are ordinary.
 func (s *Server) logAuthFailure(r *http.Request, err error) {
-	if errors.Is(err, domain.ErrDemoAccountDisabled) {
+	switch {
+	case errors.Is(err, domain.ErrDemoAccountDisabled):
 		s.logger.Warn("demo account refused", "path", r.URL.Path, "requestId", r.Context().Value(requestIDKey))
+	case errors.Is(err, domain.ErrAccountDisabled):
+		s.logger.Warn("disabled account refused", "path", r.URL.Path, "requestId", r.Context().Value(requestIDKey))
 	}
 }
 

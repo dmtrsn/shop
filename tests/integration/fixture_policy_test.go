@@ -62,8 +62,8 @@ func (d *database) outcomes(t *testing.T) string {
 	return d.text(t, `SELECT string_agg(version||'='||outcome, ',' ORDER BY version) FROM schema_migrations`)
 }
 
-const allApplied = "001_init=applied,002_demo_seed=applied,003_catalog_scale_indexes=applied,004_brand_manufacturer_integrity=applied,005_session_transport=applied,006_order_idempotency=applied,007_repeat_commits=applied"
-const productionOutcomes = "001_init=applied,002_demo_seed=skipped,003_catalog_scale_indexes=applied,004_brand_manufacturer_integrity=applied,005_session_transport=applied,006_order_idempotency=applied,007_repeat_commits=applied"
+const allApplied = "001_init=applied,002_demo_seed=applied,003_catalog_scale_indexes=applied,004_brand_manufacturer_integrity=applied,005_session_transport=applied,006_order_idempotency=applied,007_repeat_commits=applied,008_customer_account_status=applied"
+const productionOutcomes = "001_init=applied,002_demo_seed=skipped,003_catalog_scale_indexes=applied,004_brand_manufacturer_integrity=applied,005_session_transport=applied,006_order_idempotency=applied,007_repeat_commits=applied,008_customer_account_status=applied"
 
 // productionDatabase migrates a fresh database the way APP_MODE=production does.
 func productionDatabase(t *testing.T) *database {
@@ -126,7 +126,7 @@ func TestFixtureSkipFreshProductionDatabase(t *testing.T) {
 	// A skipped fixture still records the real file's checksum.
 	d.assertRecordedChecksums(t, "skipped")
 	d.assertNoBusinessRows(t)
-	if strings.Count(logs.String(), `msg="fixture migration skipped"`) != 1 || strings.Count(logs.String(), `msg="migration applied"`) != 6 {
+	if strings.Count(logs.String(), `msg="fixture migration skipped"`) != 1 || strings.Count(logs.String(), `msg="migration applied"`) != repositoryMigrations(t)-1 {
 		t.Fatalf("logs: %s", logs.String())
 	}
 
@@ -266,7 +266,7 @@ func TestConcurrentProductionMigratorsSkipFixtureOnce(t *testing.T) {
 	applied := []int{strings.Count(logs[0].String(), `msg="migration applied"`), strings.Count(logs[1].String(), `msg="migration applied"`)}
 	sort.Ints(skips)
 	sort.Ints(applied)
-	if !reflect.DeepEqual(skips, []int{0, 1}) || !reflect.DeepEqual(applied, []int{0, 6}) {
+	if !reflect.DeepEqual(skips, []int{0, 1}) || !reflect.DeepEqual(applied, []int{0, repositoryMigrations(t) - 1}) {
 		t.Fatalf("skips=%v applied=%v", skips, applied)
 	}
 	if !d.migrationLockFree(t) {
@@ -295,7 +295,7 @@ func TestFailureAfterSkippedFixture(t *testing.T) {
 
 func TestLegacyFixtureDatabaseKeepsWorkingInDevelopmentOnly(t *testing.T) {
 	d := newDatabase(t, false)
-	if err := legacyMigrate(d.ctx, d.pool, "../../migrations"); err != nil {
+	if err := legacyMigrate(d.ctx, d.pool, historicalDir(t)); err != nil {
 		t.Fatal(err)
 	}
 	prod := productionMigrator("../../migrations", &lockedBuffer{})
@@ -320,7 +320,7 @@ func TestLegacyFixtureDatabaseKeepsWorkingInDevelopmentOnly(t *testing.T) {
 
 func TestA1MetadataUpgradesToSkippedOutcome(t *testing.T) {
 	d := newDatabase(t, false)
-	if err := legacyMigrate(d.ctx, d.pool, "../../migrations"); err != nil {
+	if err := legacyMigrate(d.ctx, d.pool, historicalDir(t)); err != nil {
 		t.Fatal(err)
 	}
 	// Exactly what the A1 binary wrote: checksums and an applied-only outcome.
@@ -362,7 +362,7 @@ func TestA1MetadataUpgradesToSkippedOutcome(t *testing.T) {
 func TestPreviousRunnerLeavesSkippedFixtureAlone(t *testing.T) {
 	d := productionDatabase(t)
 	// The pre-A1 runner checks only that a version row exists.
-	if err := legacyMigrate(d.ctx, d.pool, "../../migrations"); err != nil {
+	if err := legacyMigrate(d.ctx, d.pool, historicalDir(t)); err != nil {
 		t.Fatal(err)
 	}
 	if d.outcomes(t) != productionOutcomes {

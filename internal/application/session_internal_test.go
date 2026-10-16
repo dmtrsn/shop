@@ -6,11 +6,11 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-// The dummy hash must cost the same as the seeded credential (cost 10) so an
+// The dummy hash must cost the same as provisioned customer passwords so an
 // unknown email takes as long as a wrong password.
-func TestDummyPasswordHashMatchesSeededCost(t *testing.T) {
+func TestDummyPasswordHashMatchesCustomerCost(t *testing.T) {
 	cost, err := bcrypt.Cost([]byte(dummyPasswordHash))
-	if err != nil || cost != 10 {
+	if err != nil || cost != CustomerPasswordCost {
 		t.Fatalf("dummy hash cost=%d err=%v", cost, err)
 	}
 	if bcrypt.CompareHashAndPassword([]byte(dummyPasswordHash), []byte("")) == nil {

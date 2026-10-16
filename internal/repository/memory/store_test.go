@@ -184,3 +184,20 @@ func TestConcurrentSessionReplacement(t *testing.T) {
 		}
 	}
 }
+
+func TestCreateSessionRequiresTheVerifiedCredential(t *testing.T) {
+	store := NewDemo()
+	ctx := context.Background()
+	now := time.Now()
+	stale := domain.NewSession{UserID: domain.DemoUserID, TokenHash: "stale", Transport: domain.SessionCookie, ExpiresAt: now.Add(time.Hour), PasswordHash: "not-the-current-hash"}
+	if err := store.CreateSession(ctx, stale, now); !errors.Is(err, domain.ErrUnauthorized) {
+		t.Fatalf("stale credential: %v", err)
+	}
+	if _, err := store.SessionByTokenHash(ctx, "stale", domain.SessionCookie, now); !errors.Is(err, domain.ErrUnauthorized) {
+		t.Fatal("stale credential created a session")
+	}
+	stale.PasswordHash = demoPasswordHash
+	if err := store.CreateSession(ctx, stale, now); err != nil {
+		t.Fatal(err)
+	}
+}

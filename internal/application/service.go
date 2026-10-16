@@ -22,11 +22,11 @@ import (
 
 const sessionLifetime = 30 * 24 * time.Hour
 
-// dummyPasswordHash is a cost-10 bcrypt hash (the cost of the seeded demo
-// hash) of random bytes that were discarded when it was generated. It verifies
-// nothing: comparing unknown-user logins against it keeps their timing close to
-// a real verification without generating a hash on the request path.
-const dummyPasswordHash = "$2y$10$.Z8RfBkxY8dDZHsM3d1cEOsMLuni6G0e3UmKkwQNVZFwi5jmhODzO"
+// dummyPasswordHash is a bcrypt hash at CustomerPasswordCost of random bytes
+// that were discarded when it was generated. It verifies nothing: comparing
+// unknown-user logins against it keeps their timing close to verifying a real
+// customer password without generating a hash on the request path.
+const dummyPasswordHash = "$2a$12$t859E7d1TQ8J0QX8qUT/j.1xp81JsrOhXJzyBFH2fmCjaBoZg5QTm"
 
 // Options holds deployment policy for the service.
 type Options struct {
@@ -93,6 +93,11 @@ func (s *Service) login(ctx context.Context, email, password string, transport d
 	if bcrypt.CompareHashAndPassword([]byte(credential.PasswordHash), []byte(password)) != nil {
 		return LoginResult{}, domain.ErrUnauthorized
 	}
+	// Checked after the password so a disabled account costs the same and
+	// answers the same as a wrong password.
+	if credential.Disabled {
+		return LoginResult{}, domain.ErrAccountDisabled
+	}
 	if err := s.allowPrincipal(credential.User.ID); err != nil {
 		return LoginResult{}, err
 	}
@@ -103,7 +108,7 @@ func (s *Service) login(ctx context.Context, email, password string, transport d
 	now := s.now().UTC()
 	// PostgreSQL stores microseconds; report exactly the instant that is enforced.
 	expires := now.Add(sessionLifetime).Truncate(time.Microsecond)
-	session := domain.NewSession{UserID: credential.User.ID, TokenHash: tokenHash(token), Transport: transport, ExpiresAt: expires}
+	session := domain.NewSession{UserID: credential.User.ID, TokenHash: tokenHash(token), Transport: transport, ExpiresAt: expires, PasswordHash: credential.PasswordHash}
 	if transport == domain.SessionCookie && previousToken != "" {
 		session.ReplacesTokenHash = tokenHash(previousToken)
 	}

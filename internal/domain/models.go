@@ -32,6 +32,8 @@ type User struct {
 type UserCredential struct {
 	User         User
 	PasswordHash string
+	// Disabled accounts are refused after the password check.
+	Disabled bool
 }
 
 // DemoUserID is the stable principal seeded by migration 002 and the memory
@@ -57,6 +59,12 @@ type NewSession struct {
 	Transport         SessionTransport
 	ExpiresAt         time.Time
 	ReplacesTokenHash string
+	// PasswordHash is the credential the login verified. When set, the
+	// session is created only if it is still the user's password and the
+	// account is enabled; otherwise CreateSession changes nothing and returns
+	// ErrUnauthorized. A concurrent password reset or disable therefore
+	// cannot be outrun by a login that verified the old state.
+	PasswordHash string
 }
 
 // SessionRecord deliberately carries no credential material.

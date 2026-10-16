@@ -1,12 +1,15 @@
-// Command shopctl is the operator tool. It currently applies and reports
-// database migrations with the same engine the server uses:
+// Command shopctl is the operator tool. It applies and reports database
+// migrations with the same engine the server uses, and provisions customer
+// accounts:
 //
 //	shopctl migrate [--timeout=10m] [--lock-timeout=5s]
 //	shopctl migrate --status
+//	shopctl customer create|set-password|disable|enable ...
 //
 // Configuration follows the server: DATABASE_URL (required), MIGRATIONS_DIR
 // (default "migrations") and APP_MODE (production, development or demo).
-// Logs go to stderr and the status report to stdout. The DSN is never printed.
+// Logs go to stderr and results to stdout. The DSN, passwords and password
+// hashes are never printed.
 package main
 
 import (
@@ -35,11 +38,17 @@ const (
 	exitUsage   = 2
 	// exitNotCurrent: --status found pending work for `shopctl migrate`.
 	exitNotCurrent = 3
+	// exitConflict: the customer email is taken, or no account has it.
+	exitConflict = 3
 )
 
 const usage = `Usage:
   shopctl migrate [--timeout=10m] [--lock-timeout=5s]   apply pending migrations
   shopctl migrate --status                              report state; changes nothing
+  shopctl customer create --email E --name N [--phone P] --password-stdin
+  shopctl customer set-password --email E --password-stdin
+  shopctl customer disable --email E
+  shopctl customer enable --email E
 
 Environment: DATABASE_URL (required), MIGRATIONS_DIR (default migrations),
 APP_MODE (production, development or demo; default production). APP_MODE
@@ -47,14 +56,15 @@ alone sets the demo-fixture policy: production records 002_demo_seed as
 skipped without running it; development and demo apply it.
 
 Exit codes: 0 success or current, 1 failure or inconsistent schema,
-2 usage or configuration error, 3 --status found pending work.
+2 usage, configuration or validation error, 3 --status found pending work
+or the customer email is taken / unknown.
 `
 
 func main() {
-	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
+	os.Exit(run(os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
 }
 
-func run(args []string, stdout, stderr io.Writer) int {
+func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
 		fmt.Fprint(stderr, usage)
 		return exitUsage
@@ -62,6 +72,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 	switch args[0] {
 	case "migrate":
 		return migrate(args[1:], stdout, stderr)
+	case "customer":
+		return customer(args[1:], stdin, stdout, stderr)
 	case "help", "-h", "--help":
 		fmt.Fprint(stdout, usage)
 		return exitOK
@@ -92,46 +104,24 @@ func migrate(args []string, stdout, stderr io.Writer) int {
 		return exitUsage
 	}
 	logger := slog.New(slog.NewTextHandler(stderr, nil))
-	mode := os.Getenv("APP_MODE")
-	if mode == "" {
-		mode = "production"
-	}
-	// The policy comes only from APP_MODE; there is deliberately no flag to
-	// override it.
-	fixtures, err := postgresrepo.FixturePolicyForAppMode(mode)
+	env, err := loadEnvironment()
 	if err != nil {
 		logger.Error(err.Error())
 		return exitUsage
 	}
-	dsn := strings.TrimSpace(os.Getenv("DATABASE_URL"))
-	if dsn == "" {
-		logger.Error("DATABASE_URL is required")
-		return exitUsage
-	}
-	config, err := pgxpool.ParseConfig(dsn)
-	if err != nil {
-		// pgx parse errors can include the DSN and its credentials.
-		logger.Error("invalid DATABASE_URL")
-		return exitUsage
-	}
-	config.MaxConns = 2
-	config.MinConns = 0
-	directory := os.Getenv("MIGRATIONS_DIR")
-	if directory == "" {
-		directory = "migrations"
-	}
-
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	ctx, cancel := context.WithTimeout(ctx, *timeout)
 	defer cancel()
-	pool, err := pgxpool.NewWithConfig(ctx, config)
+	pool, err := pgxpool.NewWithConfig(ctx, env.config)
 	if err != nil {
 		logger.Error("connect postgres", "error", err)
 		return exitFailure
 	}
 	defer pool.Close()
-	migrator := postgresrepo.Migrator{Directory: directory, Fixtures: fixtures, LockTimeout: *lockTimeout, Logger: logger}
+	migrator := env.migrator(logger)
+	migrator.LockTimeout = *lockTimeout
+	fixtures, mode, directory := env.fixtures, env.mode, env.directory
 
 	if *status {
 		report, err := migrator.Status(ctx, pool)
@@ -151,6 +141,46 @@ func migrate(args []string, stdout, stderr io.Writer) int {
 		return exitFailure
 	}
 	return exitOK
+}
+
+// environment is the configuration shared by every command.
+type environment struct {
+	mode      string
+	fixtures  postgresrepo.FixturePolicy
+	config    *pgxpool.Config
+	directory string
+}
+
+// loadEnvironment reads APP_MODE (default production), DATABASE_URL and
+// MIGRATIONS_DIR. Its errors are configuration errors and never contain the
+// DSN. The fixture policy comes only from APP_MODE; no flag overrides it.
+func loadEnvironment() (environment, error) {
+	env := environment{mode: os.Getenv("APP_MODE"), directory: os.Getenv("MIGRATIONS_DIR")}
+	if env.mode == "" {
+		env.mode = "production"
+	}
+	if env.directory == "" {
+		env.directory = "migrations"
+	}
+	var err error
+	if env.fixtures, err = postgresrepo.FixturePolicyForAppMode(env.mode); err != nil {
+		return environment{}, err
+	}
+	dsn := strings.TrimSpace(os.Getenv("DATABASE_URL"))
+	if dsn == "" {
+		return environment{}, errors.New("DATABASE_URL is required")
+	}
+	if env.config, err = pgxpool.ParseConfig(dsn); err != nil {
+		// pgx parse errors can include the DSN and its credentials.
+		return environment{}, errors.New("invalid DATABASE_URL")
+	}
+	env.config.MaxConns = 2
+	env.config.MinConns = 0
+	return env, nil
+}
+
+func (e environment) migrator(logger *slog.Logger) postgresrepo.Migrator {
+	return postgresrepo.Migrator{Directory: e.directory, Fixtures: e.fixtures, Logger: logger}
 }
 
 // printStatus writes one tab-separated line per migration plus a summary. A

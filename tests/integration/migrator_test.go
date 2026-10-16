@@ -69,6 +69,23 @@ func legacyMigrate(ctx context.Context, pool *pgxpool.Pool, directory string) er
 	return nil
 }
 
+// historicalDir holds only 001-007, the migrations the pre-A1 binary
+// shipped in its image; it never knew later files.
+func historicalDir(t *testing.T) string {
+	t.Helper()
+	return migrationDir(t, []string{"001_", "002_", "003_", "004_", "005_", "006_", "007_"}, nil)
+}
+
+// repositoryMigrations is the number of up migrations in the repository.
+func repositoryMigrations(t *testing.T) int {
+	t.Helper()
+	files, err := filepath.Glob("../../migrations/*.up.sql")
+	if err != nil || len(files) == 0 {
+		t.Fatal("no repository migrations", err)
+	}
+	return len(files)
+}
+
 // lockedBuffer is a log sink shared with a migrator goroutine.
 type lockedBuffer struct {
 	mu  sync.Mutex
@@ -188,7 +205,7 @@ func (d *database) assertRecordedChecksums(t *testing.T, fixtureOutcome string) 
 	if err := rows.Err(); err != nil {
 		t.Fatal(err)
 	}
-	if count != 7 {
+	if count != repositoryMigrations(t) {
 		t.Fatalf("schema_migrations rows=%d", count)
 	}
 }
@@ -253,7 +270,7 @@ func TestMigratorFreshDatabase(t *testing.T) {
 	var logs lockedBuffer
 	m := migrator("../../migrations", &logs)
 	status, err := m.Status(d.ctx, d.pool)
-	if err != nil || status.MetadataCurrent || status.Current() || len(status.Migrations) != 7 || status.Migrations[0].State != postgres.MigrationPending {
+	if err != nil || status.MetadataCurrent || status.Current() || len(status.Migrations) != repositoryMigrations(t) || status.Migrations[0].State != postgres.MigrationPending {
 		t.Fatalf("fresh status: %+v %v", status, err)
 	}
 	if err := m.Verify(d.ctx, d.pool); !errors.Is(err, postgres.ErrSchemaNotCurrent) {
@@ -272,7 +289,7 @@ func TestMigratorFreshDatabase(t *testing.T) {
 	if status, err := m.Status(d.ctx, d.pool); err != nil || !status.Current() || len(status.Newer) != 0 {
 		t.Fatalf("migrated status: %+v %v", status, err)
 	}
-	if strings.Count(logs.String(), "msg=\"migration applied\"") != 7 || strings.Contains(logs.String(), "INSERT INTO") {
+	if strings.Count(logs.String(), "msg=\"migration applied\"") != repositoryMigrations(t) || strings.Contains(logs.String(), "INSERT INTO") {
 		t.Fatalf("logs: %s", logs.String())
 	}
 	if !d.migrationLockFree(t) {
@@ -282,7 +299,7 @@ func TestMigratorFreshDatabase(t *testing.T) {
 
 func TestMigratorAdoptsLegacyMetadataWithoutRerunning(t *testing.T) {
 	d := newDatabase(t, false)
-	if err := legacyMigrate(d.ctx, d.pool, "../../migrations"); err != nil {
+	if err := legacyMigrate(d.ctx, d.pool, historicalDir(t)); err != nil {
 		t.Fatal(err)
 	}
 	newColumns := `SELECT count(*) FROM pg_attribute WHERE attrelid='schema_migrations'::regclass AND attname IN ('checksum','outcome')`
@@ -300,7 +317,8 @@ func TestMigratorAdoptsLegacyMetadataWithoutRerunning(t *testing.T) {
 
 	// Live data the fixture seeded; any rerun would reset or duplicate it.
 	d.exec(t, "UPDATE products SET stock=23 WHERE id='p01'")
-	appliedAt := `SELECT string_agg(version||'@'||applied_at::text, ',' ORDER BY version) FROM schema_migrations`
+	// The historical rows must stay untouched; later migrations are new rows.
+	appliedAt := `SELECT string_agg(version||'@'||applied_at::text, ',' ORDER BY version) FROM schema_migrations WHERE version <= '007_repeat_commits'`
 	before := d.text(t, appliedAt)
 
 	var logs lockedBuffer
@@ -314,7 +332,7 @@ func TestMigratorAdoptsLegacyMetadataWithoutRerunning(t *testing.T) {
 		t.Fatal("migration SQL ran again")
 	}
 	d.assertChecksumsMatchRepository(t)
-	if strings.Count(logs.String(), "msg=\"migration checksum adopted\"") != 7 || strings.Contains(logs.String(), "migration applied") || !strings.Contains(logs.String(), "migration metadata bootstrapped") {
+	if strings.Count(logs.String(), "msg=\"migration checksum adopted\"") != 7 || strings.Count(logs.String(), "msg=\"migration applied\"") != repositoryMigrations(t)-7 || !strings.Contains(logs.String(), "migration metadata bootstrapped") {
 		t.Fatalf("logs: %s", logs.String())
 	}
 	if err := m.Verify(d.ctx, d.pool); err != nil {
@@ -679,7 +697,7 @@ func TestVerifyRejectsPendingAndMismatchWithoutExecuting(t *testing.T) {
 	if err := migrator(pending, &lockedBuffer{}).Verify(d.ctx, d.pool); !errors.Is(err, postgres.ErrSchemaNotCurrent) || !strings.Contains(err.Error(), "1 pending") {
 		t.Fatalf("pending: %v", err)
 	}
-	if d.number(t, "SELECT count(*) FROM pg_class WHERE relname='verify_probe'") != 0 || d.number(t, "SELECT count(*) FROM schema_migrations") != 7 {
+	if d.number(t, "SELECT count(*) FROM pg_class WHERE relname='verify_probe'") != 0 || d.number(t, "SELECT count(*) FROM schema_migrations") != int64(repositoryMigrations(t)) {
 		t.Fatal("verify executed migration SQL")
 	}
 	mismatch := migrationDir(t, nil, nil)

@@ -33,7 +33,7 @@ func TestUsageAndConfigurationExitCodes(t *testing.T) {
 				t.Setenv(key, value)
 			}
 			var stdout, stderr bytes.Buffer
-			if got := run(tc.args, &stdout, &stderr); got != tc.want {
+			if got := run(tc.args, strings.NewReader(""), &stdout, &stderr); got != tc.want {
 				t.Fatalf("exit=%d want=%d stderr=%s", got, tc.want, stderr.String())
 			}
 		})
@@ -56,7 +56,7 @@ func TestDatabaseCredentialsNeverPrinted(t *testing.T) {
 			t.Setenv("DATABASE_URL", tc.dsn)
 			t.Setenv("MIGRATIONS_DIR", "../../migrations")
 			var stdout, stderr bytes.Buffer
-			if got := run(tc.args, &stdout, &stderr); got != tc.want {
+			if got := run(tc.args, strings.NewReader(""), &stdout, &stderr); got != tc.want {
 				t.Fatalf("exit=%d want=%d", got, tc.want)
 			}
 			if strings.Contains(stdout.String()+stderr.String(), "synthetic-secret") {
@@ -81,5 +81,63 @@ func TestPrintStatus(t *testing.T) {
 	want := "metadata\tcurrent\nfixtures\tskip\n001_init\tapplied\taaaaaaaaaaaa\n002_demo_seed\tskipped\tcccccccccccc\tdemo-fixture\n003_next\tpending\tbbbbbbbbbbbb\n009_future\tnewer-than-binary\t-\nschema\tnot-current\n"
 	if out.String() != want {
 		t.Fatalf("%q", out.String())
+	}
+}
+
+func TestCustomerUsageErrorsNeedNoDatabase(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		args  []string
+		stdin string
+		want  int
+	}{
+		{"no subcommand", []string{"customer"}, "", exitUsage},
+		{"unknown subcommand", []string{"customer", "delete", "--email", "a@b.co"}, "", exitUsage},
+		{"help", []string{"customer", "help"}, "", exitOK},
+		{"create without email", []string{"customer", "create", "--name", "A", "--password-stdin"}, "correct horse\n", exitUsage},
+		{"create without password-stdin", []string{"customer", "create", "--email", "a@b.co", "--name", "A"}, "correct horse\n", exitUsage},
+		{"password as flag", []string{"customer", "create", "--email", "a@b.co", "--name", "A", "--password", "correct horse"}, "", exitUsage},
+		{"set-password without stdin flag", []string{"customer", "set-password", "--email", "a@b.co"}, "correct horse\n", exitUsage},
+		{"empty stdin", []string{"customer", "set-password", "--email", "a@b.co", "--password-stdin"}, "", exitUsage},
+		{"two lines", []string{"customer", "set-password", "--email", "a@b.co", "--password-stdin"}, "one\ntwo\n", exitUsage},
+		{"disable takes no password flag", []string{"customer", "disable", "--email", "a@b.co", "--password-stdin"}, "", exitUsage},
+		{"extra argument", []string{"customer", "enable", "--email", "a@b.co", "now"}, "", exitUsage},
+		{"no DSN", []string{"customer", "disable", "--email", "a@b.co"}, "", exitUsage},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("APP_MODE", "")
+			t.Setenv("DATABASE_URL", "")
+			var stdout, stderr bytes.Buffer
+			if got := run(tc.args, strings.NewReader(tc.stdin), &stdout, &stderr); got != tc.want {
+				t.Fatalf("exit=%d want=%d stderr=%s", got, tc.want, stderr.String())
+			}
+			if strings.Contains(stdout.String()+stderr.String(), "correct horse") {
+				t.Fatal("password echoed")
+			}
+		})
+	}
+}
+
+func TestReadPassword(t *testing.T) {
+	for input, want := range map[string]string{"correct horse\n": "correct horse", "correct horse\r\n": "correct horse", "no newline": "no newline", "  spaced  \n": "  spaced  "} {
+		if got, err := readPassword(strings.NewReader(input)); err != nil || got != want {
+			t.Errorf("%q: %q %v", input, got, err)
+		}
+	}
+	for _, input := range []string{"", "\n", "a\nb", "a\n\n", "a\rb\n", strings.Repeat("x", maxPasswordInput+1)} {
+		if _, err := readPassword(strings.NewReader(input)); err == nil {
+			t.Errorf("%q accepted", input)
+		}
+	}
+}
+
+func TestCustomerPasswordNeverPrintedWhenTheDatabaseFails(t *testing.T) {
+	t.Setenv("APP_MODE", "production")
+	t.Setenv("DATABASE_URL", "postgres://example:synthetic-secret@127.0.0.1:1/shop?connect_timeout=2")
+	t.Setenv("MIGRATIONS_DIR", "../../migrations")
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"customer", "create", "--email", "a@b.co", "--name", "A", "--password-stdin"}, strings.NewReader("correct horse battery\n"), &stdout, &stderr)
+	if code != exitFailure || strings.Contains(stdout.String()+stderr.String(), "correct horse") || strings.Contains(stdout.String()+stderr.String(), "synthetic-secret") {
+		t.Fatalf("exit=%d output=%s%s", code, stdout.String(), stderr.String())
 	}
 }
