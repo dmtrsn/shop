@@ -1,3 +1,4 @@
+import { SkeletonRows } from "@/components/storefront/route-states";
 import { Container } from "@/components/ui/container";
 
 import styles from "@/components/storefront/collection-navigation.module.css";
@@ -10,9 +11,7 @@ export default function CollectionLoading() {
           <p className={styles.eyebrow}>Подборка</p>
           <h1>Загружаем подборку</h1>
         </div>
-        <div aria-hidden="true" className={styles.state}>
-          <p>Подготавливаем описание и товары…</p>
-        </div>
+        <SkeletonRows />
       </Container>
     </main>
   );

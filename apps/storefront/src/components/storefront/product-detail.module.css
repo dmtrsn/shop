@@ -244,12 +244,6 @@
   align-self: end;
 }
 
-.quantityRules {
-  margin: 0 0 var(--space-2);
-  color: var(--color-text-muted);
-  font-size: var(--font-size-sm);
-}
-
 .readOnlyNote {
   grid-column: 1 / -1;
   margin: 0;
@@ -293,54 +287,6 @@
 .attributes dd {
   margin: 0;
   overflow-wrap: anywhere;
-}
-
-.statePage {
-  min-height: 60vh;
-  padding-block: var(--space-7);
-}
-
-.stateContent {
-  max-width: 36rem;
-}
-
-.stateContent h1 {
-  margin-top: 0;
-  font-size: var(--font-size-xl);
-}
-
-.stateActions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-3);
-  margin-top: var(--space-5);
-}
-
-.stateLink,
-.retryButton {
-  display: inline-flex;
-  min-height: var(--control-height);
-  align-items: center;
-  justify-content: center;
-  padding-inline: var(--space-4);
-  border: var(--border-strong);
-  border-radius: var(--radius-control);
-  background: var(--color-surface);
-  color: var(--color-text);
-  cursor: pointer;
-  font-weight: var(--weight-semibold);
-  text-decoration: none;
-}
-
-.retryButton {
-  border-color: var(--color-accent);
-  background: var(--color-accent);
-  color: var(--color-on-accent);
-}
-
-.reference {
-  color: var(--color-text-muted);
-  font-size: var(--font-size-xs);
 }
 
 .loadingGrid {

@@ -250,31 +250,9 @@
 
 /* /cart page. */
 
+/* Same footer gap as the public pages. */
 .main {
-  padding-block: var(--space-7);
-}
-
-.heading {
-  margin-bottom: var(--space-5);
-}
-
-.heading h1 {
-  margin: 0 0 var(--space-2);
-}
-
-.heading p {
-  margin: 0;
-  color: var(--color-text-muted);
-  font-variant-numeric: tabular-nums;
-}
-
-.state {
-  max-width: 42rem;
-  padding-block: var(--space-5);
-}
-
-.state p {
-  line-height: 1.6;
+  padding-block: var(--space-7) var(--space-8);
 }
 
 .actions {
@@ -645,26 +623,6 @@
 }
 
 /* Unavailable is a failure, visually distinct from the dashed empty state. */
-.unavailableState {
-  display: flex;
-  max-width: 42rem;
-  gap: var(--space-3);
-  padding: var(--space-5);
-  border: var(--border-width) solid var(--color-warning);
-  border-radius: var(--radius-panel);
-  background: var(--color-warning-surface);
-}
-
-.unavailableState > svg { flex: 0 0 auto; color: var(--color-warning); }
-.unavailableState h2 { margin: 0 0 var(--space-2); font-size: var(--font-size-lg); }
-.unavailableState p { margin: 0 0 var(--space-4); line-height: 1.6; }
-
-.skeletonRow,
-.skeletonSummary {
-  border-radius: var(--radius-panel);
-  background: var(--color-skeleton);
-}
-
 .skeletonRow {
   height: 7rem;
   margin-bottom: var(--space-3);
@@ -690,7 +648,7 @@
   }
 }
 
-@media (max-width: 42rem) {
+@media (max-width: 40rem) {
   .main {
     padding-block: var(--space-5);
   }

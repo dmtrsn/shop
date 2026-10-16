@@ -16,8 +16,7 @@
 }
 
 .review h2,
-.form h2,
-.details h2 {
+.form h2 {
   margin: 0 0 var(--space-3);
   font-size: var(--font-size-md);
 }
@@ -275,8 +274,7 @@
 
 .alert:focus-visible,
 .notice:focus-visible,
-.unknown:focus-visible,
-.banner:focus-visible {
+.unknown:focus-visible {
   outline: var(--focus-width) solid var(--color-focus);
   outline-offset: var(--focus-offset);
 }
@@ -392,44 +390,7 @@
   background: var(--color-warning-surface);
 }
 
-/* Order confirmation. */
-
-.banner {
-  max-width: 48rem;
-  margin: 0 0 var(--space-5);
-  padding: var(--space-3) var(--space-4);
-  border: var(--border-control);
-  border-left: 4px solid var(--color-success);
-  border-radius: var(--radius-control);
-  background: var(--color-surface);
-  font-weight: var(--weight-semibold);
-}
-
-.details {
-  display: grid;
-  min-width: 0;
-  grid-area: review;
-  gap: var(--space-5);
-}
-
-.facts {
-  display: grid;
-  grid-template-columns: max-content minmax(0, 1fr);
-  gap: var(--space-2) var(--space-4);
-  margin: 0;
-}
-
-.facts dt {
-  color: var(--color-text-muted);
-}
-
-.facts dd {
-  margin: 0;
-  overflow-wrap: anywhere;
-  white-space: pre-line;
-}
-
-@media (max-width: 61rem) {
+@media (max-width: 56.25rem) {
   .layout {
     grid-template-columns: minmax(0, 1fr);
     grid-template-areas:
@@ -439,7 +400,7 @@
   }
 }
 
-@media (max-width: 42rem) {
+@media (max-width: 40rem) {
   .line {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -451,14 +412,5 @@
 
   .actions > button {
     width: 100%;
-  }
-
-  .facts {
-    grid-template-columns: minmax(0, 1fr);
-    gap: var(--space-1);
-  }
-
-  .facts dd {
-    margin-bottom: var(--space-2);
   }
 }

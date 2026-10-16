@@ -185,6 +185,41 @@
   gap: var(--space-3);
 }
 
+/* UnavailableState: a failure, not emptiness. Solid warning boundary and icon. */
+.unavailableState {
+  display: flex;
+  max-width: 42rem;
+  gap: var(--space-3);
+  padding: var(--space-5);
+  border: var(--border-width) solid var(--color-warning);
+  border-radius: var(--radius-panel);
+  background: var(--color-warning-surface);
+  overflow-wrap: anywhere;
+}
+
+.unavailableIcon { flex: 0 0 auto; margin-top: 0.125rem; color: var(--color-warning); }
+.unavailableBody { min-width: 0; }
+
+.unavailableTitle,
+.unavailablePageTitle {
+  margin: 0 0 var(--space-2);
+  font-weight: var(--weight-bold);
+  line-height: var(--line-height-heading);
+  letter-spacing: var(--tracking-heading);
+}
+
+.unavailableTitle { font-size: var(--font-size-lg); }
+.unavailablePageTitle { font-size: var(--font-size-xl); }
+.unavailableBody p { margin: 0 0 var(--space-4); line-height: 1.6; }
+.unavailableBody > :last-child { margin-bottom: 0; }
+
+.unavailableActions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+}
+
 /* Skeleton: decorative placeholder; shimmer only when motion is welcome. */
 .skeleton {
   position: relative;

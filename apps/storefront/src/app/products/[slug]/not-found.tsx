@@ -1,21 +1,7 @@
-import Link from "next/link";
-
-import { Container } from "@/components/ui/container";
-
-import styles from "@/components/storefront/product-detail.module.css";
+import { RouteNotFound } from "@/components/storefront/route-states";
 
 export default function ProductNotFound() {
-  return (
-    <main className={styles.statePage} id="main-content">
-      <Container className={styles.stateContent}>
-        <h1>Товар не найден</h1>
-        <p>Возможно, ссылка устарела или товар больше недоступен.</p>
-        <div className={styles.stateActions}>
-          <Link className={styles.stateLink} href="/">
-            На главную
-          </Link>
-        </div>
-      </Container>
-    </main>
-  );
+  return <RouteNotFound links={[{ href: "/", label: "На главную" }, { href: "/catalog", label: "Перейти в каталог" }]} title="Товар не найден">
+    Возможно, ссылка устарела или товар больше недоступен.
+  </RouteNotFound>;
 }

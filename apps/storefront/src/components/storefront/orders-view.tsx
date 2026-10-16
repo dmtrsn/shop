@@ -7,8 +7,10 @@ import { useEffect, useState } from "react";
 import { Button, ButtonLink, buttonClassName } from "@/components/ui/button";
 import { Container } from "@/components/ui/container";
 import { EmptyState } from "@/components/ui/empty-state";
-import { InfoIcon, ReceiptIcon, RepeatIcon } from "@/components/ui/icons";
+import { ReceiptIcon, RepeatIcon } from "@/components/ui/icons";
 import { PageHeader } from "@/components/ui/page-header";
+import { Skeleton } from "@/components/ui/skeleton";
+import { UnavailableState } from "@/components/ui/unavailable-state";
 import { BrowserRequestError, ResponseOwnerError } from "@/lib/api/browser-request";
 import type { RouteSession } from "@/lib/api/browser-session";
 import type { Order } from "@/lib/api/order";
@@ -129,14 +131,10 @@ export function OrdersView({ initialSession }: { initialSession: RouteSession })
     </EmptyState>;
   } else if (status === "unavailable" || status === "failed") {
     // A failure, not an empty history: a solid notice instead of the dashed empty state.
-    content = <section className={cartStyles.unavailableState}>
-      <InfoIcon aria-hidden="true" />
-      <div>
-        <h2>История заказов временно недоступна</h2>
-        <p>Не удалось проверить вход или загрузить заказы.</p>
-        <Button onClick={() => void store.refresh()} variant="secondary">Повторить загрузку</Button>
-      </div>
-    </section>;
+    content = <UnavailableState title="История заказов временно недоступна">
+      <p>Не удалось проверить вход или загрузить заказы.</p>
+      <Button onClick={() => void store.refresh()} variant="secondary">Повторить загрузку</Button>
+    </UnavailableState>;
   } else if (owned?.status === "ready") {
     content = owned.orders.length ? <ul className={styles.list} aria-label="История заказов">
       {owned.orders.map((order) => <li key={order.id}><OrderSummary order={order} /></li>)}
@@ -160,7 +158,7 @@ export function OrdersView({ initialSession }: { initialSession: RouteSession })
 
 export function OrdersSkeleton() {
   return <div className={styles.list} aria-busy="true" aria-label="Загружаем историю заказов">
-    <div className={styles.skeleton} aria-hidden="true" />
-    <div className={styles.skeleton} aria-hidden="true" />
+    <Skeleton className={styles.skeleton} variant="block" />
+    <Skeleton className={styles.skeleton} variant="block" />
   </div>;
 }

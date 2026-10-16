@@ -7,8 +7,10 @@ import { useEffect, useRef, useState } from "react";
 import { Button, buttonClassName } from "@/components/ui/button";
 import { Container } from "@/components/ui/container";
 import { EmptyState } from "@/components/ui/empty-state";
-import { InfoIcon, UserIcon } from "@/components/ui/icons";
+import { UserIcon } from "@/components/ui/icons";
 import { PageHeader } from "@/components/ui/page-header";
+import { Skeleton } from "@/components/ui/skeleton";
+import { UnavailableState } from "@/components/ui/unavailable-state";
 import { logoutBrowserSession } from "@/lib/api/auth-client";
 import type { RouteSession } from "@/lib/api/browser-session";
 import { initials } from "@/lib/initials";
@@ -88,27 +90,25 @@ export function AccountView({ initialSession }: { initialSession: RouteSession }
 
   let content;
   if (status === "anonymous") {
+    // Only a logout confirmed in this tab says "вышли"; a visitor who was never
+    // signed in (or whose session ended elsewhere) is simply invited to sign in.
     content = <EmptyState
       actions={<>
         <LoginLink className={buttonClassName("primary")}>Войти</LoginLink>
         <Button variant="secondary" onClick={() => void store.refresh()}>Проверить вход</Button>
       </>}
       icon={<UserIcon />}
-      title="Вы вышли из аккаунта"
+      title={notice === "signedOut" ? "Вы вышли из аккаунта" : "Войдите в аккаунт"}
       titleProps={{ ref: signedOutHeading, tabIndex: -1 }}
     >
       Войдите, чтобы увидеть данные аккаунта и свои покупки.
     </EmptyState>;
   } else if (status === "unavailable") {
     // A failure, not a signed-out state: a solid notice instead of the dashed empty state.
-    content = <section className={cartStyles.unavailableState}>
-      <InfoIcon aria-hidden="true" />
-      <div>
-        <h2>Аккаунт временно недоступен</h2>
-        <p role="status">Не удалось проверить сессию. Вход или выход из аккаунта не подтверждён.</p>
-        <Button variant="secondary" onClick={() => void store.refresh()}>Повторить проверку</Button>
-      </div>
-    </section>;
+    content = <UnavailableState title="Аккаунт временно недоступен">
+      <p role="status">Не удалось проверить сессию. Вход или выход из аккаунта не подтверждён.</p>
+      <Button variant="secondary" onClick={() => void store.refresh()}>Повторить проверку</Button>
+    </UnavailableState>;
   } else if (status === "authenticated" && session.status === "authenticated") {
     const letters = initials(session.account.name);
     content = <div className={styles.cards}>
@@ -146,5 +146,9 @@ export function AccountView({ initialSession }: { initialSession: RouteSession }
 }
 
 export function AccountSkeleton() {
-  return <div className={styles.skeleton} aria-busy="true" role="status">Проверяем аккаунт…</div>;
+  return <div className={styles.skeleton} aria-busy="true" role="status">
+    <span className="visually-hidden">Проверяем аккаунт…</span>
+    <Skeleton className={styles.skeletonCard} variant="block" />
+    <Skeleton className={styles.skeletonCard} variant="block" />
+  </div>;
 }

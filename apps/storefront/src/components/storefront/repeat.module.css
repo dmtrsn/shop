@@ -1,4 +1,6 @@
-.loading { color: var(--color-text-muted); }
+.loading { margin: 0; color: var(--color-text-muted); }
+.skeleton { display: grid; max-width: 57.5rem; gap: var(--space-2); }
+.skeletonRow { height: 9rem; border-radius: var(--radius-tile); }
 
 .review {
   display: grid;

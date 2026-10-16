@@ -6,8 +6,10 @@ import { useEffect, useState } from "react";
 import { Button, ButtonLink, buttonClassName } from "@/components/ui/button";
 import { Container } from "@/components/ui/container";
 import { EmptyState } from "@/components/ui/empty-state";
-import { ArrowRightIcon, InfoIcon, ReceiptIcon, RepeatIcon } from "@/components/ui/icons";
+import { ArrowRightIcon, ReceiptIcon, RepeatIcon } from "@/components/ui/icons";
 import { PageHeader } from "@/components/ui/page-header";
+import { Skeleton } from "@/components/ui/skeleton";
+import { UnavailableState } from "@/components/ui/unavailable-state";
 import { BrowserRequestError, ResponseOwnerError } from "@/lib/api/browser-request";
 import type { RouteSession } from "@/lib/api/browser-session";
 import type { Order } from "@/lib/api/order";
@@ -168,14 +170,10 @@ export function OrderView({ initialSession, orderID }: { initialSession: RouteSe
   } else if (status === "unavailable" || status === "failed") {
     content = <>
       <PageHeader title="Заказ" />
-      <section className={cartStyles.unavailableState}>
-        <InfoIcon aria-hidden="true" />
-        <div>
-          <h2>Заказ временно недоступен</h2>
-          <p>Не удалось проверить вход или загрузить заказ.</p>
-          <Button onClick={() => void store.refresh()} variant="secondary">Повторить загрузку</Button>
-        </div>
-      </section>
+      <UnavailableState title="Заказ временно недоступен">
+        <p>Не удалось проверить вход или загрузить заказ.</p>
+        <Button onClick={() => void store.refresh()} variant="secondary">Повторить загрузку</Button>
+      </UnavailableState>
     </>;
   } else if (status === "notFound") {
     content = <>
@@ -206,8 +204,8 @@ export function OrderView({ initialSession, orderID }: { initialSession: RouteSe
 export function OrderSkeleton() {
   return (
     <div aria-busy="true" aria-label="Загружаем заказ" className={cartStyles.layout}>
-      <div aria-hidden="true" className={cartStyles.skeletonRow} />
-      <div aria-hidden="true" className={cartStyles.skeletonSummary} />
+      <Skeleton className={cartStyles.skeletonRow} variant="block" />
+      <Skeleton className={cartStyles.skeletonSummary} variant="block" />
     </div>
   );
 }

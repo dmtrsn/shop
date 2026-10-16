@@ -796,63 +796,6 @@
   border-radius: var(--radius-panel);
 }
 
-.errorState {
-  min-height: 30rem;
-  display: grid;
-  place-content: center;
-  justify-items: start;
-  max-width: 42rem;
-}
-
-.errorState h1 {
-  margin: 0;
-  font-size: var(--font-size-xl);
-}
-
-.errorState .eyebrow {
-  margin: 0 0 var(--space-2);
-  color: var(--color-error);
-  font-size: var(--font-size-xs);
-  font-weight: var(--weight-bold);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.errorState > p:not(.eyebrow) {
-  color: var(--color-text-muted);
-}
-
-.errorState > div {
-  display: flex;
-  gap: var(--space-3);
-  margin-block: var(--space-3);
-}
-
-.errorState button,
-.errorState a {
-  min-height: var(--control-height);
-  display: inline-flex;
-  align-items: center;
-  padding-inline: var(--space-4);
-  border: 1px solid var(--color-accent);
-  border-radius: var(--radius-control);
-  background: var(--color-accent);
-  color: var(--color-on-accent);
-  cursor: pointer;
-  font-weight: var(--weight-semibold);
-  text-decoration: none;
-}
-
-.errorState a {
-  border-color: var(--color-border-strong);
-  background: var(--color-surface);
-  color: var(--color-text);
-}
-
-.errorState small {
-  color: var(--color-text-muted);
-}
-
 @keyframes catalogLoading {
   0% { background-position: 100% 0; }
   100% { background-position: -100% 0; }

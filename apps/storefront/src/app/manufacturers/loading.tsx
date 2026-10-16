@@ -1,3 +1,4 @@
+import { SkeletonRows } from "@/components/storefront/route-states";
 import { Container } from "@/components/ui/container";
 
 import styles from "@/components/storefront/producer-navigation.module.css";
@@ -10,9 +11,7 @@ export default function ManufacturersLoading() {
           <p className={styles.eyebrow}>Производители</p>
           <h1>Загружаем справочник</h1>
         </div>
-        <div className={styles.pageEmpty} aria-hidden="true">
-          <p>Подготавливаем алфавитный список…</p>
-        </div>
+        <SkeletonRows />
       </Container>
     </main>
   );

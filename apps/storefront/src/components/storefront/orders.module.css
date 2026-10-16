@@ -125,11 +125,7 @@
 .actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
 .actions svg { width: 1.125rem; height: 1.125rem; }
 
-.skeleton {
-  height: 10rem;
-  border-radius: var(--radius-panel);
-  background: var(--color-skeleton);
-}
+.skeleton { height: 10rem; }
 
 /* Order detail. */
 .back {
@@ -190,7 +186,8 @@
 }
 
 .detailFacts dt { color: var(--color-text-muted); font-size: var(--font-size-xs); }
-.detailFacts dd { margin: var(--space-1) 0 0; }
+/* Address and comment keep the customer's own line breaks. */
+.detailFacts dd { margin: var(--space-1) 0 0; white-space: pre-line; }
 
 /* Historical rows (legacy repeat-item proportions: 60×55 thumbnail, rounded row). */
 .rows { display: grid; gap: var(--space-2); margin: 0; padding: 0; list-style: none; }

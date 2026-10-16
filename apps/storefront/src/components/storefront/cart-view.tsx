@@ -8,8 +8,10 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Button, ButtonLink, buttonClassName } from "@/components/ui/button";
 import { Container } from "@/components/ui/container";
 import { EmptyState } from "@/components/ui/empty-state";
-import { BagIcon, ChevronDownIcon, InfoIcon } from "@/components/ui/icons";
+import { BagIcon, ChevronDownIcon } from "@/components/ui/icons";
 import { PageHeader } from "@/components/ui/page-header";
+import { Skeleton } from "@/components/ui/skeleton";
+import { UnavailableState } from "@/components/ui/unavailable-state";
 import type { Cart } from "@/lib/api/cart";
 import { formatMoney } from "@/lib/money";
 import { pluralRu } from "@/lib/plural";
@@ -29,9 +31,9 @@ export function CartSkeleton() {
   return (
     <div aria-busy="true" aria-label="Загружаем корзину" className={styles.layout}>
       <div className={styles.list}>
-        {[0, 1, 2].map((index) => <div aria-hidden="true" className={styles.skeletonRow} key={index} />)}
+        {[0, 1, 2].map((index) => <Skeleton className={styles.skeletonRow} key={index} variant="block" />)}
       </div>
-      <div aria-hidden="true" className={styles.skeletonSummary} />
+      <Skeleton className={styles.skeletonSummary} variant="block" />
     </div>
   );
 }
@@ -186,14 +188,10 @@ export function CartView({ initialSession }: { initialSession: CartRouteSession 
             </EmptyState>
           ) : status === "unavailable" ? (
             // A failure, not an empty Cart: a solid notice instead of the dashed empty state.
-            <section className={styles.unavailableState}>
-              <InfoIcon aria-hidden="true" />
-              <div>
-                <h2>Корзина временно недоступна</h2>
-                <p>Не удалось проверить вход или загрузить корзину. Изменения недоступны до успешной загрузки.</p>
-                <Button onClick={() => void state.refresh()} variant="secondary">Повторить загрузку</Button>
-              </div>
-            </section>
+            <UnavailableState title="Корзина временно недоступна">
+              <p>Не удалось проверить вход или загрузить корзину. Изменения недоступны до успешной загрузки.</p>
+              <Button onClick={() => void state.refresh()} variant="secondary">Повторить загрузку</Button>
+            </UnavailableState>
           ) : cart && cart.items.length ? (
             <>
               <div className={styles.toolbar}>

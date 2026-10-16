@@ -11,6 +11,7 @@ import { Container } from "@/components/ui/container";
 import { EmptyState } from "@/components/ui/empty-state";
 import { BagIcon, InfoIcon } from "@/components/ui/icons";
 import { PageHeader } from "@/components/ui/page-header";
+import { UnavailableState } from "@/components/ui/unavailable-state";
 import type { RouteSession } from "@/lib/api/browser-session";
 import type { Cart, CartSummary } from "@/lib/api/cart";
 import { checkoutReview } from "@/lib/api/order-client";
@@ -301,14 +302,10 @@ export function CheckoutView({ initialSession }: { initialSession: RouteSession 
   } else if (status === "unavailable" && !locked) {
     content = (
       // A failure, not an empty order: the solid notice, never the dashed empty state.
-      <section className={cartStyles.unavailableState}>
-        <InfoIcon aria-hidden="true" />
-        <div>
-          <h2>Оформление временно недоступно</h2>
-          <p>Не удалось проверить вход или загрузить корзину. Заказ можно подтвердить только после успешной загрузки.</p>
-          <Button onClick={() => void cart.refresh()} variant="secondary">Повторить загрузку</Button>
-        </div>
-      </section>
+      <UnavailableState title="Оформление временно недоступно">
+        <p>Не удалось проверить вход или загрузить корзину. Заказ можно подтвердить только после успешной загрузки.</p>
+        <Button onClick={() => void cart.refresh()} variant="secondary">Повторить загрузку</Button>
+      </UnavailableState>
     );
   } else if (!review) {
     content = <div aria-busy="true" aria-label="Загружаем заказ" className={cartStyles.layout}>

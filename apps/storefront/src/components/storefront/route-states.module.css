@@ -1,0 +1,17 @@
+/* Whole-page states share the private pages' rhythm: room above, footer gap below. */
+.main {
+  padding-block: var(--space-7) var(--space-8);
+}
+
+.reference {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+}
+
+.rows {
+  display: grid;
+  gap: var(--space-3);
+  margin-top: var(--space-6);
+}
+
+.row { height: 4.5rem; }

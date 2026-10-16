@@ -186,9 +186,10 @@
   font-size: var(--font-size-xl);
 }
 
+/* Same card grid as the catalog and favorites: as many comfortable cards as fit. */
 .productGrid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(14.5rem, 1fr));
   gap: var(--space-4);
   margin-top: var(--space-5);
 }
@@ -213,13 +214,7 @@
   color: var(--color-text-muted);
 }
 
-@media (max-width: 64rem) {
-  .productGrid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
-@media (max-width: 48rem) {
+@media (max-width: 40rem) {
   .collectionGrid,
   .detailHeading {
     grid-template-columns: 1fr;
@@ -242,13 +237,15 @@
   }
 }
 
-@media (max-width: 30rem) {
+@media (max-width: 40rem) {
   .directoryHeading > p:last-child,
   .detailCopy > p:not(.eyebrow, .detailCount) {
     font-size: var(--font-size-md);
   }
 
+  /* Two-up on phones, like every other ProductCard host. */
   .productGrid {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.5625rem;
   }
 }

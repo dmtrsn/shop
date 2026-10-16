@@ -8,8 +8,10 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Button, ButtonLink, buttonClassName } from "@/components/ui/button";
 import { Container } from "@/components/ui/container";
 import { EmptyState } from "@/components/ui/empty-state";
-import { HeartIcon, InfoIcon } from "@/components/ui/icons";
+import { HeartIcon } from "@/components/ui/icons";
 import { PageHeader } from "@/components/ui/page-header";
+import { Skeleton } from "@/components/ui/skeleton";
+import { UnavailableState } from "@/components/ui/unavailable-state";
 
 import { useFavorites, type FavoritesRouteSession } from "./favorites-provider";
 import { ProductCard } from "./product-card";
@@ -17,7 +19,7 @@ import styles from "./favorites.module.css";
 
 export function FavoritesSkeleton() {
   return <div aria-busy="true" aria-label="Загружаем избранное" className={styles.grid}>
-    {Array.from({ length: 4 }, (_, index) => <div aria-hidden="true" className={styles.skeleton} key={index} />)}
+    {Array.from({ length: 4 }, (_, index) => <Skeleton className={styles.skeleton} key={index} variant="block" />)}
   </div>;
 }
 
@@ -79,14 +81,10 @@ export function FavoritesView({ initialSession }: { initialSession: FavoritesRou
             </EmptyState>
           ) : displayStatus === "unavailable" ? (
             // A failure, not an empty list: a solid notice instead of the dashed empty state.
-            <section className={styles.unavailable}>
-              <InfoIcon aria-hidden="true" />
-              <div>
-                <h2>Избранное временно недоступно</h2>
-                <p>Не удалось проверить вход или загрузить сохранённые товары. Попробуйте ещё раз.</p>
-                <Button onClick={() => void refresh()} variant="secondary">Повторить загрузку</Button>
-              </div>
-            </section>
+            <UnavailableState title="Избранное временно недоступно">
+              <p>Не удалось проверить вход или загрузить сохранённые товары. Попробуйте ещё раз.</p>
+              <Button onClick={() => void refresh()} variant="secondary">Повторить загрузку</Button>
+            </UnavailableState>
           ) : visible ? visible.items.length ? (
             <div className={styles.grid}>
               {visible.items.map((product) => (

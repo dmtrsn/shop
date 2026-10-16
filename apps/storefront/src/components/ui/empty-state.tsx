@@ -7,15 +7,16 @@ type EmptyStateProps = {
   children?: ReactNode;
   icon?: ReactNode;
   actions?: ReactNode;
-  level?: 2 | 3;
+  // 1 when the state replaces the whole page (not-found routes).
+  level?: 1 | 2 | 3;
   className?: string;
   // For focus management on the heading (ref, tabIndex, id).
-  titleProps?: Omit<ComponentPropsWithRef<"h2">, "children" | "className">;
+  titleProps?: Omit<ComponentPropsWithRef<"h1" | "h2">, "children" | "className">;
 };
 
 // Honest empty/unavailable state: what happened and one clear next step.
 export function EmptyState({ title, children, icon, actions, level = 2, className, titleProps }: EmptyStateProps) {
-  const Heading = level === 3 ? "h3" : "h2";
+  const Heading = level === 1 ? "h1" : level === 3 ? "h3" : "h2";
   return (
     <section className={className ? `${styles.emptyState} ${className}` : styles.emptyState}>
       {icon ? <span aria-hidden="true" className={styles.emptyIcon}>{icon}</span> : null}

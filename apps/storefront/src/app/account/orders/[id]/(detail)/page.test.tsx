@@ -11,7 +11,7 @@ import { routeOrderID } from "@/lib/api/order-client";
 
 import Page, { dynamic, metadata } from "./page";
 import Loading from "./loading";
-import ErrorPage from "./error";
+import ErrorPage from "../error";
 
 beforeEach(() => { vi.clearAllMocks(); });
 

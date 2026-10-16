@@ -1,16 +1,9 @@
 "use client";
 
-import { Button } from "@/components/ui/button";
-import { Container } from "@/components/ui/container";
-import styles from "@/components/storefront/cart.module.css";
+import { RouteError } from "@/components/storefront/route-states";
 
 export default function AccountError({ reset }: { error: Error & { digest?: string }; reset: () => void }) {
-  return <main className={styles.main} id="main-content"><Container>
-    <header className={styles.heading}><h1>Аккаунт</h1></header>
-    <section className={styles.state} role="alert">
-      <h2>Не удалось открыть аккаунт</h2>
-      <p>Попробуйте загрузить страницу ещё раз.</p>
-      <Button variant="secondary" onClick={reset}>Повторить</Button>
-    </section>
-  </Container></main>;
+  return <RouteError title="Не удалось открыть аккаунт" reset={reset}>
+    Попробуйте загрузить страницу ещё раз.
+  </RouteError>;
 }

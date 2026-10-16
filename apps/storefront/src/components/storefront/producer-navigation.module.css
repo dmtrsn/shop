@@ -6,7 +6,8 @@
   max-width: var(--container-storefront);
 }
 
-.detailContainer {
+/* Reading measure, aligned to the storefront's left edge like every other page. */
+.detailContainer > * {
   max-width: var(--container-reading);
 }
 
@@ -360,13 +361,8 @@
   text-decoration: none;
 }
 
-@media (max-width: 61rem) {
-  .directoryTools {
-    top: 7.75rem;
-  }
-}
-
-@media (max-width: 48rem) {
+/* Mobile shell: the tools scroll with the page instead of sticking under the header. */
+@media (max-width: 56.25rem) {
   .directoryTools {
     position: static;
     grid-template-columns: 1fr;

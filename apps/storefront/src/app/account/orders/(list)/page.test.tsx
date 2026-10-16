@@ -10,11 +10,11 @@ vi.mock("@/lib/api/session", () => ({ getServerSession }));
 
 import Page, { dynamic, metadata } from "./page";
 import Loading from "./loading";
-import ErrorPage from "./error";
+import ErrorPage from "../error";
 
 beforeEach(() => { vi.clearAllMocks(); });
 
-describe("account server boundary", () => {
+describe("history server boundary", () => {
   it("passes only the dynamic session gate; no private history or credentials", async () => {
     expect(dynamic).toBe("force-dynamic");
     expect(metadata.robots).toEqual({ index: false, follow: false });
@@ -23,7 +23,7 @@ describe("account server boundary", () => {
     expect(getServerSession).toHaveBeenCalledTimes(1);
     expect(element.props).toEqual({ initialSession: { status: "authenticated", userID: "A" } });
     const html = renderToStaticMarkup(<PrivateProviders>{element}</PrivateProviders>);
-    expect(html).toContain("Проверяем аккаунт…");
+    expect(html).toContain("Загружаем историю заказов");
     expect(html).not.toContain("secret");
     expect(html).not.toContain("user@example.test");
   });

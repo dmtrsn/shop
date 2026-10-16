@@ -46,24 +46,9 @@
   font-size: var(--font-size-sm);
 }
 
-.main { padding-block: var(--space-7); }
+.main { padding-block: var(--space-7) var(--space-8); }
 /* Same card grid as the catalog: as many comfortable cards as fit, two-up on phones. */
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(14.5rem, 1fr)); gap: var(--space-4); }
 .grid > div { min-width: 0; }
-.skeleton { min-height: 26rem; border-radius: var(--radius-panel); background: var(--color-skeleton); }
+.skeleton { min-height: 26rem; }
 @media (max-width: 40rem) { .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.5625rem; } }
-
-/* Unavailable is a failure, visually distinct from the dashed empty state. */
-.unavailable {
-  display: flex;
-  max-width: 42rem;
-  gap: var(--space-3);
-  padding: var(--space-5);
-  border: var(--border-width) solid var(--color-warning);
-  border-radius: var(--radius-panel);
-  background: var(--color-warning-surface);
-}
-
-.unavailable > svg { flex: 0 0 auto; color: var(--color-warning); }
-.unavailable h2 { margin: 0 0 var(--space-2); font-size: var(--font-size-lg); }
-.unavailable p { margin: 0 0 var(--space-4); line-height: 1.6; }

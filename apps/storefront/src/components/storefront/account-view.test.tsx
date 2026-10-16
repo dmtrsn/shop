@@ -85,6 +85,20 @@ describe("account summary", () => {
     expect(fetcher).not.toHaveBeenCalled();
   });
 
+  it("a visitor who never signed in is invited to sign in, not told they signed out", () => {
+    mount({ status: "anonymous" });
+    expect(screen.getByRole("heading", { level: 2, name: "Войдите в аккаунт" })).toBeInTheDocument();
+    expect(screen.queryByText("Вы вышли из аккаунта")).toBeNull();
+  });
+
+  it("a session that ended elsewhere is not reported as a logout from this tab", async () => {
+    await start();
+    fetcher.mockResolvedValueOnce(jsonResponse({ authenticated: false }));
+    await act(async () => { await store.refresh(); });
+    expect(screen.getByRole("heading", { name: "Войдите в аккаунт" })).toBeInTheDocument();
+    expect(screen.queryByText("Вы вышли из аккаунта")).toBeNull();
+  });
+
   it("signed out offers the Next sign-in page and an explicit recheck", async () => {
     mount({ status: "anonymous" });
     expect(screen.getByRole("link", { name: "Войти" })).toHaveAttribute("href", "/login?returnTo=%2F");

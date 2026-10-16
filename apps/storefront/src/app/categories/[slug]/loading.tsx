@@ -1,3 +1,4 @@
+import { SkeletonRows } from "@/components/storefront/route-states";
 import { Container } from "@/components/ui/container";
 
 import styles from "@/components/storefront/category-navigation.module.css";
@@ -10,6 +11,7 @@ export default function CategoryLoading() {
           <p className={styles.eyebrow}>Категория</p>
           <h1>Загружаем данные</h1>
         </div>
+        <SkeletonRows count={3} />
       </Container>
     </main>
   );

@@ -110,10 +110,20 @@
   clip-path: inset(50%);
 }
 
-.skeleton { max-width: 42rem; padding-block: var(--space-6); color: var(--color-text-muted); }
+/* Loading: the two account cards' outline, so the page does not jump. */
+.skeleton {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+  align-items: start;
+  gap: var(--space-4);
+}
+
+.skeletonCard { height: 15rem; }
+.skeletonCard + .skeletonCard { height: 11rem; }
 
 @media (max-width: 73.75rem) {
-  .cards { grid-template-columns: minmax(0, 1fr); }
+  .cards,
+  .skeleton { grid-template-columns: minmax(0, 1fr); }
 }
 
 /* Mobile: the side navigation becomes one scrollable row of pills above the content. */

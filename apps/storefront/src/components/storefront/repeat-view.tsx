@@ -11,6 +11,8 @@ import { Container } from "@/components/ui/container";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ArrowRightIcon, InfoIcon, ReceiptIcon, RepeatIcon } from "@/components/ui/icons";
 import { PageHeader } from "@/components/ui/page-header";
+import { Skeleton } from "@/components/ui/skeleton";
+import { UnavailableState } from "@/components/ui/unavailable-state";
 import { BrowserRequestError, ResponseOwnerError } from "@/lib/api/browser-request";
 import type { RouteSession } from "@/lib/api/browser-session";
 import { previewBrowserRepeat } from "@/lib/api/repeat-client";
@@ -33,7 +35,10 @@ type Review = { preview: RepeatPreview; drafts: RepeatDrafts; key: string };
 type Phase = "idle" | "submitting" | "unknown" | "checking" | "added" | "stopped";
 
 export function RepeatSkeleton() {
-  return <p className={styles.loading} role="status" aria-busy="true">Загружаем условия повтора…</p>;
+  return <div className={styles.skeleton}>
+    <p className={styles.loading} role="status" aria-busy="true">Загружаем условия повтора…</p>
+    {[0, 1, 2].map((index) => <Skeleton className={styles.skeletonRow} key={index} variant="block" />)}
+  </div>;
 }
 
 // Keep the same user's operation alive during a transient session check, but
@@ -68,14 +73,10 @@ export function RepeatView({ initialSession, orderID }: { initialSession: RouteS
       </>}
       icon={<RepeatIcon />}
       title="Войдите, чтобы повторить заказ"
-    /> : status === "unavailable" ? <section className={cartStyles.unavailableState}>
-      <InfoIcon aria-hidden="true" />
-      <div>
-        <h2>Повтор заказа временно недоступен</h2>
-        <p>Не удалось проверить вход. Повторите проверку, чтобы продолжить.</p>
-        <Button onClick={() => void store.refresh()} variant="secondary">Повторить загрузку</Button>
-      </div>
-    </section> : null}
+    /> : status === "unavailable" ? <UnavailableState title="Повтор заказа временно недоступен">
+      <p>Не удалось проверить вход. Повторите проверку, чтобы продолжить.</p>
+      <Button onClick={() => void store.refresh()} variant="secondary">Повторить загрузку</Button>
+    </UnavailableState> : null}
     {status === "loading" || status === "idle" ? <RepeatSkeleton /> : null}
     {userID ? <div hidden={status !== "authenticated"}>
       <RepeatReview key={`${userID}:${orderID}`} orderID={orderID} userID={userID} />
@@ -200,10 +201,8 @@ function RepeatReview({ userID, orderID }: { userID: string; orderID: string }) 
     setErrors((old) => ({ ...old, [position]: "" }));
   }
   if (failure?.status === "notFound" && (failure.key === requestKey || phase === "stopped")) return <EmptyState icon={<ReceiptIcon />} title="Заказ не найден">Заказ больше недоступен в этом аккаунте.</EmptyState>;
-  if (failure?.key === requestKey) return <section className={cartStyles.unavailableState}>
-    <InfoIcon aria-hidden="true" />
-    <div><h2>Не удалось загрузить условия повтора</h2><Button onClick={() => { csrfRecovery.current = false; void store.refresh(); }}>Повторить загрузку</Button></div>
-  </section>;
+  if (failure?.key === requestKey) return <UnavailableState title="Не удалось загрузить условия повтора"><Button onClick={() => { csrfRecovery.current = false; void store.refresh(); }} variant="secondary">Повторить загрузку</Button>
+  </UnavailableState>;
   if (!owned) return <RepeatSkeleton />;
   // Unknown outcome is a warning, a stopped attempt an error; anything else a review notice.
   const noticeTone = phase === "unknown" || phase === "checking" ? styles.unknown : phase === "stopped" ? styles.stopped : styles.notice;
