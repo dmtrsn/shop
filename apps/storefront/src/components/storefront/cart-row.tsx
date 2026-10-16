@@ -3,6 +3,7 @@
 import Link from "next/link";
 
 import type { CartItem } from "@/lib/api/cart";
+import { TrashIcon } from "@/components/ui/icons";
 import { formatMoney } from "@/lib/money";
 
 import { CatalogProductImage } from "./catalog-product-image";
@@ -72,6 +73,7 @@ export function CartRow({ item }: { item: CartItem }) {
           onClick={() => { if (!busy) void cart.mutate({ kind: "remove", productID: product.id }); }}
           type="button"
         >
+          <TrashIcon aria-hidden="true" />
           Удалить
         </button>
       </div>

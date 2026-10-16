@@ -5,8 +5,11 @@ import { LoginLink } from "./login-link";
 import Link from "next/link";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
-import { Button } from "@/components/ui/button";
+import { Button, ButtonLink, buttonClassName } from "@/components/ui/button";
 import { Container } from "@/components/ui/container";
+import { EmptyState } from "@/components/ui/empty-state";
+import { HeartIcon, InfoIcon } from "@/components/ui/icons";
+import { PageHeader } from "@/components/ui/page-header";
 
 import { useFavorites, type FavoritesRouteSession } from "./favorites-provider";
 import { ProductCard } from "./product-card";
@@ -57,25 +60,32 @@ export function FavoritesView({ initialSession }: { initialSession: FavoritesRou
           const card = (event.target as HTMLElement).closest<HTMLElement>("[data-favorites-card]");
           focusedProduct.current = card?.dataset.favoritesCard ?? null;
         }}>
-          <header className={styles.heading}>
-            <h1 ref={heading} tabIndex={-1}>Избранное</h1>
-            {visible ? <p>Сохранено товаров: {visible.total}</p> : null}
-          </header>
+          <PageHeader
+            subtitle={visible ? `Сохранено товаров: ${visible.total}` : undefined}
+            title="Избранное"
+            titleProps={{ ref: heading, tabIndex: -1 }}
+          />
           {displayStatus === "anonymous" ? (
-            <section className={styles.state}>
-              <h2>Войдите, чтобы открыть избранное</h2>
-              <p>Сохранённые товары доступны в вашем аккаунте. После входа вернитесь на эту страницу.</p>
-              <div className={styles.actions}>
-                <LoginLink>Войти</LoginLink>
+            <EmptyState
+              actions={<>
+                <LoginLink className={buttonClassName("primary")}>Войти</LoginLink>
                 <Button onClick={() => void refresh()} variant="secondary">Проверить вход</Button>
-                <Link href="/catalog">Перейти в каталог</Link>
-              </div>
-            </section>
+                <Link className={buttonClassName("tertiary")} href="/catalog">Перейти в каталог</Link>
+              </>}
+              icon={<HeartIcon />}
+              title="Войдите, чтобы открыть избранное"
+            >
+              Сохранённые товары доступны в вашем аккаунте. После входа вернитесь на эту страницу.
+            </EmptyState>
           ) : displayStatus === "unavailable" ? (
-            <section className={styles.state}>
-              <h2>Избранное временно недоступно</h2>
-              <p>Не удалось проверить вход или загрузить сохранённые товары. Попробуйте ещё раз.</p>
-              <Button onClick={() => void refresh()} variant="secondary">Повторить загрузку</Button>
+            // A failure, not an empty list: a solid notice instead of the dashed empty state.
+            <section className={styles.unavailable}>
+              <InfoIcon aria-hidden="true" />
+              <div>
+                <h2>Избранное временно недоступно</h2>
+                <p>Не удалось проверить вход или загрузить сохранённые товары. Попробуйте ещё раз.</p>
+                <Button onClick={() => void refresh()} variant="secondary">Повторить загрузку</Button>
+              </div>
             </section>
           ) : visible ? visible.items.length ? (
             <div className={styles.grid}>
@@ -84,11 +94,13 @@ export function FavoritesView({ initialSession }: { initialSession: FavoritesRou
               ))}
             </div>
           ) : (
-            <section className={styles.state}>
-              <h2>В избранном пока нет товаров</h2>
-              <p>Сохраняйте понравившиеся товары с помощью сердечка.</p>
-              <div className={styles.actions}><Link href="/catalog">Перейти в каталог</Link></div>
-            </section>
+            <EmptyState
+              actions={<ButtonLink href="/catalog">Перейти в каталог</ButtonLink>}
+              icon={<HeartIcon />}
+              title="В избранном пока нет товаров"
+            >
+              Сохраняйте понравившиеся товары с помощью сердечка.
+            </EmptyState>
           ) : <FavoritesSkeleton />}
         </div>
       </Container>

@@ -5,8 +5,11 @@ import { LoginLink } from "./login-link";
 import Link from "next/link";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
-import { Button } from "@/components/ui/button";
+import { Button, ButtonLink, buttonClassName } from "@/components/ui/button";
 import { Container } from "@/components/ui/container";
+import { EmptyState } from "@/components/ui/empty-state";
+import { BagIcon, ChevronDownIcon, InfoIcon } from "@/components/ui/icons";
+import { PageHeader } from "@/components/ui/page-header";
 import type { Cart } from "@/lib/api/cart";
 import { formatMoney } from "@/lib/money";
 import { pluralRu } from "@/lib/plural";
@@ -66,10 +69,11 @@ function CartSummaryPanel({ cart, reconciling, busy }: { cart: Cart; reconciling
   const selectedPositions = cart.items.filter((line) => line.selected).length;
   const { summary } = cart;
   // Display only: a nonzero Go discount is shown with a minus sign.
-  const rows: Array<[string, string]> = [
-    ["Товары без скидки", formatMoney(summary.subtotalMinor, currency)],
-    ["Скидка", `${summary.discountMinor ? "−" : ""}${formatMoney(summary.discountMinor, currency)}`],
-    ["Доставка", formatMoney(summary.deliveryMinor, currency)],
+  // All values come from Go's Cart summary; nothing is computed or added here.
+  const rows: Array<[string, string, boolean]> = [
+    ["Товары без скидки", formatMoney(summary.subtotalMinor, currency), false],
+    ["Скидка", `${summary.discountMinor ? "−" : ""}${formatMoney(summary.discountMinor, currency)}`, summary.discountMinor > 0],
+    ["Доставка", formatMoney(summary.deliveryMinor, currency), false],
   ];
   return (
     <aside aria-busy={reconciling} aria-labelledby="cart-summary-title" className={styles.summary} id="cart-summary">
@@ -79,8 +83,8 @@ function CartSummaryPanel({ cart, reconciling, busy }: { cart: Cart; reconciling
       </p>
       {reconciling ? <p className={styles.stale}>Сверяем корзину с сервером. Итоги могут быть неактуальны.</p> : null}
       <dl>
-        {rows.map(([label, amount]) => (
-          <div key={label}><dt>{label}</dt><dd>{amount}</dd></div>
+        {rows.map(([label, amount, highlight]) => (
+          <div className={highlight ? styles.highlight : undefined} key={label}><dt>{label}</dt><dd>{amount}</dd></div>
         ))}
         <div className={styles.total}><dt>Итого</dt><dd>{formatMoney(summary.totalMinor, currency)}</dd></div>
       </dl>
@@ -160,30 +164,35 @@ export function CartView({ initialSession }: { initialSession: CartRouteSession 
           const row = (event.target as HTMLElement).closest<HTMLElement>("[data-cart-row]");
           focusedProduct.current = row?.dataset.cartRow ?? null;
         }}>
-          <header className={styles.heading}>
-            <h1 ref={heading} tabIndex={-1}>Корзина</h1>
-            {cart?.items.length ? (
-              <p>{positions(cart.summary.positionCount)} · {units(cart.summary.itemCount)}</p>
-            ) : null}
-          </header>
+          <PageHeader
+            subtitle={cart?.items.length ? `${positions(cart.summary.positionCount)} · ${units(cart.summary.itemCount)}` : undefined}
+            title="Корзина"
+            titleProps={{ ref: heading, tabIndex: -1 }}
+          />
           {repeat && cart && session.status === "authenticated" && session.userID === repeat.userID && session.generation === repeat.generation ? (
             <p role="status">Добавлено из заказа {repeat.receipt.sourceOrderNumber}: {positions(repeat.receipt.addedCount)}, {units(repeat.receipt.addedQuantity)}</p>
           ) : null}
           {status === "anonymous" ? (
-            <section className={styles.state}>
-              <h2>Войдите, чтобы открыть корзину</h2>
-              <p>Корзина доступна в вашем аккаунте. После входа вернитесь на эту страницу.</p>
-              <div className={styles.actions}>
-                <LoginLink>Войти</LoginLink>
+            <EmptyState
+              actions={<>
+                <LoginLink className={buttonClassName("primary")}>Войти</LoginLink>
                 <Button onClick={() => void state.refresh()} variant="secondary">Проверить вход</Button>
-                <Link href="/catalog">Перейти в каталог</Link>
-              </div>
-            </section>
+                <Link className={buttonClassName("tertiary")} href="/catalog">Перейти в каталог</Link>
+              </>}
+              icon={<BagIcon />}
+              title="Войдите, чтобы открыть корзину"
+            >
+              Корзина доступна в вашем аккаунте. После входа вернитесь на эту страницу.
+            </EmptyState>
           ) : status === "unavailable" ? (
-            <section className={styles.state}>
-              <h2>Корзина временно недоступна</h2>
-              <p>Не удалось проверить вход или загрузить корзину. Изменения недоступны до успешной загрузки.</p>
-              <Button onClick={() => void state.refresh()} variant="secondary">Повторить загрузку</Button>
+            // A failure, not an empty Cart: a solid notice instead of the dashed empty state.
+            <section className={styles.unavailableState}>
+              <InfoIcon aria-hidden="true" />
+              <div>
+                <h2>Корзина временно недоступна</h2>
+                <p>Не удалось проверить вход или загрузить корзину. Изменения недоступны до успешной загрузки.</p>
+                <Button onClick={() => void state.refresh()} variant="secondary">Повторить загрузку</Button>
+              </div>
             </section>
           ) : cart && cart.items.length ? (
             <>
@@ -247,7 +256,7 @@ export function CartView({ initialSession }: { initialSession: CartRouteSession 
                               {positions(lines.length)}
                               {group.subtotalMinor ? ` · выбрано на ${formatMoney(group.subtotalMinor, lines[0].product.currency)}` : ""}
                             </span>
-                            <span aria-hidden="true" className={styles.chevron}>{closed ? "+" : "−"}</span>
+                            <ChevronDownIcon aria-hidden="true" className={closed ? `${styles.chevron} ${styles.chevronClosed}` : styles.chevron} />
                           </button>
                         </h2>
                         <div hidden={closed} id={panel}>
@@ -261,11 +270,13 @@ export function CartView({ initialSession }: { initialSession: CartRouteSession 
               </div>
             </>
           ) : cart ? (
-            <section className={styles.state}>
-              <h2>В корзине пока нет товаров</h2>
-              <p>Добавляйте товары из каталога, подборок или избранного.</p>
-              <div className={styles.actions}><Link href="/catalog">Перейти в каталог</Link></div>
-            </section>
+            <EmptyState
+              actions={<ButtonLink href="/catalog">Перейти в каталог</ButtonLink>}
+              icon={<BagIcon />}
+              title="В корзине пока нет товаров"
+            >
+              Добавляйте товары из каталога, подборок или избранного.
+            </EmptyState>
           ) : <CartSkeleton />}
         </div>
       </Container>

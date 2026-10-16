@@ -67,6 +67,49 @@ describe("/cart route states", () => {
   });
 });
 
+describe("/cart presentation", () => {
+  it("the dark summary shows only Go's values and no legacy demo extras", async () => {
+    const cart = cartResponse(cartItem("p01", 2), cartItem("p02", 1, false));
+    await openCart(cart);
+
+    const summary = screen.getByRole("complementary", { name: "Итоги выбранного" });
+    const values = [...summary.querySelectorAll("dd")].map((value) => value.textContent?.replace(/\s/g, " "));
+    const money = (minor: number) => new Intl.NumberFormat("ru-RU", { style: "currency", currency: "RUB" }).format(minor / 100).replace(/\s/g, " ");
+    expect(values).toEqual([
+      money(cart.summary.subtotalMinor), money(cart.summary.discountMinor), money(cart.summary.deliveryMinor), money(cart.summary.totalMinor),
+    ]);
+    expect(within(summary).getByRole("link", { name: "Перейти к оформлению" })).toHaveAttribute("href", "/checkout");
+    expect(within(summary).queryByRole("textbox")).toBeNull();
+    expect(screen.queryByRole("progressbar")).toBeNull();
+    expect(document.body.textContent).not.toMatch(/промокод|бесплатн|до бесплатной|доставка сегодня|интервал|способ оплаты|добавить доступные/i);
+  });
+
+  it("renders the DTO's manufacturer groups and fully labelled row controls", async () => {
+    const cart = cartResponse(cartItem("p01", 2), cartItem("p02", 1, false));
+    await openCart(cart);
+
+    const group = screen.getByRole("button", { name: /^Мастерская/ });
+    expect(group).toHaveAttribute("aria-expanded", "true");
+    expect(within(group).getByText("2 позиции", { exact: false })).toBeInTheDocument();
+    for (const line of cart.items) {
+      const row = document.querySelector(`[data-cart-row="${line.product.id}"]`) as HTMLElement;
+      expect(within(row).getByRole("checkbox", { name: `Выбрать для заказа: ${line.product.name}` })).toHaveProperty("checked", line.selected);
+      expect(within(row).getByRole("group", { name: `Количество: ${line.product.name}` })).toBeInTheDocument();
+      const remove = within(row).getByRole("button", { name: `Удалить из корзины: ${line.product.name}` });
+      expect(remove).toHaveTextContent("Удалить");
+      expect(within(row).getByRole("link", { name: line.product.name })).toHaveAttribute("href", `/products/${line.product.slug}`);
+    }
+  });
+
+  it("keeps unavailable visually and semantically distinct from an empty Cart", () => {
+    page("unavailable");
+    expect(screen.getByRole("heading", { level: 2, name: "Корзина временно недоступна" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Повторить загрузку" })).toBeInTheDocument();
+    expect(screen.queryByText("В корзине пока нет товаров")).toBeNull();
+    expect(screen.queryByRole("link", { name: "Перейти в каталог" })).toBeNull();
+  });
+});
+
 describe("/cart list", () => {
   it("renders Go totals verbatim, exact counts, groups, links and issues without product requests", async () => {
     const other = { id: "other", slug: "other", name: "Артель", country: "Россия" };

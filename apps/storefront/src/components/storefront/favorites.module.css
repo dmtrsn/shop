@@ -47,16 +47,23 @@
 }
 
 .main { padding-block: var(--space-7); }
-.heading { margin-bottom: var(--space-6); }
-.heading h1 { margin: 0 0 var(--space-2); }
-.heading p { color: var(--color-text-muted); }
-.state { max-width: 42rem; padding-block: var(--space-5); }
-.state p { line-height: 1.6; }
-.actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-4); }
-.actions a { display: inline-flex; min-height: var(--control-height); align-items: center; }
-.grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-4); }
+/* Same card grid as the catalog: as many comfortable cards as fit, two-up on phones. */
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(14.5rem, 1fr)); gap: var(--space-4); }
 .grid > div { min-width: 0; }
-.skeleton { min-height: 26rem; border-radius: var(--radius-panel); background: var(--color-surface-subtle); }
-@media (max-width: 78rem) { .grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
-@media (max-width: 61rem) { .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-@media (max-width: 42rem) { .grid { grid-template-columns: 1fr; } }
+.skeleton { min-height: 26rem; border-radius: var(--radius-panel); background: var(--color-skeleton); }
+@media (max-width: 40rem) { .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.5625rem; } }
+
+/* Unavailable is a failure, visually distinct from the dashed empty state. */
+.unavailable {
+  display: flex;
+  max-width: 42rem;
+  gap: var(--space-3);
+  padding: var(--space-5);
+  border: var(--border-width) solid var(--color-warning);
+  border-radius: var(--radius-panel);
+  background: var(--color-warning-surface);
+}
+
+.unavailable > svg { flex: 0 0 auto; color: var(--color-warning); }
+.unavailable h2 { margin: 0 0 var(--space-2); font-size: var(--font-size-lg); }
+.unavailable p { margin: 0 0 var(--space-4); line-height: 1.6; }

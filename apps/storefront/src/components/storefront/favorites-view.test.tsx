@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -41,6 +41,21 @@ describe("favorites route states and list", () => {
     fireEvent.click(screen.getByRole("button", { name: "Повторить загрузку" }));
     expect(await screen.findByRole("link", { name: p1.name })).toHaveAttribute("href", `/products/${p1.slug}`);
   });
+  it("empty offers a catalog CTA, uses the shared cards when populated, and adds no bulk actions", async () => {
+    respond(sessionResponse()); respond(favoriteResponse()); const view = page();
+    expect(await screen.findByRole("heading", { level: 2, name: "В избранном пока нет товаров" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Перейти в каталог" })).toHaveAttribute("href", "/catalog");
+    expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
+    view.unmount();
+
+    respond(sessionResponse()); respond(favoriteResponse(p1)); page();
+    const card = (await screen.findByRole("link", { name: p1.name })).closest("article")!;
+    expect(card.closest("[data-favorites-card]")).toHaveAttribute("data-favorites-card", p1.id);
+    expect(within(card).getByRole("link", { name: `Открыть товар: ${p1.name}` })).toHaveAttribute("href", `/products/${p1.slug}`);
+    expect(document.body.textContent).not.toMatch(/добавить доступные|по производителям|по категориям/i);
+    expect(screen.queryByRole("link", { name: "Перейти в каталог" })).toBeNull();
+  });
+
   it("renders the initial skeleton then a distinct authenticated empty state", async () => {
     const session = deferred<Response>(); fetcher.mockReturnValueOnce(session.promise); respond(favoriteResponse());
     page();
