@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -65,6 +65,11 @@ const submitButton = () => screen.getByRole("button", { name: /Подтверд�
 function fill(value = "Москва, Тестовая, 1", comment = "") {
   fireEvent.change(address(), { target: { value } });
   if (comment) fireEvent.change(commentField(), { target: { value: comment } });
+}
+
+function cleanupAndReset() {
+  cleanup();
+  fetcher.mockReset();
 }
 
 let uuid = 0;
@@ -397,6 +402,61 @@ describe("/checkout ambiguous outcome", () => {
     expect(replace).not.toHaveBeenCalled();
     expect(posts()).toHaveLength(1);
     if (next === "B") expect(address()).toHaveValue("");
+  });
+});
+
+describe("/checkout presentation", () => {
+  it("collects only the real address and comment fields and offers no legacy demo checkout", async () => {
+    await openCheckout();
+
+    const form = screen.getByRole("form", { name: "Доставка" });
+    expect([...form.querySelectorAll("input, select, textarea")].map((field) => field.getAttribute("name"))).toEqual(["deliveryAddress", "comment"]);
+    expect(within(form).queryByRole("radio")).toBeNull();
+    expect(within(form).queryByRole("combobox")).toBeNull();
+    expect(address()).toHaveAttribute("autocomplete", "street-address");
+    expect(address()).toHaveAttribute("aria-required", "true");
+    expect(document.body.textContent).not.toMatch(/интервал|способ оплаты|картой|СБП|промокод|доставка сегодня|бесплатн|ул\. Хлебная|сохранённ.{0,3} адрес/i);
+    expect(screen.getAllByRole("heading", { level: 1 }).map((heading) => heading.textContent)).toEqual(["Оформление заказа"]);
+  });
+
+  it("shows Go's summary values in the dark panel and keeps the submit after the fields", async () => {
+    const cart = baseCart();
+    await openCheckout(cart);
+
+    const summary = screen.getByRole("complementary", { name: "Итоги заказа" });
+    const money = (minor: number) => new Intl.NumberFormat("ru-RU", { style: "currency", currency: "RUB" }).format(minor / 100).replace(/\s/g, " ");
+    expect([...summary.querySelectorAll("dd")].map((value) => value.textContent?.replace(/\s/g, " "))).toEqual([
+      money(cart.summary.subtotalMinor), money(cart.summary.discountMinor), money(cart.summary.deliveryMinor), money(cart.summary.totalMinor),
+    ]);
+    expect(within(summary).getByText("Итого")).toBeInTheDocument();
+    const submit = submitButton();
+    expect(submit.closest("form")).toBe(screen.getByRole("form", { name: "Доставка" }));
+    expect(commentField().compareDocumentPosition(submit) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("marks the unknown outcome as a warning, distinct from a definitive rejection", async () => {
+    await openCheckout();
+    fill("Адрес");
+    fetcher.mockRejectedValueOnce(new TypeError("offline"));
+    fireEvent.click(submitButton());
+    const unknown = await screen.findByRole("alert");
+    expect(unknown.className).toMatch(/unknown/);
+    expect(unknown.className).not.toMatch(/(^|\s)\S*alert\S*(\s|$)/);
+    const check = screen.getByRole("button", { name: "Проверить заказ" });
+    expect(check.parentElement!.className).toMatch(/unknownActions/);
+    expect(screen.queryByRole("button", { name: "Подтвердить заказ" })).toBeNull();
+    // The check is keyboard reachable and focused for the shopper.
+    await waitFor(() => expect(check).toHaveFocus());
+
+    // A definitive rejection keeps the ordinary error treatment instead.
+    cleanupAndReset();
+    await openCheckout();
+    fill();
+    respond({ error: { code: "idempotency_key_reused" } }, 409);
+    fireEvent.click(submitButton());
+    const rejected = await screen.findByRole("alert");
+    expect(rejected.className).toMatch(/alert/);
+    expect(rejected.className).not.toMatch(/unknown/);
   });
 });
 

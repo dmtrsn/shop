@@ -215,42 +215,82 @@
   opacity: 0.7;
 }
 
+/* Checkout notices: each state has its own treatment, always with a title in text.
+   Rejection = error, status = info, unknown outcome = warning (never an ordinary error). */
 .alert,
-.notice {
+.notice,
+.unknown {
   display: grid;
   max-width: 48rem;
-  gap: var(--space-1);
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: var(--space-1) var(--space-3);
   margin-bottom: var(--space-5);
-  padding: var(--space-3) var(--space-4);
+  padding: var(--space-4);
   border: var(--border-control);
   border-left-width: 4px;
   border-radius: var(--radius-control);
   background: var(--color-surface);
 }
 
+.alert > div,
+.notice > div,
+.unknown > div {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.noticeIcon {
+  width: 1.25rem;
+  height: 1.25rem;
+  margin-top: 0.125rem;
+}
+
 .alert {
-  border-left-color: var(--color-error);
+  border-color: var(--color-error);
+  background: var(--color-error-surface);
+}
+
+.alert .noticeIcon {
+  color: var(--color-error);
 }
 
 .notice {
   border-left-color: var(--color-info);
 }
 
+.notice .noticeIcon {
+  color: var(--color-info);
+}
+
+.unknown {
+  border-color: var(--color-warning);
+  border-left-width: 6px;
+  background: var(--color-warning-surface);
+}
+
+.unknown .noticeIcon {
+  color: var(--color-warning);
+}
+
 .alert:focus-visible,
 .notice:focus-visible,
+.unknown:focus-visible,
 .banner:focus-visible {
   outline: var(--focus-width) solid var(--color-focus);
   outline-offset: var(--focus-offset);
 }
 
 .alert p,
-.notice p {
+.notice p,
+.unknown p {
   margin: 0;
   line-height: 1.5;
 }
 
 .alert a,
-.notice a {
+.notice a,
+.unknown a {
   display: inline-flex;
   min-height: var(--control-height);
   align-items: center;
@@ -258,12 +298,98 @@
 }
 
 .alertTitle {
-  font-weight: var(--weight-semibold);
+  font-size: var(--font-size-md);
+  font-weight: var(--weight-bold);
 }
 
 .progress {
   margin: 0;
   color: var(--color-text-muted);
+}
+
+/* Checkout-only panels; the shared review rows stay as they are on /account/orders/[id]. */
+.checkoutReview,
+.checkoutForm {
+  padding: var(--space-4) var(--space-5) var(--space-5);
+  border: var(--border-control);
+  border-radius: var(--radius-tile);
+  background: var(--color-surface);
+}
+
+.checkoutReview h2,
+.checkoutForm h2 {
+  font-size: var(--font-size-lg);
+  font-weight: var(--weight-bold);
+  letter-spacing: -0.02em;
+}
+
+.checkoutReview .line:first-child {
+  border-top: 0;
+}
+
+.checkoutReview .lineName {
+  font-size: var(--font-size-body);
+}
+
+.checkoutReview .changes,
+.checkoutReview .blocking {
+  border-radius: var(--radius-small);
+}
+
+.checkoutReview .blocking {
+  background: var(--color-error-surface);
+}
+
+/* Fields: label above, warm canvas fill, 46px per line, 3:1 boundary, 16px text. */
+.checkoutForm {
+  max-width: none;
+  gap: var(--space-5);
+}
+
+.checkoutForm .field {
+  gap: 0.375rem;
+}
+
+.checkoutForm .field label {
+  font-size: 0.8125rem;
+  font-weight: var(--weight-semibold);
+}
+
+.checkoutForm .field textarea {
+  min-height: 2.875rem;
+  padding: 0.6875rem 0.8125rem;
+  border: var(--border-width) solid var(--color-border-control);
+  border-radius: var(--radius-control);
+  background: var(--color-canvas);
+  font-size: var(--font-size-control);
+}
+
+.checkoutForm .field textarea:hover:not([readonly]) {
+  border-color: var(--color-text-muted);
+}
+
+.checkoutForm .field textarea:focus {
+  border-color: var(--color-text);
+  background: var(--color-surface);
+}
+
+/* Invalid: red boundary plus the message text tied by aria-describedby. */
+.checkoutForm .field textarea[aria-invalid="true"] {
+  border-color: var(--color-error);
+  border-width: 2px;
+}
+
+.checkoutForm .actions > button {
+  width: 100%;
+  min-height: 2.875rem;
+}
+
+/* The unknown-outcome check sits in the same warning language as its notice. */
+.unknownActions {
+  padding: var(--space-4);
+  border: var(--border-width) solid var(--color-warning);
+  border-radius: var(--radius-control);
+  background: var(--color-warning-surface);
 }
 
 /* Order confirmation. */

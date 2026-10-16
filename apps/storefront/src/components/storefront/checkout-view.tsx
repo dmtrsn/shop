@@ -6,8 +6,11 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 
-import { Button } from "@/components/ui/button";
+import { Button, ButtonLink, buttonClassName } from "@/components/ui/button";
 import { Container } from "@/components/ui/container";
+import { EmptyState } from "@/components/ui/empty-state";
+import { BagIcon, InfoIcon } from "@/components/ui/icons";
+import { PageHeader } from "@/components/ui/page-header";
 import type { RouteSession } from "@/lib/api/browser-session";
 import type { Cart, CartSummary } from "@/lib/api/cart";
 import { checkoutReview } from "@/lib/api/order-client";
@@ -283,22 +286,28 @@ export function CheckoutView({ initialSession }: { initialSession: RouteSession 
     content = <p className={styles.progress} role="status">Заказ оформлен. Открываем подтверждение…</p>;
   } else if (status === "anonymous" && !locked) {
     content = (
-      <section className={cartStyles.state}>
-        <h2>Войдите, чтобы оформить заказ</h2>
-        <p>Оформление доступно в вашем аккаунте. После входа вернитесь в корзину.</p>
-        <div className={cartStyles.actions}>
-          <LoginLink>Войти</LoginLink>
+      <EmptyState
+        actions={<>
+          <LoginLink className={buttonClassName("primary")}>Войти</LoginLink>
           <Button onClick={() => void cart.refresh()} variant="secondary">Проверить вход</Button>
-          <Link href="/cart">Вернуться в корзину</Link>
-        </div>
-      </section>
+          <Link className={buttonClassName("tertiary")} href="/cart">Вернуться в корзину</Link>
+        </>}
+        icon={<BagIcon />}
+        title="Войдите, чтобы оформить заказ"
+      >
+        Оформление доступно в вашем аккаунте. После входа вернитесь в корзину.
+      </EmptyState>
     );
   } else if (status === "unavailable" && !locked) {
     content = (
-      <section className={cartStyles.state}>
-        <h2>Оформление временно недоступно</h2>
-        <p>Не удалось проверить вход или загрузить корзину. Заказ можно подтвердить только после успешной загрузки.</p>
-        <Button onClick={() => void cart.refresh()} variant="secondary">Повторить загрузку</Button>
+      // A failure, not an empty order: the solid notice, never the dashed empty state.
+      <section className={cartStyles.unavailableState}>
+        <InfoIcon aria-hidden="true" />
+        <div>
+          <h2>Оформление временно недоступно</h2>
+          <p>Не удалось проверить вход или загрузить корзину. Заказ можно подтвердить только после успешной загрузки.</p>
+          <Button onClick={() => void cart.refresh()} variant="secondary">Повторить загрузку</Button>
+        </div>
       </section>
     );
   } else if (!review) {
@@ -308,17 +317,19 @@ export function CheckoutView({ initialSession }: { initialSession: RouteSession 
     </div>;
   } else if (!locked && !review.lines.length) {
     content = (
-      <section className={cartStyles.state}>
-        <h2>Нет товаров, выбранных для заказа</h2>
-        <p>Отметьте товары в корзине, чтобы оформить их. Если вы только что оформили заказ, выбранные позиции уже убраны из корзины.</p>
-        <div className={cartStyles.actions}><Link href="/cart">Вернуться в корзину</Link></div>
-      </section>
+      <EmptyState
+        actions={<ButtonLink href="/cart">Вернуться в корзину</ButtonLink>}
+        icon={<BagIcon />}
+        title="Нет товаров, выбранных для заказа"
+      >
+        Отметьте товары в корзине, чтобы оформить их. Если вы только что оформили заказ, выбранные позиции уже убраны из корзины.
+      </EmptyState>
     );
   } else {
     const ambiguous = phase === "ambiguous" || phase === "checking";
     content = (
       <div className={styles.layout}>
-        <section aria-labelledby="checkout-review-title" className={styles.review}>
+        <section aria-labelledby="checkout-review-title" className={`${styles.review} ${styles.checkoutReview}`}>
           <h2 id="checkout-review-title">Товары в заказе</h2>
           {issues.length && !locked ? (
             <div className={styles.blocking}>
@@ -337,7 +348,7 @@ export function CheckoutView({ initialSession }: { initialSession: RouteSession 
           <ReviewList notes={changes?.notes} review={review} />
         </section>
         <Summary review={review} />
-        <form aria-labelledby="checkout-delivery-title" className={styles.form} noValidate onSubmit={(event) => void submit(event)}>
+        <form aria-labelledby="checkout-delivery-title" className={`${styles.form} ${styles.checkoutForm}`} noValidate onSubmit={(event) => void submit(event)}>
           <h2 id="checkout-delivery-title">Доставка</h2>
           <div className={styles.field}>
             <label htmlFor="checkout-address">Адрес доставки</label>
@@ -371,7 +382,8 @@ export function CheckoutView({ initialSession }: { initialSession: RouteSession 
             {fieldErrors.comment ? <p className={cartStyles.error} id="checkout-comment-error">{fieldErrors.comment}</p> : null}
           </div>
           {ambiguous ? (
-            <div className={styles.actions}>
+            // Unknown outcome: the only action is the same-attempt check, set apart as a warning.
+            <div className={`${styles.actions} ${styles.unknownActions}`}>
               <Button
                 aria-describedby="checkout-notice"
                 aria-disabled={phase === "checking"}
@@ -402,17 +414,22 @@ export function CheckoutView({ initialSession }: { initialSession: RouteSession 
   return (
     <main className={cartStyles.main} id="main-content">
       <Container>
-        <header className={cartStyles.heading}><h1>Оформление заказа</h1></header>
+        <PageHeader title="Оформление заказа" />
         {notice && phase !== "placed" ? (
           <div
-            className={notice.tone === "alert" ? styles.alert : styles.notice}
+            // The unknown outcome is not an ordinary error: a distinct warning panel.
+            className={phase === "ambiguous" || phase === "checking" ? styles.unknown
+              : notice.tone === "alert" ? styles.alert : styles.notice}
             id="checkout-notice"
             role={notice.tone === "alert" ? "alert" : "status"}
             tabIndex={-1}
           >
-            <p className={styles.alertTitle}>{notice.title}</p>
-            <p>{notice.text}</p>
-            {notice.cartLink ? <Link href="/cart">Вернуться в корзину</Link> : null}
+            <InfoIcon aria-hidden="true" className={styles.noticeIcon} />
+            <div>
+              <p className={styles.alertTitle}>{notice.title}</p>
+              <p>{notice.text}</p>
+              {notice.cartLink ? <Link href="/cart">Вернуться в корзину</Link> : null}
+            </div>
           </div>
         ) : null}
         <p aria-live="polite" className="visually-hidden" role="status">
