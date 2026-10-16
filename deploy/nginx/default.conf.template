@@ -1,3 +1,32 @@
+# --- Sign-in rate limits -------------------------------------------------
+# This file is included inside nginx's http {} block, so the zones below are
+# http-level and the server block attaches them.
+#
+# Key: $binary_remote_addr, the TCP peer of this nginx. Nothing here enables
+# the real_ip module, so X-Forwarded-For, X-Real-IP and Forwarded can never
+# change it. That is correct only while clients connect to this nginx
+# directly. Behind another proxy (TLS terminator, load balancer, CDN, or
+# Docker's userland proxy for a loopback-published port) every client arrives
+# with that proxy's address and shares one bucket; see the README before
+# deploying such a topology.
+#
+# Only POST verifies a password. Other methods map to an empty key, which
+# limit_req does not account, so reading or ending a session is never limited.
+map $request_method $auth_rate_limit_key {
+    POST    $binary_remote_addr;
+    default "";
+}
+
+# Customer sign-in: 10 per minute per client (one every 6 s) with a burst of
+# 10, rejected immediately (nodelay) rather than queued toward bcrypt.
+limit_req_zone $auth_rate_limit_key zone=customer_auth:10m rate=10r/m;
+
+# Staff sign-in: 5 per minute (one every 12 s), burst 3. Defined for the future
+# admin host only; the shop host attaches it nowhere because /api/admin is 404
+# here. The admin server block must use:
+#   limit_req zone=staff_auth burst=3 nodelay;   (Retry-After: 12)
+limit_req_zone $auth_rate_limit_key zone=staff_auth:1m rate=5r/m;
+
 server {
     listen 8080;
     server_name _;
@@ -9,6 +38,9 @@ server {
     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
     proxy_set_header X-Forwarded-Proto $scheme;
     proxy_set_header X-Forwarded-Host $host;
+
+    limit_req_status 429;
+    limit_req_log_level warn;
 
     location = /edge/healthz {
         default_type application/json;
@@ -25,6 +57,29 @@ server {
 
     location ^~ /api/admin/ {
         return 404;
+    }
+
+    # Customer password verification is limited before it reaches Go.
+    location = /api/auth/session {
+        limit_req zone=customer_auth burst=10 nodelay;
+        error_page 429 @auth_rate_limited;
+        proxy_pass http://app:8080;
+    }
+
+    location = /api/auth/login {
+        limit_req zone=customer_auth burst=10 nodelay;
+        error_page 429 @auth_rate_limited;
+        proxy_pass http://app:8080;
+    }
+
+    # A slot frees every 6 s at 10r/m, so the retry hint is exact. The body
+    # says nothing about accounts or credentials.
+    location @auth_rate_limited {
+        default_type text/plain;
+        add_header Retry-After 6 always;
+        add_header Cache-Control no-store always;
+        add_header X-Content-Type-Options nosniff always;
+        return 429 "Too many sign-in attempts. Try again later.\n";
     }
 
     location = /api {

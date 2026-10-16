@@ -26,7 +26,7 @@ The staff API exists only with PostgreSQL storage and a non-empty `STAFF_TRUSTED
 
 ## Admin origin
 
-The target remains a separate admin origin (ADR 006). Until that host exists, the shop edge returns 404 for `/api/admin` and `/api/admin/*` itself, so the staff API is unreachable through the shop host whatever Go is configured with. The admin server block, its TLS and its rate limits belong to later slices.
+The target remains a separate admin origin (ADR 006). Until that host exists, the shop edge returns 404 for `/api/admin` and `/api/admin/*` itself, so the staff API is unreachable through the shop host whatever Go is configured with. The admin server block and its TLS belong to later slices; its sign-in limit is already defined (`staff_auth`, [ADR 008](008-edge-sign-in-rate-limits.md)) and must be attached before the admin origin is exposed.
 
 ## Deliberate 1.0 deviations from ADR 006
 
