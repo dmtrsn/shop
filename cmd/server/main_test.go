@@ -40,6 +40,43 @@ func TestInvalidDSNDoesNotFallBackOrExposeCredentials(t *testing.T) {
 	}
 }
 
+func TestMigrationsEnabledDefaultsToVerifyOnlyInProduction(t *testing.T) {
+	for _, tc := range []struct {
+		mode, value string
+		run, ok     bool
+	}{
+		{"production", "", false, true},
+		{"development", "", true, true},
+		{"demo", "", true, true},
+		{"production", "true", true, true},
+		{"production", "false", false, true},
+		{"demo", "false", false, true},
+		{"production", "TRUE", false, false},
+		{"production", "1", false, false},
+		{"demo", "flase", false, false},
+	} {
+		t.Run(tc.mode+"="+tc.value, func(t *testing.T) {
+			t.Setenv("RUN_MIGRATIONS", tc.value)
+			run, err := migrationsEnabled(tc.mode)
+			if run != tc.run || (err == nil) != tc.ok {
+				t.Fatalf("run=%v err=%v", run, err)
+			}
+		})
+	}
+}
+
+func TestInvalidRunMigrationsFailsBeforeConnecting(t *testing.T) {
+	t.Setenv("APP_MODE", "production")
+	t.Setenv("RUN_MIGRATIONS", "yes")
+	// Port 1 is never a PostgreSQL server; configuration must fail first.
+	t.Setenv("DATABASE_URL", "postgres://example:synthetic-secret@127.0.0.1:1/shop?connect_timeout=1")
+	repo, _, cleanup, err := repository(context.Background(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	defer cleanup()
+	if repo != nil || err == nil || !strings.Contains(err.Error(), "RUN_MIGRATIONS") {
+		t.Fatalf("invalid RUN_MIGRATIONS: %v", err)
+	}
+}
+
 func TestSessionConfigFailsClosedInProduction(t *testing.T) {
 	for _, tc := range []struct {
 		name, mode, origins, secure string

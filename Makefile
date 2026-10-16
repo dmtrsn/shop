@@ -25,9 +25,10 @@ run-postgres: ## Запустить с PostgreSQL (обязательно пер
 	@test -n "$(DATABASE_URL)" || (echo "DATABASE_URL не задан" >&2; exit 1)
 	@DATABASE_URL="$(DATABASE_URL)" RUN_MIGRATIONS="$(RUN_MIGRATIONS)" WEB_DIR="$(WEB_DIR)" MIGRATIONS_DIR="$(MIGRATIONS_DIR)" $(GO) run ./cmd/server
 
-build: ## Собрать production-бинарник в bin/
+build: ## Собрать production-бинарники (сервер и shopctl) в bin/
 	mkdir -p "$(BIN_DIR)"
 	CGO_ENABLED=0 $(GO) build -buildvcs=false -trimpath -ldflags="-s -w" -o "$(BIN_DIR)/$(APP_NAME)" ./cmd/server
+	CGO_ENABLED=0 $(GO) build -buildvcs=false -trimpath -ldflags="-s -w" -o "$(BIN_DIR)/shopctl" ./cmd/shopctl
 
 test: ## Запустить unit- и integration-style тесты без внешней БД
 	$(GO) test $(FIRST_PARTY_GO_PACKAGES)

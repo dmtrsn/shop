@@ -80,6 +80,10 @@ func repository(ctx context.Context, logger *slog.Logger) (domain.Repository, st
 		logger.Warn("using explicit in-memory demo storage", "mode", mode)
 		return memory.NewDemo(), "memory", func() {}, nil
 	}
+	runMigrations, err := migrationsEnabled(mode)
+	if err != nil {
+		return nil, "", func() {}, err
+	}
 	config, err := pgxpool.ParseConfig(url)
 	if err != nil {
 		// pgx parse errors can include the supplied DSN and its credentials.
@@ -101,13 +105,49 @@ func repository(ctx context.Context, logger *slog.Logger) (domain.Repository, st
 		cleanup()
 		return nil, "", func() {}, fmt.Errorf("ping postgres: %w", err)
 	}
-	if env("RUN_MIGRATIONS", "true") != "false" {
-		if err := postgresrepo.Migrate(ctx, pool, env("MIGRATIONS_DIR", "migrations")); err != nil {
+	migrator := postgresrepo.Migrator{Directory: env("MIGRATIONS_DIR", "migrations"), Logger: logger}
+	if runMigrations {
+		if mode == "production" {
+			logger.Warn("RUN_MIGRATIONS=true: applying migrations at production startup")
+		}
+		migrateCtx, migrateCancel := context.WithTimeout(ctx, startupMigrationTimeout)
+		err := migrator.Migrate(migrateCtx, pool)
+		migrateCancel()
+		if err != nil {
 			cleanup()
-			return nil, "", func() {}, err
+			return nil, "", func() {}, fmt.Errorf("migrate: %w", err)
 		}
 	}
+	// Every mode serves only a verified schema; verification never changes it.
+	verifyCtx, verifyCancel := context.WithTimeout(ctx, 30*time.Second)
+	err = migrator.Verify(verifyCtx, pool)
+	verifyCancel()
+	if err != nil {
+		cleanup()
+		if errors.Is(err, postgresrepo.ErrSchemaNotCurrent) {
+			return nil, "", func() {}, fmt.Errorf("%w; run `shopctl migrate` before starting the server", err)
+		}
+		return nil, "", func() {}, fmt.Errorf("verify schema: %w", err)
+	}
 	return postgresrepo.New(pool), "postgres", cleanup, nil
+}
+
+const startupMigrationTimeout = 10 * time.Minute
+
+// migrationsEnabled reads RUN_MIGRATIONS. Unset, production only verifies the
+// schema (apply it with `shopctl migrate`); development and demo apply pending
+// migrations at startup. Only exact true/false override the mode default.
+func migrationsEnabled(mode string) (bool, error) {
+	switch os.Getenv("RUN_MIGRATIONS") {
+	case "":
+		return mode != "production", nil
+	case "true":
+		return true, nil
+	case "false":
+		return false, nil
+	default:
+		return false, errors.New("RUN_MIGRATIONS must be true or false")
+	}
 }
 
 func appMode() (string, error) {

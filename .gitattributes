@@ -1,0 +1,2 @@
+# Migration checksums cover raw bytes; never convert line endings.
+migrations/*.sql -text

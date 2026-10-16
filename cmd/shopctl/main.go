@@ -1,0 +1,169 @@
+// Command shopctl is the operator tool. It currently applies and reports
+// database migrations with the same engine the server uses:
+//
+//	shopctl migrate [--timeout=10m] [--lock-timeout=5s]
+//	shopctl migrate --status
+//
+// Configuration follows the server: DATABASE_URL (required), MIGRATIONS_DIR
+// (default "migrations") and APP_MODE (production, development or demo).
+// Logs go to stderr and the status report to stdout. The DSN is never printed.
+package main
+
+import (
+	"context"
+	"errors"
+	"flag"
+	"fmt"
+	"io"
+	"log/slog"
+	"os"
+	"os/signal"
+	"strings"
+	"syscall"
+	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	postgresrepo "sweetshop/internal/repository/postgres"
+)
+
+const (
+	exitOK = 0
+	// exitFailure: the database is unreachable, a migration failed, or the
+	// schema is inconsistent (checksum mismatch, gap, unknown version).
+	exitFailure = 1
+	exitUsage   = 2
+	// exitNotCurrent: --status found pending work for `shopctl migrate`.
+	exitNotCurrent = 3
+)
+
+const usage = `Usage:
+  shopctl migrate [--timeout=10m] [--lock-timeout=5s]   apply pending migrations
+  shopctl migrate --status                              report state; changes nothing
+
+Environment: DATABASE_URL (required), MIGRATIONS_DIR (default migrations),
+APP_MODE (production, development or demo; default production).
+
+Exit codes: 0 success or current, 1 failure or inconsistent schema,
+2 usage or configuration error, 3 --status found pending work.
+`
+
+func main() {
+	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
+}
+
+func run(args []string, stdout, stderr io.Writer) int {
+	if len(args) == 0 {
+		fmt.Fprint(stderr, usage)
+		return exitUsage
+	}
+	switch args[0] {
+	case "migrate":
+		return migrate(args[1:], stdout, stderr)
+	case "help", "-h", "--help":
+		fmt.Fprint(stdout, usage)
+		return exitOK
+	default:
+		fmt.Fprintf(stderr, "shopctl: unknown command %q\n\n%s", args[0], usage)
+		return exitUsage
+	}
+}
+
+func migrate(args []string, stdout, stderr io.Writer) int {
+	flags := flag.NewFlagSet("migrate", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	status := flags.Bool("status", false, "report migration state without changing the database")
+	timeout := flags.Duration("timeout", 10*time.Minute, "overall limit, including the wait for the migration lock")
+	lockTimeout := flags.Duration("lock-timeout", postgresrepo.DefaultMigrationLockTimeout, "per-migration lock_timeout for table locks")
+	if err := flags.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return exitOK
+		}
+		return exitUsage
+	}
+	if flags.NArg() > 0 {
+		fmt.Fprintf(stderr, "shopctl migrate: unexpected argument %q\n", flags.Arg(0))
+		return exitUsage
+	}
+	if *timeout <= 0 || *lockTimeout <= 0 {
+		fmt.Fprintln(stderr, "shopctl migrate: --timeout and --lock-timeout must be positive")
+		return exitUsage
+	}
+	logger := slog.New(slog.NewTextHandler(stderr, nil))
+	mode := os.Getenv("APP_MODE")
+	if mode == "" {
+		mode = "production"
+	}
+	if mode != "production" && mode != "development" && mode != "demo" {
+		logger.Error("APP_MODE must be production, development, or demo")
+		return exitUsage
+	}
+	dsn := strings.TrimSpace(os.Getenv("DATABASE_URL"))
+	if dsn == "" {
+		logger.Error("DATABASE_URL is required")
+		return exitUsage
+	}
+	config, err := pgxpool.ParseConfig(dsn)
+	if err != nil {
+		// pgx parse errors can include the DSN and its credentials.
+		logger.Error("invalid DATABASE_URL")
+		return exitUsage
+	}
+	config.MaxConns = 2
+	config.MinConns = 0
+	directory := os.Getenv("MIGRATIONS_DIR")
+	if directory == "" {
+		directory = "migrations"
+	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	ctx, cancel := context.WithTimeout(ctx, *timeout)
+	defer cancel()
+	pool, err := pgxpool.NewWithConfig(ctx, config)
+	if err != nil {
+		logger.Error("connect postgres", "error", err)
+		return exitFailure
+	}
+	defer pool.Close()
+	migrator := postgresrepo.Migrator{Directory: directory, LockTimeout: *lockTimeout, Logger: logger}
+
+	if *status {
+		report, err := migrator.Status(ctx, pool)
+		if err != nil {
+			logger.Error("migration status failed", "error", err)
+			return exitFailure
+		}
+		printStatus(stdout, report)
+		if !report.Current() {
+			return exitNotCurrent
+		}
+		return exitOK
+	}
+	logger.Info("applying migrations", "mode", mode, "directory", directory)
+	if err := migrator.Migrate(ctx, pool); err != nil {
+		logger.Error("migration failed", "error", err)
+		return exitFailure
+	}
+	return exitOK
+}
+
+// printStatus writes one tab-separated line per migration plus a summary.
+func printStatus(w io.Writer, report postgresrepo.SchemaStatus) {
+	metadata := "current"
+	if !report.MetadataCurrent {
+		metadata = "legacy-or-absent"
+	}
+	fmt.Fprintf(w, "metadata\t%s\n", metadata)
+	for _, migration := range report.Migrations {
+		fmt.Fprintf(w, "%s\t%s\t%s\n", migration.Version, migration.State, migration.Checksum[:12])
+	}
+	for _, version := range report.Newer {
+		fmt.Fprintf(w, "%s\tnewer-than-binary\t-\n", version)
+	}
+	state := "current"
+	if !report.Current() {
+		state = "not-current"
+	}
+	fmt.Fprintf(w, "schema\t%s\n", state)
+}

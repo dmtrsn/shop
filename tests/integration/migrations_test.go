@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgconn"
@@ -131,10 +132,10 @@ func TestMigrationFailureRollbackAndRetry(t *testing.T) {
 	if err := postgres.Migrate(d.ctx, d.pool, dir); err != nil {
 		t.Fatal(err)
 	}
-	// Filename-only history is a documented limitation: changed applied SQL is skipped.
+	// Changed SQL of an applied migration is a checksum mismatch, never skipped.
 	write("010_first.up.sql", "SELECT deliberately_missing_function();")
-	if err := postgres.Migrate(d.ctx, d.pool, dir); err != nil {
-		t.Fatal(err)
+	if err := postgres.Migrate(d.ctx, d.pool, dir); err == nil || !strings.Contains(err.Error(), "checksum mismatch") {
+		t.Fatalf("edited applied migration: %v", err)
 	}
 	if got := d.number(t, "SELECT sum(id) FROM migration_probe"); got != 3 {
 		t.Fatal("retry duplicated or omitted statements")

@@ -19,7 +19,13 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
     -trimpath \
     -ldflags="-s -w" \
     -o /out/sweetshop \
-    ./cmd/server
+    ./cmd/server \
+    && CGO_ENABLED=0 GOOS=linux go build \
+    -buildvcs=false \
+    -trimpath \
+    -ldflags="-s -w" \
+    -o /out/shopctl \
+    ./cmd/shopctl
 
 FROM alpine:3.21 AS runtime
 
@@ -30,13 +36,15 @@ RUN apk add --no-cache ca-certificates tzdata \
 WORKDIR /app
 
 COPY --from=builder --chown=sweetshop:sweetshop /out/sweetshop ./sweetshop
+COPY --from=builder --chown=sweetshop:sweetshop /out/shopctl ./shopctl
 COPY --chown=sweetshop:sweetshop web ./web
 COPY --chown=sweetshop:sweetshop migrations ./migrations
 
+# RUN_MIGRATIONS is deliberately unset: production then only verifies the
+# schema; apply migrations with /app/shopctl migrate.
 ENV HTTP_ADDR=:8080 \
     WEB_DIR=/app/web \
-    MIGRATIONS_DIR=/app/migrations \
-    RUN_MIGRATIONS=true
+    MIGRATIONS_DIR=/app/migrations
 
 USER sweetshop
 
