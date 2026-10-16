@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { BrowserSessionStore, RouteSession } from "@/lib/api/browser-session";
 import { deferred, jsonResponse, sessionResponse } from "@/test/favorites-fixtures";
-import { orderResponse } from "@/test/order-fixtures";
+import { orderItem, orderResponse } from "@/test/order-fixtures";
 import { PrivateProviders } from "@/test/private-providers";
 
 import { useBrowserSessionStore } from "./browser-session-provider";
@@ -55,7 +55,8 @@ describe("order history", () => {
     expect(list.querySelector("time")?.textContent).toBe(new Intl.DateTimeFormat("ru-RU", { dateStyle: "long" }).format(new Date("2026-10-03T12:00:00Z")));
     expect(screen.getByRole("link", { name: "Подробнее о заказе #10484" })).toHaveAttribute("href", "/account/orders/ord-2026-10484");
     expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
-    expect(screen.getAllByRole("link", { name: "Повторить заказ" }).map((link) => link.getAttribute("href"))).toEqual(["/account/orders/ord-2026-10484/repeat", "/account/orders/old/repeat"]);
+    expect(screen.getByRole("link", { name: "Повторить заказ #10484" })).toHaveAttribute("href", "/account/orders/ord-2026-10484/repeat");
+    expect(screen.getByRole("link", { name: "Повторить заказ #1" })).toHaveAttribute("href", "/account/orders/old/repeat");
     expect(list.querySelector("a button, a a")).toBeNull();
     expect(requests()).toEqual(["GET /api/auth/session", "GET /api/orders"]);
     expect(fetcher.mock.calls[1][1]?.headers).toMatchObject({ "X-Expected-Authenticated-User-ID": "A" });
@@ -144,5 +145,63 @@ describe("order history", () => {
     expect(screen.getByRole("link", { name: "Все заказы" })).toHaveAttribute("href", "/account/orders");
     expect(screen.queryByText("Заказ #10484 оформлен")).toBeNull();
     expect(requests()).toEqual(["GET /api/auth/session", "GET /api/orders", "GET /api/auth/session", "GET /api/orders/ord-2026-10484"]);
+  });
+});
+
+describe("order presentation", () => {
+  it("cards show Go's status label with tone only for known delivered, snapshot thumbnails and the current nav section", async () => {
+    const items = ["p01", "p02", "p03", "p04", "p05", "p06"].map((id) => ({ ...orderItem(id, 1), image: `/assets/${id}.webp` }));
+    respond(sessionResponse());
+    respond({ items: [
+      orderResponse({ id: "a", number: "#3", status: "delivered", statusLabel: "Доставлен", items, itemCount: 6 }),
+      orderResponse({ id: "b", number: "#2" }),
+      orderResponse({ id: "c", number: "#1", status: "on_hold", statusLabel: "" }),
+    ] });
+    render(<Tree />);
+    const list = await screen.findByRole("list", { name: "История заказов" });
+    const [delivered, processing, unknown] = within(list).getAllByRole("article");
+    expect(within(delivered).getByText("Доставлен").parentElement?.className).toMatch(/statusSuccess/);
+    expect(within(processing).getByText("Собираем заказ").parentElement?.className).not.toMatch(/statusSuccess/);
+    expect(within(unknown).getByText("on_hold").parentElement?.className).not.toMatch(/statusSuccess/);
+    const images = [...delivered.querySelectorAll("img")];
+    expect(images.map((image) => image.getAttribute("src"))).toEqual(["/assets/p01.webp", "/assets/p02.webp", "/assets/p03.webp", "/assets/p04.webp"]);
+    expect(images.every((image) => image.getAttribute("alt") === "" && image.closest("[aria-hidden=true]"))).toBe(true);
+    expect(within(delivered).getByText("+2")).toHaveAttribute("aria-hidden", "true");
+    expect(within(delivered).getByText("Сумма заказа").nextElementSibling).toHaveTextContent(/1 268,00/);
+    expect(screen.getByRole("navigation", { name: "Разделы аккаунта" }).querySelector("[aria-current=page]")).toHaveTextContent("Мои заказы");
+    expect(screen.queryByText(/оплач|курьер|трек|бонус|балл/i)).toBeNull();
+    expect(requests()).toEqual(["GET /api/auth/session", "GET /api/orders"]);
+  });
+
+  it("empty history is a dashed empty state, unavailable is a separate notice", async () => {
+    respond(sessionResponse()); respond({ items: [] });
+    const view = render(<Tree />);
+    const empty = await screen.findByRole("heading", { name: "Заказов пока нет" });
+    expect(empty.closest("section")?.className).toMatch(/emptyState/);
+    view.unmount();
+    respond(sessionResponse()); respond({ error: { code: "internal_error" } }, 500);
+    render(<Tree />);
+    const failed = await screen.findByRole("heading", { name: "История заказов временно недоступна" });
+    expect(failed.closest("section")?.className).toMatch(/unavailableState/);
+    expect(failed.closest("section")?.className).not.toMatch(/emptyState/);
+  });
+
+  it("detail rows keep the historical snapshot: name, SKU, quantity, prices and snapshot image only", async () => {
+    respond(sessionResponse());
+    respond(orderResponse({ status: "delivered", statusLabel: "Доставлен", deliveredAt: "2026-10-05T10:00:00Z",
+      items: [{ ...orderItem("p01", 2), name: "Старое название", image: "/assets/old.webp", unitPriceMinor: 10000, lineTotalMinor: 20000 }] }));
+    render(<Tree detail />);
+    await screen.findByRole("heading", { level: 1, name: "Заказ #10484" });
+    const row = screen.getByRole("link", { name: "Старое название" }).closest("li")!;
+    expect(within(row).getByText("Арт. SKU-p01 · Мастерская")).toBeInTheDocument();
+    expect([...within(row).getAllByRole("definition")].map((node) => node.textContent?.replace(/\s/g, " "))).toEqual(["2", "100,00 ₽", "200,00 ₽"]);
+    expect(row.querySelector("img")).toHaveAttribute("src", "/assets/old.webp");
+    expect(row.querySelector("img")).toHaveAttribute("alt", "");
+    const status = within(screen.getByText("Статус").closest("dl")!).getAllByText("Доставлен").find((node) => node.tagName === "SPAN");
+    expect(status?.className).toMatch(/statusSuccess/);
+    expect(screen.getByRole("link", { name: "Повторить заказ" })).toHaveAttribute("href", "/account/orders/ord-2026-10484/repeat");
+    expect(screen.getByText("Названия и цены сохранены на момент оформления.")).toBeInTheDocument();
+    expect(screen.queryByText(/оплач|курьер|трек|бонус|балл/i)).toBeNull();
+    expect(requests()).toEqual(["GET /api/auth/session", "GET /api/orders/ord-2026-10484"]);
   });
 });

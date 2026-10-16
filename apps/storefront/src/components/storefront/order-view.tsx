@@ -3,20 +3,25 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
-import { Button } from "@/components/ui/button";
+import { Button, ButtonLink, buttonClassName } from "@/components/ui/button";
 import { Container } from "@/components/ui/container";
+import { EmptyState } from "@/components/ui/empty-state";
+import { ArrowRightIcon, InfoIcon, ReceiptIcon, RepeatIcon } from "@/components/ui/icons";
+import { PageHeader } from "@/components/ui/page-header";
 import { BrowserRequestError, ResponseOwnerError } from "@/lib/api/browser-request";
 import type { RouteSession } from "@/lib/api/browser-session";
 import type { Order } from "@/lib/api/order";
 import { getBrowserOrder } from "@/lib/api/order-client";
 import { formatMoney } from "@/lib/money";
+import { orderStatusTone } from "@/lib/order-status";
 import { pluralRu } from "@/lib/plural";
 
 import { useBrowserSession, useBrowserSessionStore } from "./browser-session-provider";
 import { useCart } from "./cart-provider";
 import { LoginLink } from "./login-link";
 import cartStyles from "./cart.module.css";
-import styles from "./checkout.module.css";
+import { OrderThumb } from "./order-thumb";
+import styles from "./orders.module.css";
 
 // Orders carry no currency; every storefront price is in rubles.
 const currency = "RUB";
@@ -38,29 +43,33 @@ function OrderDetails({ order, placed }: { order: Order; placed: boolean }) {
       {placed ? (
         <p className={styles.banner} id="order-placed" role="status" tabIndex={-1}>Заказ {order.number} оформлен</p>
       ) : null}
-      <header className={cartStyles.heading}>
-        <h1>Заказ {order.number}</h1>
-        <p>Оформлен {dateTime(order.createdAt)}</p>
-      </header>
-      <div className={styles.layout}>
-        <div className={styles.details}>
-          <dl className={styles.facts}>
-            <dt>Статус</dt><dd>{order.statusLabel || order.status}</dd>
-            {order.deliveredAt ? <><dt>Доставлен</dt><dd>{dateTime(order.deliveredAt)}</dd></> : null}
-            <dt>Адрес доставки</dt><dd>{order.deliveryAddress}</dd>
-            {order.comment ? <><dt>Комментарий</dt><dd>{order.comment}</dd></> : null}
-          </dl>
-          <section aria-labelledby="order-items-title">
+      <PageHeader title={`Заказ ${order.number}`} subtitle={`Оформлен ${dateTime(order.createdAt)}`} />
+      <div className={styles.detailLayout}>
+        <div className={styles.detailMain}>
+          <section aria-label="Сведения о заказе" className={styles.panel}>
+            <dl className={styles.detailFacts}>
+              <div><dt>Статус</dt><dd>
+                {/* Go's label is the status; tone only reinforces it. */}
+                <span className={`${styles.status} ${orderStatusTone(order.status) === "success" ? styles.statusSuccess : ""}`}>{order.statusLabel || order.status}</span>
+              </dd></div>
+              {order.deliveredAt ? <div><dt>Доставлен</dt><dd>{dateTime(order.deliveredAt)}</dd></div> : null}
+              <div><dt>Адрес доставки</dt><dd>{order.deliveryAddress}</dd></div>
+              {order.comment ? <div><dt>Комментарий</dt><dd>{order.comment}</dd></div> : null}
+            </dl>
+          </section>
+          <section aria-labelledby="order-items-title" className={styles.panel}>
             <h2 id="order-items-title">Товары</h2>
-            <ul className={styles.lines}>
+            <ul className={styles.rows}>
               {order.items.map((item, index) => (
-                <li className={styles.line} key={`${item.productId}-${index}`}>
-                  <div className={styles.lineIdentity}>
+                <li className={styles.row} key={`${item.productId}-${index}`}>
+                  {/* Snapshot image from the order itself; never enriched from the current catalog. */}
+                  <OrderThumb image={item.image} />
+                  <div className={styles.rowIdentity}>
                     {/* The snapshot has no slug; Go resolves the ID and redirects. */}
-                    <p className={styles.lineName}><Link href={`/products/${encodeURIComponent(item.productId)}`}>{item.name}</Link></p>
+                    <p className={styles.rowName}><Link href={`/products/${encodeURIComponent(item.productId)}`}>{item.name}</Link></p>
                     <p className={cartStyles.meta}>Арт. {item.sku}{item.manufacturer ? ` · ${item.manufacturer}` : ""}</p>
                   </div>
-                  <dl className={styles.lineFigures}>
+                  <dl className={styles.rowFigures}>
                     <div><dt>Количество</dt><dd>{item.quantity}</dd></div>
                     <div><dt>Цена</dt><dd>{formatMoney(item.unitPriceMinor, currency)}</dd></div>
                     <div><dt>Сумма</dt><dd>{formatMoney(item.lineTotalMinor, currency)}</dd></div>
@@ -70,17 +79,19 @@ function OrderDetails({ order, placed }: { order: Order; placed: boolean }) {
             </ul>
           </section>
         </div>
-        <aside aria-labelledby="order-total-title" className={`${cartStyles.summary} ${styles.summary}`}>
+        <aside aria-labelledby="order-total-title" className={cartStyles.summary}>
           <h2 id="order-total-title">Сумма заказа</h2>
           <dl>
             <div><dt>Товаров</dt><dd>{units(order.itemCount)}</dd></div>
             <div className={cartStyles.total}><dt>Итого с доставкой</dt><dd>{formatMoney(order.totalMinor, currency)}</dd></div>
           </dl>
-          <Link className={cartStyles.secondaryLink} href={`/account/orders/${encodeURIComponent(order.id)}/repeat`} prefetch={false}>Повторить заказ</Link>
+          <div className={styles.summaryActions}>
+            <ButtonLink href={`/account/orders/${encodeURIComponent(order.id)}/repeat`} prefetch={false} variant="brand"><RepeatIcon aria-hidden="true" />Повторить заказ</ButtonLink>
+          </div>
           <p className={cartStyles.note}>Названия и цены сохранены на момент оформления.</p>
           <div className={cartStyles.actions}>
-            <Link href="/catalog">Продолжить покупки</Link>
-            <Link href="/cart">Корзина</Link>
+            <Link className={cartStyles.secondaryLink} href="/catalog">Продолжить покупки</Link>
+            <Link className={cartStyles.secondaryLink} href="/cart">Корзина</Link>
           </div>
         </aside>
       </div>
@@ -142,39 +153,52 @@ export function OrderView({ initialSession, orderID }: { initialSession: RouteSe
     content = <OrderDetails order={order} placed={placed?.userID === userID && placed.orderID === order.id} />;
   } else if (status === "anonymous") {
     content = <>
-      <header className={cartStyles.heading}><h1>Заказ</h1></header>
-      <section className={cartStyles.state}>
-        <h2>Войдите, чтобы открыть заказ</h2>
-        <p>Заказы доступны в вашем аккаунте.</p>
-        <LoginLink>Войти</LoginLink>
-        <Button onClick={() => void store.refresh()} variant="secondary">Проверить вход</Button>
-      </section>
+      <PageHeader title="Заказ" />
+      <EmptyState
+        actions={<>
+          <LoginLink className={buttonClassName("primary")}>Войти</LoginLink>
+          <Button onClick={() => void store.refresh()} variant="secondary">Проверить вход</Button>
+        </>}
+        icon={<ReceiptIcon />}
+        title="Войдите, чтобы открыть заказ"
+      >
+        Заказы доступны в вашем аккаунте.
+      </EmptyState>
     </>;
   } else if (status === "unavailable" || status === "failed") {
     content = <>
-      <header className={cartStyles.heading}><h1>Заказ</h1></header>
-      <section className={cartStyles.state}>
-        <h2>Заказ временно недоступен</h2>
-        <p>Не удалось проверить вход или загрузить заказ.</p>
-        <Button onClick={() => void store.refresh()} variant="secondary">Повторить загрузку</Button>
+      <PageHeader title="Заказ" />
+      <section className={cartStyles.unavailableState}>
+        <InfoIcon aria-hidden="true" />
+        <div>
+          <h2>Заказ временно недоступен</h2>
+          <p>Не удалось проверить вход или загрузить заказ.</p>
+          <Button onClick={() => void store.refresh()} variant="secondary">Повторить загрузку</Button>
+        </div>
       </section>
     </>;
   } else if (status === "notFound") {
     content = <>
-      <header className={cartStyles.heading}><h1>Заказ не найден</h1></header>
-      <section className={cartStyles.state}>
-        <p>Проверьте ссылку. Заказы другого аккаунта здесь не показываются.</p>
-        <div className={cartStyles.actions}><Link href="/catalog">Перейти в каталог</Link><Link href="/cart">Корзина</Link></div>
-      </section>
+      <PageHeader title="Заказ не найден" />
+      <EmptyState
+        actions={<>
+          <ButtonLink href="/catalog" variant="secondary">Перейти в каталог</ButtonLink>
+          <ButtonLink href="/cart" variant="tertiary">Корзина</ButtonLink>
+        </>}
+        icon={<ReceiptIcon />}
+        title="Такого заказа нет в этом аккаунте"
+      >
+        Проверьте ссылку. Заказы другого аккаунта здесь не показываются.
+      </EmptyState>
     </>;
   } else {
     content = <>
-      <header className={cartStyles.heading}><h1>Заказ</h1></header>
+      <PageHeader title="Заказ" />
       <OrderSkeleton />
     </>;
   }
   return <main className={cartStyles.main} id="main-content"><Container>
-    <Link className={cartStyles.secondaryLink} href="/account/orders" prefetch={false}>Все заказы</Link>
+    <Link className={styles.back} href="/account/orders" prefetch={false}><ArrowRightIcon aria-hidden="true" />Все заказы</Link>
     {content}
   </Container></main>;
 }

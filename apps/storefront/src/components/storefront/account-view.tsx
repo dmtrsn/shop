@@ -2,14 +2,18 @@
 
 import { LoginLink } from "./login-link";
 
-import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 
-import { Button } from "@/components/ui/button";
+import { Button, buttonClassName } from "@/components/ui/button";
 import { Container } from "@/components/ui/container";
+import { EmptyState } from "@/components/ui/empty-state";
+import { InfoIcon, UserIcon } from "@/components/ui/icons";
+import { PageHeader } from "@/components/ui/page-header";
 import { logoutBrowserSession } from "@/lib/api/auth-client";
 import type { RouteSession } from "@/lib/api/browser-session";
+import { initials } from "@/lib/initials";
 
+import { AccountNav } from "./account-nav";
 import { useBrowserSession, useBrowserSessionStore } from "./browser-session-provider";
 import styles from "./account.module.css";
 import cartStyles from "./cart.module.css";
@@ -84,45 +88,60 @@ export function AccountView({ initialSession }: { initialSession: RouteSession }
 
   let content;
   if (status === "anonymous") {
-    content = <section className={cartStyles.state}>
-      <h2 ref={signedOutHeading} tabIndex={-1}>Вы вышли из аккаунта</h2>
-      <p>Войдите, чтобы увидеть данные аккаунта и свои покупки.</p>
-      <div className={cartStyles.actions}>
-        <LoginLink>Войти</LoginLink>
+    content = <EmptyState
+      actions={<>
+        <LoginLink className={buttonClassName("primary")}>Войти</LoginLink>
         <Button variant="secondary" onClick={() => void store.refresh()}>Проверить вход</Button>
-      </div>
-    </section>;
+      </>}
+      icon={<UserIcon />}
+      title="Вы вышли из аккаунта"
+      titleProps={{ ref: signedOutHeading, tabIndex: -1 }}
+    >
+      Войдите, чтобы увидеть данные аккаунта и свои покупки.
+    </EmptyState>;
   } else if (status === "unavailable") {
-    content = <section className={cartStyles.state}>
-      <h2>Аккаунт временно недоступен</h2>
-      <p role="status">Не удалось проверить сессию. Вход или выход из аккаунта не подтверждён.</p>
-      <Button variant="secondary" onClick={() => void store.refresh()}>Повторить проверку</Button>
+    // A failure, not a signed-out state: a solid notice instead of the dashed empty state.
+    content = <section className={cartStyles.unavailableState}>
+      <InfoIcon aria-hidden="true" />
+      <div>
+        <h2>Аккаунт временно недоступен</h2>
+        <p role="status">Не удалось проверить сессию. Вход или выход из аккаунта не подтверждён.</p>
+        <Button variant="secondary" onClick={() => void store.refresh()}>Повторить проверку</Button>
+      </div>
     </section>;
   } else if (status === "authenticated" && session.status === "authenticated") {
-    content = <div className={styles.account}>
-      <dl className={styles.summary}>
-        <div><dt>Имя</dt><dd>{session.account.name}</dd></div>
-        <div><dt>Email</dt><dd>{session.account.email}</dd></div>
-        {session.account.phone ? <div><dt>Телефон</dt><dd>{session.account.phone}</dd></div> : null}
-      </dl>
-      <nav aria-label="Разделы аккаунта" className={styles.links}>
-        <Link href="/account/orders" prefetch={false}>Мои заказы</Link>
-        <Link href="/favorites" prefetch={false}>Избранное</Link>
-        <Link href="/cart" prefetch={false}>Корзина</Link>
-      </nav>
-      <div className={styles.logout}>
-        <Button variant="secondary" disabled={pending} aria-busy={pending} onClick={() => void logout()}>
+    const letters = initials(session.account.name);
+    content = <div className={styles.cards}>
+      <section aria-labelledby="account-profile-title" className={styles.card}>
+        <div className={styles.cardHead}>
+          {/* The name is the textual identity in the list below; the avatar only repeats it. */}
+          {letters ? <span aria-hidden="true" className={styles.avatar}>{letters}</span> : null}
+          <h2 id="account-profile-title">Личные данные</h2>
+        </div>
+        <dl className={styles.summary}>
+          <div><dt>Имя</dt><dd>{session.account.name}</dd></div>
+          <div><dt>Email</dt><dd>{session.account.email}</dd></div>
+          {session.account.phone ? <div><dt>Телефон</dt><dd>{session.account.phone}</dd></div> : null}
+        </dl>
+      </section>
+      <section aria-labelledby="account-session-title" className={`${styles.card} ${styles.logout}`}>
+        <h2 id="account-session-title">Выход</h2>
+        <p className={styles.cardText}>Завершить сеанс в этом браузере.</p>
+        <Button className={styles.logoutButton} variant="secondary" disabled={pending} aria-busy={pending} onClick={() => void logout()}>
           {pending ? "Выходим…" : "Выйти"}
         </Button>
-        <p role="status" aria-live="polite">{pending ? "Проверяем выход из аккаунта…" : notice === "failed"
+        <p className={styles.logoutStatus} role="status" aria-live="polite">{pending ? "Проверяем выход из аккаунта…" : notice === "failed"
           ? "Выход не подтверждён. Проверьте текущий аккаунт и нажмите «Выйти» ещё раз, если хотите выйти." : ""}</p>
-      </div>
+      </section>
     </div>;
   } else content = <AccountSkeleton />;
 
   return <main className={cartStyles.main} id="main-content"><Container>
-    <header className={cartStyles.heading}><h1>Аккаунт</h1></header>
-    {content}
+    <PageHeader title="Аккаунт" subtitle="Личные данные и покупки" />
+    <div className={styles.layout}>
+      <AccountNav current="account" />
+      <div className={styles.content}>{content}</div>
+    </div>
   </Container></main>;
 }
 

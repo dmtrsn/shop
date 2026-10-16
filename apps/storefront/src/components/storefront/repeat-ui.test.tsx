@@ -288,3 +288,37 @@ it("a fresh same-user server Cart gate retains normal route synchronization", as
   await waitFor(() => expect(cart.cart?.items[0].quantity).toBe(6));
   expect(fetcher.mock.calls.filter(([path]) => path === "/api/cart")).toHaveLength(2);
 });
+
+describe("repeat presentation", () => {
+  it("rows keep source identity, show status text and tint limited/unavailable rows", async () => {
+    await ready(repeatPreview(repeatLine(1), repeatLine(5), repeatLine(7, "p03", { status: "limited" }), repeatLine(9, "p04", { status: "unavailable", proposedQuantity: 0, suggestedQuantity: 0 })));
+    const rows = screen.getAllByRole("listitem");
+    expect(rows.map((row) => row.getAttribute("data-source-position"))).toEqual(["1", "5", "7", "9"]);
+    expect(within(rows[0]).getByText("Доступен").className).toMatch(/statusOk/);
+    expect(rows[0].className).not.toMatch(/problem|unavailable/);
+    expect(rows[2].className).toMatch(/problem/); expect(within(rows[2]).getByText("Доступен с ограничениями")).toBeInTheDocument();
+    expect(rows[3].className).toMatch(/unavailable/); expect(within(rows[3]).getByText("Недоступен для добавления")).toBeInTheDocument();
+    expect(within(rows[0]).getByText(/Цена изменилась/).className).toMatch(/change/);
+    expect(submit().className).toMatch(/buttonPrimary/);
+    expect(screen.queryByText(/автоматически|исправлено|скорректир/i)).toBeNull();
+  });
+
+  it("unknown outcome is a warning panel; the footer says Cart is no proof and offers only the same-attempt check", async () => {
+    await ready(); fetcher.mockRejectedValueOnce(new TypeError("offline"));
+    fireEvent.click(submit());
+    const check = await screen.findByRole("button", { name: "Проверить добавление" });
+    const alert = screen.getByRole("alert");
+    expect(alert.className).toMatch(/unknown/);
+    expect(alert).toHaveTextContent("Товары могли быть добавлены");
+    expect(check.parentElement?.className).toMatch(/unknownFooter/);
+    expect(within(check.parentElement!).getByText(/Корзина не подтверждает результат/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Добавить выбранное в корзину" })).toBeNull();
+    expect(posts()).toHaveLength(1);
+  });
+
+  it("a stopped attempt is an error notice, not a warning", async () => {
+    await ready(); error("idempotency_key_reused"); fireEvent.click(submit());
+    await screen.findByText(/ключ запроса уже использован/);
+    expect(screen.getByRole("alert").className).toMatch(/stopped/);
+  });
+});

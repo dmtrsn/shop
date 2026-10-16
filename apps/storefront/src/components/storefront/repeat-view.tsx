@@ -6,8 +6,11 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 
-import { Button } from "@/components/ui/button";
+import { Button, buttonClassName } from "@/components/ui/button";
 import { Container } from "@/components/ui/container";
+import { EmptyState } from "@/components/ui/empty-state";
+import { ArrowRightIcon, InfoIcon, ReceiptIcon, RepeatIcon } from "@/components/ui/icons";
+import { PageHeader } from "@/components/ui/page-header";
 import { BrowserRequestError, ResponseOwnerError } from "@/lib/api/browser-request";
 import type { RouteSession } from "@/lib/api/browser-session";
 import { previewBrowserRepeat } from "@/lib/api/repeat-client";
@@ -18,14 +21,19 @@ import { formatMoney } from "@/lib/money";
 import { useBrowserSession, useBrowserSessionStore } from "./browser-session-provider";
 import { useCart, type RepeatAttempt } from "./cart-provider";
 import cartStyles from "./cart.module.css";
+import { OrderThumb } from "./order-thumb";
+import ordersStyles from "./orders.module.css";
 import styles from "./repeat.module.css";
 
 const statuses = { available: "Доступен", limited: "Доступен с ограничениями", unavailable: "Недоступен для добавления", discontinued: "Снят с продажи" };
+// Row presentation per Go's line status; the status text is always shown too.
+const rowTones = { available: "", limited: styles.problem, unavailable: styles.unavailable, discontinued: styles.unavailable };
+const statusTones = { available: styles.statusOk, limited: styles.statusWarning, unavailable: styles.statusDanger, discontinued: styles.statusDanger };
 type Review = { preview: RepeatPreview; drafts: RepeatDrafts; key: string };
 type Phase = "idle" | "submitting" | "unknown" | "checking" | "added" | "stopped";
 
 export function RepeatSkeleton() {
-  return <p role="status" aria-busy="true">Загружаем условия повтора…</p>;
+  return <p className={styles.loading} role="status" aria-busy="true">Загружаем условия повтора…</p>;
 }
 
 // Keep the same user's operation alive during a transient session check, but
@@ -51,15 +59,22 @@ export function RepeatView({ initialSession, orderID }: { initialSession: RouteS
   const userID = status === "authenticated" && session.status === "authenticated" ? session.userID
     : status === "loading" ? owner : null;
   return <main className={cartStyles.main} id="main-content"><Container>
-    <Link className={cartStyles.secondaryLink} href="/account/orders" prefetch={false}>Все заказы</Link>
-    <header className={cartStyles.heading}><h1>Повторить заказ</h1></header>
-    {status === "anonymous" ? <section className={cartStyles.state}>
-      <h2>Войдите, чтобы повторить заказ</h2>
-      <LoginLink>Войти</LoginLink>
-      <Button onClick={() => void store.refresh()} variant="secondary">Проверить вход</Button>
-    </section> : status === "unavailable" ? <section className={cartStyles.state}>
-      <h2>Повтор заказа временно недоступен</h2>
-      <Button onClick={() => void store.refresh()} variant="secondary">Повторить загрузку</Button>
+    <Link className={ordersStyles.back} href="/account/orders" prefetch={false}><ArrowRightIcon aria-hidden="true" />Все заказы</Link>
+    <PageHeader title="Повторить заказ" subtitle="Наличие и цены проверяются заново; товары добавляются к корзине" />
+    {status === "anonymous" ? <EmptyState
+      actions={<>
+        <LoginLink className={buttonClassName("primary")}>Войти</LoginLink>
+        <Button onClick={() => void store.refresh()} variant="secondary">Проверить вход</Button>
+      </>}
+      icon={<RepeatIcon />}
+      title="Войдите, чтобы повторить заказ"
+    /> : status === "unavailable" ? <section className={cartStyles.unavailableState}>
+      <InfoIcon aria-hidden="true" />
+      <div>
+        <h2>Повтор заказа временно недоступен</h2>
+        <p>Не удалось проверить вход. Повторите проверку, чтобы продолжить.</p>
+        <Button onClick={() => void store.refresh()} variant="secondary">Повторить загрузку</Button>
+      </div>
     </section> : null}
     {status === "loading" || status === "idle" ? <RepeatSkeleton /> : null}
     {userID ? <div hidden={status !== "authenticated"}>
@@ -184,13 +199,22 @@ function RepeatReview({ userID, orderID }: { userID: string; orderID: string }) 
     setReview({ ...owned, drafts: { ...owned.drafts, [position]: { ...owned.drafts[position], ...patch } } });
     setErrors((old) => ({ ...old, [position]: "" }));
   }
-  if (failure?.status === "notFound" && (failure.key === requestKey || phase === "stopped")) return <section className={cartStyles.state}><h2>Заказ не найден</h2><p>Заказ больше недоступен в этом аккаунте.</p></section>;
-  if (failure?.key === requestKey) return <section className={cartStyles.state}><h2>Не удалось загрузить условия повтора</h2><Button onClick={() => { csrfRecovery.current = false; void store.refresh(); }}>Повторить загрузку</Button></section>;
+  if (failure?.status === "notFound" && (failure.key === requestKey || phase === "stopped")) return <EmptyState icon={<ReceiptIcon />} title="Заказ не найден">Заказ больше недоступен в этом аккаунте.</EmptyState>;
+  if (failure?.key === requestKey) return <section className={cartStyles.unavailableState}>
+    <InfoIcon aria-hidden="true" />
+    <div><h2>Не удалось загрузить условия повтора</h2><Button onClick={() => { csrfRecovery.current = false; void store.refresh(); }}>Повторить загрузку</Button></div>
+  </section>;
   if (!owned) return <RepeatSkeleton />;
+  // Unknown outcome is a warning, a stopped attempt an error; anything else a review notice.
+  const noticeTone = phase === "unknown" || phase === "checking" ? styles.unknown : phase === "stopped" ? styles.stopped : styles.notice;
   return <form className={styles.review} noValidate onSubmit={submit}>
-    <h2>Из заказа {owned.preview.orderNumber}</h2>
-    <p>Выберите позиции и количество единиц, которые нужно добавить к уже имеющимся в корзине. Цены и наличие проверяются при подтверждении; товар не резервируется.</p>
-    {notice ? <p className={styles.notice} id="repeat-notice" role="alert" tabIndex={-1}>{notice}</p> : null}
+    <div className={styles.intro}>
+      <h2>Из заказа {owned.preview.orderNumber}</h2>
+      <p>Выберите позиции и количество единиц, которые нужно добавить к уже имеющимся в корзине. Цены и наличие проверяются при подтверждении; товар не резервируется.</p>
+    </div>
+    {notice ? <div className={noticeTone} id="repeat-notice" role="alert" tabIndex={-1}>
+      <InfoIcon aria-hidden="true" /><p>{notice}</p>
+    </div> : null}
     <ul className={styles.list} aria-label="Позиции для повтора">
       {owned.preview.items.map((line) => {
         const draft = owned.drafts[line.sourcePosition];
@@ -199,13 +223,17 @@ function RepeatReview({ userID, orderID }: { userID: string; orderID: string }) 
         const error = errors[line.sourcePosition];
         const number = Number(draft.quantity);
         const final = /^\d+$/.test(draft.quantity) && Number.isSafeInteger(number + line.existingCartQuantity) ? number + line.existingCartQuantity : null;
-        return <li className={styles.row} key={line.sourcePosition} data-source-position={line.sourcePosition}>
-          <div className={styles.history}><h3>{line.name}</h3><p>Арт. {line.sku}</p><p>В заказе: {line.requestedQuantity} · Цена тогда: {formatMoney(line.originalUnitPriceMinor, "RUB")}</p></div>
-          <p className={styles.status}>{statuses[line.status]}</p>
-          {p ? <div><p>Сейчас: {p.name} · {formatMoney(p.priceMinor, p.currency)}</p>
-            {line.priceChanged ? <p>Цена изменилась с момента заказа.</p> : null}
+        // One row per historical source line; duplicates of a product stay separate.
+        return <li className={`${styles.row} ${rowTones[line.status]}`} key={line.sourcePosition} data-source-position={line.sourcePosition}>
+          <div className={styles.rowHead}>
+            <OrderThumb image={line.image} />
+            <div className={styles.history}><h3>{line.name}</h3><p>Арт. {line.sku}</p><p>В заказе: {line.requestedQuantity} · Цена тогда: {formatMoney(line.originalUnitPriceMinor, "RUB")}</p></div>
+            <p className={`${styles.status} ${statusTones[line.status]}`}>{statuses[line.status]}</p>
+          </div>
+          {p ? <div className={styles.current}><p>Сейчас: {p.name} · {formatMoney(p.priceMinor, p.currency)}</p>
+            {line.priceChanged ? <p className={styles.change}>Цена изменилась с момента заказа.</p> : null}
             <p id={`${id}-hint`}>Уже в корзине: {line.existingCartQuantity}. Итог: минимум {p.minimumQuantity}, шаг {p.quantityStep}. В наличии: {p.stock}.</p>
-          </div> : <p>Текущего предложения для исходного товара нет.</p>}
+          </div> : <p className={styles.current}>Текущего предложения для исходного товара нет.</p>}
           <label className={styles.include}><input type="checkbox" checked={draft.include} disabled={locked || !canRepeat(line)} onChange={(event) => edit(line.sourcePosition, { include: event.target.checked })} />Включить: {line.name} (позиция {line.sourcePosition})</label>
           {canRepeat(line) ? <div className={styles.editor}>
             <label htmlFor={id}>Добавить единиц: {line.name} (позиция {line.sourcePosition})</label>
@@ -223,10 +251,14 @@ function RepeatReview({ userID, orderID }: { userID: string; orderID: string }) 
         </li>;
       })}
     </ul>
-    {duplicates ? <p>Несколько позиций относятся к одному товару. Сервер проверит их суммарное добавление, остаток, минимум и шаг.</p> : null}
-    {!capable ? <p>В этом заказе нет товаров, доступных для повтора.</p> : !included.length ? <p>Включите хотя бы одну позицию для добавления.</p> : null}
-    {phase === "unknown" || phase === "checking" ? <Button id="repeat-check" disabled={phase === "checking" || cart.mutationPending} onClick={() => { if (!inFlight.current && frozen.current) void send(frozen.current, true); }}>Проверить добавление</Button>
-      : <Button type="submit" disabled={locked || !included.length}>Добавить выбранное в корзину</Button>}
-    <p role="status" aria-live="polite">{phase === "submitting" ? "Добавляем товары…" : phase === "checking" ? "Проверяем результат добавления…" : phase === "added" ? "Товары добавлены. Открываем корзину…" : ""}</p>
+    <div className={phase === "unknown" || phase === "checking" ? `${styles.footer} ${styles.unknownFooter}` : styles.footer}>
+      {duplicates ? <p className={styles.hint}>Несколько позиций относятся к одному товару. Сервер проверит их суммарное добавление, остаток, минимум и шаг.</p> : null}
+      {!capable ? <p className={styles.hint}>В этом заказе нет товаров, доступных для повтора.</p> : !included.length ? <p className={styles.hint}>Включите хотя бы одну позицию для добавления.</p> : null}
+      {phase === "unknown" || phase === "checking" ? <>
+        <p className={styles.hint}>Корзина не подтверждает результат: товары могли быть добавлены. Не начинайте повтор заново — проверьте этот же запрос.</p>
+        <Button className={styles.cta} id="repeat-check" disabled={phase === "checking" || cart.mutationPending} onClick={() => { if (!inFlight.current && frozen.current) void send(frozen.current, true); }}>Проверить добавление</Button>
+      </> : <Button className={styles.cta} type="submit" disabled={locked || !included.length}>Добавить выбранное в корзину</Button>}
+      <p className={styles.progress} role="status" aria-live="polite">{phase === "submitting" ? "Добавляем товары…" : phase === "checking" ? "Проверяем результат добавления…" : phase === "added" ? "Товары добавлены. Открываем корзину…" : ""}</p>
+    </div>
   </form>;
 }

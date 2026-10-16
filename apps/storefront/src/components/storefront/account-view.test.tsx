@@ -10,8 +10,8 @@ import { PrivateProviders } from "@/test/private-providers";
 import { AccountView } from "./account-view";
 import { useBrowserSessionStore } from "./browser-session-provider";
 
-vi.mock("next/link", () => ({ default: ({ href, children, prefetch }: ComponentProps<typeof Link>) =>
-  <a href={String(href)} data-prefetch={String(prefetch)}>{children}</a> }));
+vi.mock("next/link", () => ({ default: ({ href, children, prefetch, ...rest }: ComponentProps<typeof Link>) =>
+  <a {...rest} href={String(href)} data-prefetch={String(prefetch)}>{children}</a> }));
 
 const fetcher = vi.fn<typeof fetch>();
 let store: BrowserSessionStore;
@@ -49,7 +49,7 @@ describe("account summary", () => {
     expect(screen.getAllByRole("definition").map((node) => node.textContent)).toEqual(["Name A", "A@test.ru", "+7 123"]);
     const links = within(screen.getByRole("navigation", { name: "Разделы аккаунта" })).getAllByRole("link");
     expect(links.map((link) => [link.textContent, link.getAttribute("href")])).toEqual([
-      ["Мои заказы", "/account/orders"], ["Избранное", "/favorites"], ["Корзина", "/cart"],
+      ["Аккаунт", "/account"], ["Мои заказы", "/account/orders"], ["Избранное", "/favorites"], ["Корзина", "/cart"],
     ]);
     for (const link of links) expect(link).toHaveAttribute("data-prefetch", "false");
     expect(screen.queryByRole("textbox")).toBeNull();
@@ -205,5 +205,44 @@ describe("guarded logout", () => {
     await act(async () => { b.resolve(empty("B")); });
     expect(store.get().status).toBe("anonymous");
     expect(requests().filter((r) => r.startsWith("DELETE"))).toHaveLength(2);
+  });
+});
+
+describe("account presentation", () => {
+  function named(name: string) {
+    const body = account();
+    return { ...body, user: { ...body.user, name } };
+  }
+
+  it("shows a decorative initials avatar next to the textual name, current nav section and a secondary logout", async () => {
+    fetcher.mockResolvedValueOnce(jsonResponse(named("Алексей Морозов")));
+    mount();
+    await screen.findByText("Алексей Морозов");
+    const avatar = screen.getByText("АМ");
+    expect(avatar).toHaveAttribute("aria-hidden", "true");
+    expect(screen.getByRole("heading", { level: 2, name: "Личные данные" })).toBeInTheDocument();
+    const nav = screen.getByRole("navigation", { name: "Разделы аккаунта" });
+    expect(within(nav).getByRole("link", { name: "Аккаунт" })).toHaveAttribute("aria-current", "page");
+    expect(within(nav).getAllByRole("link").filter((link) => link.hasAttribute("aria-current"))).toHaveLength(1);
+    const logoutButton = screen.getByRole("button", { name: "Выйти" });
+    expect(logoutButton.className).toMatch(/buttonSecondary/);
+    expect(logoutButton.className).not.toMatch(/buttonPrimary/);
+    expect(requests()).toEqual(["GET /api/auth/session"]);
+  });
+
+  it("uses one initial for a one-word name", async () => {
+    fetcher.mockResolvedValueOnce(jsonResponse(named("анна")));
+    mount();
+    await screen.findByText("анна");
+    expect(screen.getByText("А")).toHaveAttribute("aria-hidden", "true");
+  });
+
+  it("never renders legacy fake profile features", async () => {
+    fetcher.mockResolvedValueOnce(jsonResponse(account("A", "+7 123")));
+    mount(); await ready();
+    expect(screen.queryByText(/18 апреля|Дата рождения|балл|бонус|уровн|Уведомлен|Статусы заказов|Хлебная|Основной адрес|Изменить|Доставка/i)).toBeNull();
+    expect(screen.queryByRole("checkbox")).toBeNull();
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.getAllByRole("button").map((button) => button.textContent)).toEqual(["Выйти"]);
   });
 });
