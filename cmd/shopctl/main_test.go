@@ -71,13 +71,14 @@ func TestPrintStatus(t *testing.T) {
 		MetadataCurrent: true,
 		Migrations: []postgresrepo.MigrationEntry{
 			{Version: "001_init", Checksum: strings.Repeat("a", 64), State: postgresrepo.MigrationApplied},
-			{Version: "002_next", Checksum: strings.Repeat("b", 64), State: postgresrepo.MigrationPending},
+			{Version: "002_demo_seed", Checksum: strings.Repeat("c", 64), State: postgresrepo.MigrationSkipped, Fixture: true},
+			{Version: "003_next", Checksum: strings.Repeat("b", 64), State: postgresrepo.MigrationPending},
 		},
 		Newer: []string{"009_future"},
 	}
 	var out bytes.Buffer
-	printStatus(&out, report)
-	want := "metadata\tcurrent\n001_init\tapplied\taaaaaaaaaaaa\n002_next\tpending\tbbbbbbbbbbbb\n009_future\tnewer-than-binary\t-\nschema\tnot-current\n"
+	printStatus(&out, postgresrepo.FixtureSkip, report)
+	want := "metadata\tcurrent\nfixtures\tskip\n001_init\tapplied\taaaaaaaaaaaa\n002_demo_seed\tskipped\tcccccccccccc\tdemo-fixture\n003_next\tpending\tbbbbbbbbbbbb\n009_future\tnewer-than-binary\t-\nschema\tnot-current\n"
 	if out.String() != want {
 		t.Fatalf("%q", out.String())
 	}

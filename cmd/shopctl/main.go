@@ -42,7 +42,9 @@ const usage = `Usage:
   shopctl migrate --status                              report state; changes nothing
 
 Environment: DATABASE_URL (required), MIGRATIONS_DIR (default migrations),
-APP_MODE (production, development or demo; default production).
+APP_MODE (production, development or demo; default production). APP_MODE
+alone sets the demo-fixture policy: production records 002_demo_seed as
+skipped without running it; development and demo apply it.
 
 Exit codes: 0 success or current, 1 failure or inconsistent schema,
 2 usage or configuration error, 3 --status found pending work.
@@ -94,8 +96,11 @@ func migrate(args []string, stdout, stderr io.Writer) int {
 	if mode == "" {
 		mode = "production"
 	}
-	if mode != "production" && mode != "development" && mode != "demo" {
-		logger.Error("APP_MODE must be production, development, or demo")
+	// The policy comes only from APP_MODE; there is deliberately no flag to
+	// override it.
+	fixtures, err := postgresrepo.FixturePolicyForAppMode(mode)
+	if err != nil {
+		logger.Error(err.Error())
 		return exitUsage
 	}
 	dsn := strings.TrimSpace(os.Getenv("DATABASE_URL"))
@@ -126,7 +131,7 @@ func migrate(args []string, stdout, stderr io.Writer) int {
 		return exitFailure
 	}
 	defer pool.Close()
-	migrator := postgresrepo.Migrator{Directory: directory, LockTimeout: *lockTimeout, Logger: logger}
+	migrator := postgresrepo.Migrator{Directory: directory, Fixtures: fixtures, LockTimeout: *lockTimeout, Logger: logger}
 
 	if *status {
 		report, err := migrator.Status(ctx, pool)
@@ -134,13 +139,13 @@ func migrate(args []string, stdout, stderr io.Writer) int {
 			logger.Error("migration status failed", "error", err)
 			return exitFailure
 		}
-		printStatus(stdout, report)
+		printStatus(stdout, fixtures, report)
 		if !report.Current() {
 			return exitNotCurrent
 		}
 		return exitOK
 	}
-	logger.Info("applying migrations", "mode", mode, "directory", directory)
+	logger.Info("applying migrations", "mode", mode, "fixtures", fixtures.String(), "directory", directory)
 	if err := migrator.Migrate(ctx, pool); err != nil {
 		logger.Error("migration failed", "error", err)
 		return exitFailure
@@ -148,15 +153,21 @@ func migrate(args []string, stdout, stderr io.Writer) int {
 	return exitOK
 }
 
-// printStatus writes one tab-separated line per migration plus a summary.
-func printStatus(w io.Writer, report postgresrepo.SchemaStatus) {
+// printStatus writes one tab-separated line per migration plus a summary. A
+// demo-fixture migration has a fourth column.
+func printStatus(w io.Writer, fixtures postgresrepo.FixturePolicy, report postgresrepo.SchemaStatus) {
 	metadata := "current"
 	if !report.MetadataCurrent {
 		metadata = "legacy-or-absent"
 	}
 	fmt.Fprintf(w, "metadata\t%s\n", metadata)
+	fmt.Fprintf(w, "fixtures\t%s\n", fixtures)
 	for _, migration := range report.Migrations {
-		fmt.Fprintf(w, "%s\t%s\t%s\n", migration.Version, migration.State, migration.Checksum[:12])
+		marker := ""
+		if migration.Fixture {
+			marker = "\tdemo-fixture"
+		}
+		fmt.Fprintf(w, "%s\t%s\t%s%s\n", migration.Version, migration.State, migration.Checksum[:12], marker)
 	}
 	for _, version := range report.Newer {
 		fmt.Fprintf(w, "%s\tnewer-than-binary\t-\n", version)

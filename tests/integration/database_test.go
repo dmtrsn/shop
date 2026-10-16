@@ -75,7 +75,9 @@ func newDatabase(t *testing.T, migrate bool) *database {
 	// Demo options preserve the fixture login; production policy is tested explicitly.
 	db := &database{ctx, pool, store, application.New(store, application.Options{AllowDemoAccount: true})}
 	if migrate {
-		if err := postgres.Migrate(ctx, pool, "../../migrations"); err != nil {
+		// The suite's single fixture choice: every fixture-based test expects
+		// the demo data. Production (FixtureSkip) has dedicated tests.
+		if err := (postgres.Migrator{Directory: "../../migrations", Fixtures: postgres.FixtureApply}).Migrate(ctx, pool); err != nil {
 			t.Fatal(err)
 		}
 	}

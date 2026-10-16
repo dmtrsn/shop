@@ -87,8 +87,16 @@ func (b *lockedBuffer) String() string {
 	return b.buf.String()
 }
 
+// migrator is the development/fixture policy used by the A1 engine tests.
 func migrator(dir string, logs *lockedBuffer) postgres.Migrator {
-	return postgres.Migrator{Directory: dir, Logger: slog.New(slog.NewTextHandler(logs, nil))}
+	return postgres.Migrator{Directory: dir, Fixtures: postgres.FixtureApply, Logger: slog.New(slog.NewTextHandler(logs, nil))}
+}
+
+// productionMigrator is the FixtureSkip policy of APP_MODE=production.
+func productionMigrator(dir string, logs *lockedBuffer) postgres.Migrator {
+	m := migrator(dir, logs)
+	m.Fixtures = postgres.FixtureSkip
+	return m
 }
 
 // migrationDir copies repository migrations (all, or those with the given
@@ -148,6 +156,13 @@ func (d *database) text(t *testing.T, sql string, args ...any) string {
 
 func (d *database) assertChecksumsMatchRepository(t *testing.T) {
 	t.Helper()
+	d.assertRecordedChecksums(t, "applied")
+}
+
+// assertRecordedChecksums requires the repository checksum on all seven rows,
+// "applied" for every schema migration and fixtureOutcome for 002_demo_seed.
+func (d *database) assertRecordedChecksums(t *testing.T, fixtureOutcome string) {
+	t.Helper()
 	rows, err := d.pool.Query(d.ctx, `SELECT version,checksum,outcome FROM schema_migrations ORDER BY version`)
 	if err != nil {
 		t.Fatal(err)
@@ -162,7 +177,11 @@ func (d *database) assertChecksumsMatchRepository(t *testing.T) {
 		}
 		count++
 		want := fileChecksum(t, filepath.Join("../../migrations", version+".up.sql"))
-		if checksum == nil || *checksum != want || outcome != "applied" {
+		wantOutcome := "applied"
+		if version == "002_demo_seed" {
+			wantOutcome = fixtureOutcome
+		}
+		if checksum == nil || *checksum != want || outcome != wantOutcome {
 			t.Errorf("%s checksum=%v outcome=%s", version, checksum, outcome)
 		}
 	}

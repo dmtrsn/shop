@@ -84,6 +84,10 @@ func repository(ctx context.Context, logger *slog.Logger) (domain.Repository, st
 	if err != nil {
 		return nil, "", func() {}, err
 	}
+	fixtures, err := postgresrepo.FixturePolicyForAppMode(mode)
+	if err != nil {
+		return nil, "", func() {}, err
+	}
 	config, err := pgxpool.ParseConfig(url)
 	if err != nil {
 		// pgx parse errors can include the supplied DSN and its credentials.
@@ -105,7 +109,7 @@ func repository(ctx context.Context, logger *slog.Logger) (domain.Repository, st
 		cleanup()
 		return nil, "", func() {}, fmt.Errorf("ping postgres: %w", err)
 	}
-	migrator := postgresrepo.Migrator{Directory: env("MIGRATIONS_DIR", "migrations"), Logger: logger}
+	migrator := postgresrepo.Migrator{Directory: env("MIGRATIONS_DIR", "migrations"), Fixtures: fixtures, Logger: logger}
 	if runMigrations {
 		if mode == "production" {
 			logger.Warn("RUN_MIGRATIONS=true: applying migrations at production startup")
@@ -115,7 +119,7 @@ func repository(ctx context.Context, logger *slog.Logger) (domain.Repository, st
 		migrateCancel()
 		if err != nil {
 			cleanup()
-			return nil, "", func() {}, fmt.Errorf("migrate: %w", err)
+			return nil, "", func() {}, schemaError("migrate", err)
 		}
 	}
 	// Every mode serves only a verified schema; verification never changes it.
@@ -124,12 +128,23 @@ func repository(ctx context.Context, logger *slog.Logger) (domain.Repository, st
 	verifyCancel()
 	if err != nil {
 		cleanup()
-		if errors.Is(err, postgresrepo.ErrSchemaNotCurrent) {
-			return nil, "", func() {}, fmt.Errorf("%w; run `shopctl migrate` before starting the server", err)
-		}
-		return nil, "", func() {}, fmt.Errorf("verify schema: %w", err)
+		return nil, "", func() {}, schemaError("verify schema", err)
 	}
 	return postgresrepo.New(pool), "postgres", cleanup, nil
+}
+
+// schemaError adds the operator action. Only a schema that is merely behind
+// points to shopctl migrate; applied demo fixtures in production have no
+// automatic remedy.
+func schemaError(stage string, err error) error {
+	switch {
+	case errors.Is(err, postgresrepo.ErrDemoFixturesApplied):
+		return fmt.Errorf("%s: %w (refusing to serve production from it; no automatic remediation exists)", stage, err)
+	case errors.Is(err, postgresrepo.ErrSchemaNotCurrent):
+		return fmt.Errorf("%w; run `shopctl migrate` before starting the server", err)
+	default:
+		return fmt.Errorf("%s: %w", stage, err)
+	}
 }
 
 const startupMigrationTimeout = 10 * time.Minute

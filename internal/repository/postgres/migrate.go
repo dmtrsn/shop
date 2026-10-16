@@ -53,6 +53,68 @@ var historicalChecksums = map[string]string{
 	"007_repeat_commits":               "c51eb8d05f01d3652b49c52c540310f246a5698a80653d38c22b5bff8f1c96e5",
 }
 
+// fixtureMigrations are the migrations that load demo business data rather
+// than schema. The set is explicit; nothing is inferred from file names or
+// SQL. Each has a historical checksum, and its file must keep those bytes.
+var fixtureMigrations = map[string]bool{
+	"002_demo_seed": true,
+}
+
+// FixturePolicy decides what a migrator does with fixture migrations. The
+// zero value is invalid, so every caller chooses one.
+type FixturePolicy int
+
+const (
+	// FixtureApply runs fixture migrations and records them "applied"
+	// (development, demo and the fixture-based test suite).
+	FixtureApply FixturePolicy = iota + 1
+	// FixtureSkip runs no fixture SQL and records each fixture migration
+	// "skipped" with its checksum (production).
+	FixtureSkip
+)
+
+func (p FixturePolicy) String() string {
+	switch p {
+	case FixtureApply:
+		return "apply"
+	case FixtureSkip:
+		return "skip"
+	default:
+		return "invalid"
+	}
+}
+
+func (p FixturePolicy) outcome() string {
+	if p == FixtureSkip {
+		return "skipped"
+	}
+	return "applied"
+}
+
+// FixturePolicyForAppMode maps the operator-configured APP_MODE to a fixture
+// policy: production skips demo fixtures, development and demo apply them.
+// Any other value, including "", is an error.
+func FixturePolicyForAppMode(mode string) (FixturePolicy, error) {
+	switch mode {
+	case "production":
+		return FixtureSkip, nil
+	case "development", "demo":
+		return FixtureApply, nil
+	default:
+		return 0, errors.New("APP_MODE must be production, development, or demo")
+	}
+}
+
+// ErrFixturePolicyConflict reports a recorded fixture outcome that the
+// migrator's policy does not accept. A recorded outcome is historical fact
+// and is never changed.
+var ErrFixturePolicyConflict = errors.New("fixture migration outcome conflicts with the fixture policy")
+
+// ErrDemoFixturesApplied is the production case of ErrFixturePolicyConflict:
+// the database contains applied demo fixtures. No migrate run removes them;
+// the database cannot be used for production as-is.
+var ErrDemoFixturesApplied = errors.New("demo fixtures are applied in this database")
+
 // Migrator applies and verifies the *.up.sql files of Directory.
 //
 // Migrate owns one connection taken out of the pool for its whole run and
@@ -65,6 +127,8 @@ var historicalChecksums = map[string]string{
 // INSERT INTO schema_migrations(version) still succeeds.
 type Migrator struct {
 	Directory string
+	// Fixtures is required; Migrate, Status and Verify fail without it.
+	Fixtures FixturePolicy
 	// LockTimeout is SET LOCAL lock_timeout for each migration; zero means
 	// DefaultMigrationLockTimeout.
 	LockTimeout time.Duration
@@ -72,10 +136,11 @@ type Migrator struct {
 	Logger *slog.Logger
 }
 
-// Migrate applies the pending migrations of directory. It is the convenience
-// form used by development startup and tests.
+// Migrate applies the pending migrations of directory, including demo
+// fixtures. It is the convenience form for fixture-based tests only; the
+// server and shopctl choose a policy explicitly.
 func Migrate(ctx context.Context, pool *pgxpool.Pool, directory string) error {
-	return Migrator{Directory: directory}.Migrate(ctx, pool)
+	return Migrator{Directory: directory, Fixtures: FixtureApply}.Migrate(ctx, pool)
 }
 
 // MigrationState is the state of one known migration in the database.
@@ -83,7 +148,12 @@ type MigrationState string
 
 const (
 	MigrationApplied MigrationState = "applied"
+	// MigrationSkipped is a fixture migration recorded without running it.
+	MigrationSkipped MigrationState = "skipped"
 	MigrationPending MigrationState = "pending"
+	// MigrationPendingSkip is a fixture migration that the next migrate will
+	// record as skipped.
+	MigrationPendingSkip MigrationState = "pending-skip"
 	// MigrationChecksumUnrecorded is applied by an earlier binary; the next
 	// migrate records its verified historical checksum.
 	MigrationChecksumUnrecorded MigrationState = "checksum-unrecorded"
@@ -93,6 +163,8 @@ type MigrationEntry struct {
 	Version  string
 	Checksum string
 	State    MigrationState
+	// Fixture marks a demo-fixture migration.
+	Fixture bool
 }
 
 // SchemaStatus describes a database relative to this binary's migrations.
@@ -112,7 +184,7 @@ func (s SchemaStatus) Current() bool {
 		return false
 	}
 	for _, migration := range s.Migrations {
-		if migration.State != MigrationApplied {
+		if migration.State != MigrationApplied && migration.State != MigrationSkipped {
 			return false
 		}
 	}
@@ -126,9 +198,9 @@ func (s SchemaStatus) summary() string {
 	}
 	parts := []string{}
 	if !s.MetadataCurrent {
-		parts = append(parts, "migration metadata is missing or predates checksums")
+		parts = append(parts, "migration metadata is missing or outdated")
 	}
-	if n := counts[MigrationPending]; n > 0 {
+	if n := counts[MigrationPending] + counts[MigrationPendingSkip]; n > 0 {
 		parts = append(parts, fmt.Sprintf("%d pending", n))
 	}
 	if n := counts[MigrationChecksumUnrecorded]; n > 0 {
@@ -142,6 +214,9 @@ func (s SchemaStatus) summary() string {
 // pending migrations in order. A concurrent migrator waits for the lock and
 // then finds nothing to do.
 func (m Migrator) Migrate(ctx context.Context, pool *pgxpool.Pool) error {
+	if err := m.validate(); err != nil {
+		return err
+	}
 	logger := m.logger()
 	lockTimeout := m.LockTimeout
 	if lockTimeout <= 0 {
@@ -179,7 +254,7 @@ func (m Migrator) Migrate(ctx context.Context, pool *pgxpool.Pool) error {
 			return err
 		}
 	}
-	plan, err := planMigrations(files, metadata.applied)
+	plan, err := planMigrations(files, metadata.applied, m.Fixtures)
 	if err != nil {
 		return err
 	}
@@ -192,21 +267,42 @@ func (m Migrator) Migrate(ctx context.Context, pool *pgxpool.Pool) error {
 	for _, file := range plan.adopt {
 		logger.Info("migration checksum adopted", "version", file.version, "checksum", shortChecksum(file.checksum))
 	}
-	for _, file := range plan.pending {
+	applied, skipped := 0, 0
+	for _, pending := range plan.pending {
+		file := pending.migrationFile
 		started := time.Now()
+		if pending.skip {
+			if err := recordSkippedMigration(ctx, conn, file, lockTimeout); err != nil {
+				return err
+			}
+			skipped++
+			logger.Info("fixture migration skipped", "version", file.version, "checksum", shortChecksum(file.checksum))
+			continue
+		}
 		if err := applyMigration(ctx, conn, file, lockTimeout); err != nil {
 			logger.Error("migration failed", "version", file.version, "checksum", shortChecksum(file.checksum), "duration", time.Since(started))
 			return err
 		}
+		applied++
 		logger.Info("migration applied", "version", file.version, "checksum", shortChecksum(file.checksum), "duration", time.Since(started))
 	}
-	logger.Info("migrations complete", "known", len(files), "applied", len(plan.pending), "adopted", len(plan.adopt))
+	logger.Info("migrations complete", "known", len(files), "applied", applied, "skipped", skipped, "adopted", len(plan.adopt), "fixtures", m.Fixtures.String())
+	return nil
+}
+
+func (m Migrator) validate() error {
+	if m.Fixtures != FixtureApply && m.Fixtures != FixtureSkip {
+		return errors.New("migrator fixture policy must be FixtureApply or FixtureSkip")
+	}
 	return nil
 }
 
 // Status reads the migration state. It only runs SELECT statements: it takes
 // no lock, never bootstraps metadata and never executes migration SQL.
 func (m Migrator) Status(ctx context.Context, pool *pgxpool.Pool) (SchemaStatus, error) {
+	if err := m.validate(); err != nil {
+		return SchemaStatus{}, err
+	}
 	files, err := discoverMigrations(m.Directory)
 	if err != nil {
 		return SchemaStatus{}, err
@@ -215,7 +311,7 @@ func (m Migrator) Status(ctx context.Context, pool *pgxpool.Pool) (SchemaStatus,
 	if err != nil {
 		return SchemaStatus{}, err
 	}
-	plan, err := planMigrations(files, metadata.applied)
+	plan, err := planMigrations(files, metadata.applied, m.Fixtures)
 	if err != nil {
 		return SchemaStatus{}, err
 	}
@@ -224,7 +320,9 @@ func (m Migrator) Status(ctx context.Context, pool *pgxpool.Pool) (SchemaStatus,
 }
 
 // Verify is the read-only startup check. It returns ErrSchemaNotCurrent for a
-// schema that migrate can update and another error for an inconsistent one.
+// schema that migrate can update and another error for an inconsistent one,
+// ErrFixturePolicyConflict (and, for FixtureSkip, ErrDemoFixturesApplied)
+// when a recorded fixture outcome contradicts the policy.
 func (m Migrator) Verify(ctx context.Context, pool *pgxpool.Pool) error {
 	status, err := m.Status(ctx, pool)
 	if err != nil {
@@ -341,20 +439,30 @@ type appliedMigration struct {
 	outcome  string
 }
 
+type plannedMigration struct {
+	migrationFile
+	// skip records a fixture migration as skipped instead of running it.
+	skip bool
+}
+
 type migrationPlan struct {
 	status  SchemaStatus
 	adopt   []migrationFile
-	pending []migrationFile
+	pending []plannedMigration
 }
 
-// planMigrations compares the known files with the applied rows. It rejects
-// checksum mismatches, unknown versions inside the known range, pending
-// migrations below an applied version, and unsupported metadata.
-func planMigrations(files []migrationFile, applied []appliedMigration) (migrationPlan, error) {
+// planMigrations compares the known files with the recorded rows under a
+// fixture policy. It rejects checksum mismatches, unknown versions inside the
+// known range, pending migrations below a recorded version, fixture outcomes
+// the policy does not accept, and unsupported metadata.
+func planMigrations(files []migrationFile, applied []appliedMigration, policy FixturePolicy) (migrationPlan, error) {
 	known := make(map[string]migrationFile, len(files))
 	byNumber := make(map[uint64]migrationFile, len(files))
 	var maxKnown uint64
 	for _, file := range files {
+		if fixtureMigrations[file.version] && file.checksum != historicalChecksums[file.version] {
+			return migrationPlan{}, fmt.Errorf("fixture migration %s checksum %s differs from its historical checksum", file.version, shortChecksum(file.checksum))
+		}
 		known[file.version] = file
 		byNumber[file.number] = file
 		maxKnown = max(maxKnown, file.number)
@@ -372,14 +480,19 @@ func planMigrations(files []migrationFile, applied []appliedMigration) (migratio
 		if !ok {
 			return migrationPlan{}, fmt.Errorf("schema_migrations contains unrecognized version %q", row.version)
 		}
-		if row.outcome != "applied" {
+		if row.outcome != "applied" && row.outcome != "skipped" {
 			return migrationPlan{}, fmt.Errorf("migration %s has unsupported outcome %q", row.version, row.outcome)
 		}
 		if highest == "" || number > highestNumber {
 			highest, highestNumber = row.version, number
 		}
 		if file, ok := known[row.version]; ok {
+			if err := checkFixtureOutcome(row, policy); err != nil {
+				return migrationPlan{}, err
+			}
 			switch {
+			case row.checksum == "" && row.outcome == "skipped":
+				return migrationPlan{}, fmt.Errorf("migration %s is recorded skipped without a checksum", row.version)
 			case row.checksum == "":
 				historical, ok := historicalChecksums[row.version]
 				if !ok {
@@ -404,18 +517,27 @@ func planMigrations(files []migrationFile, applied []appliedMigration) (migratio
 	}
 	plan := migrationPlan{status: SchemaStatus{MetadataCurrent: true, Migrations: make([]MigrationEntry, 0, len(files)), Newer: []string{}}}
 	for _, file := range files {
-		entry := MigrationEntry{Version: file.version, Checksum: file.checksum, State: MigrationApplied}
+		fixture := fixtureMigrations[file.version]
+		entry := MigrationEntry{Version: file.version, Checksum: file.checksum, State: MigrationApplied, Fixture: fixture}
 		row, ok := recorded[file.version]
 		switch {
+		case ok && row.outcome == "skipped":
+			entry.State = MigrationSkipped
 		case ok && row.checksum == "":
 			entry.State = MigrationChecksumUnrecorded
 			plan.adopt = append(plan.adopt, file)
 		case !ok:
+			// A missing fixture under later versions is a gap like any other;
+			// it is never filled in as skipped.
 			if highest != "" && file.number < highestNumber {
 				return migrationPlan{}, fmt.Errorf("migration %s is pending but later migration %s is already applied", file.version, highest)
 			}
+			skip := fixture && policy == FixtureSkip
 			entry.State = MigrationPending
-			plan.pending = append(plan.pending, file)
+			if skip {
+				entry.State = MigrationPendingSkip
+			}
+			plan.pending = append(plan.pending, plannedMigration{migrationFile: file, skip: skip})
 		}
 		plan.status.Migrations = append(plan.status.Migrations, entry)
 	}
@@ -426,31 +548,61 @@ func planMigrations(files []migrationFile, applied []appliedMigration) (migratio
 	return plan, nil
 }
 
+// checkFixtureOutcome accepts a recorded known migration under the policy:
+// only fixture migrations may be skipped, and a fixture's recorded outcome
+// must be the one the policy produces.
+func checkFixtureOutcome(row appliedMigration, policy FixturePolicy) error {
+	if !fixtureMigrations[row.version] {
+		if row.outcome == "skipped" {
+			return fmt.Errorf("migration %s is recorded skipped but is not a fixture migration", row.version)
+		}
+		return nil
+	}
+	if row.outcome == policy.outcome() {
+		return nil
+	}
+	if policy == FixtureSkip {
+		return fmt.Errorf("%w: %w: migration %s ran in this database, so it contains demo business data and cannot be used for production as-is; migrate does not remove it. Use a fresh production database", ErrFixturePolicyConflict, ErrDemoFixturesApplied, row.version)
+	}
+	return fmt.Errorf("%w: migration %s is recorded skipped (a production database); refusing to treat it as a demo database with fixtures", ErrFixturePolicyConflict, row.version)
+}
+
 type migrationQuerier interface {
 	QueryRow(context.Context, string, ...any) pgx.Row
 	Query(context.Context, string, ...any) (pgx.Rows, error)
 }
 
 type migrationMetadata struct {
-	// current means schema_migrations exists with checksum and outcome.
+	// current means schema_migrations has the shape this binary writes:
+	// checksum and outcome columns and the outcome constraint that allows
+	// "skipped".
 	current bool
 	applied []appliedMigration
 }
 
+// Outcome constraints by metadata generation. A1 allowed only "applied".
+const (
+	outcomeConstraintA1 = "schema_migrations_outcome_known"
+	outcomeConstraint   = "schema_migrations_outcome_allowed"
+)
+
 func readMigrationMetadata(ctx context.Context, q migrationQuerier) (migrationMetadata, error) {
-	var exists, checksum, outcome bool
+	var exists, checksum, outcome, allowed, legacyConstraint bool
 	err := q.QueryRow(ctx, `SELECT to_regclass('schema_migrations') IS NOT NULL,
 		EXISTS(SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass('schema_migrations') AND attname='checksum' AND NOT attisdropped),
-		EXISTS(SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass('schema_migrations') AND attname='outcome' AND NOT attisdropped)`).Scan(&exists, &checksum, &outcome)
+		EXISTS(SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass('schema_migrations') AND attname='outcome' AND NOT attisdropped),
+		EXISTS(SELECT 1 FROM pg_constraint WHERE conrelid=to_regclass('schema_migrations') AND conname=$1),
+		EXISTS(SELECT 1 FROM pg_constraint WHERE conrelid=to_regclass('schema_migrations') AND conname=$2)`,
+		outcomeConstraint, outcomeConstraintA1).Scan(&exists, &checksum, &outcome, &allowed, &legacyConstraint)
 	if err != nil {
 		return migrationMetadata{}, fmt.Errorf("inspect migration metadata: %w", err)
 	}
-	metadata := migrationMetadata{current: exists && checksum && outcome, applied: []appliedMigration{}}
+	metadata := migrationMetadata{current: exists && checksum && outcome && allowed && !legacyConstraint, applied: []appliedMigration{}}
 	if !exists {
 		return metadata, nil
 	}
 	query := `SELECT version,'','applied' FROM schema_migrations`
-	if metadata.current {
+	if checksum && outcome {
 		query = `SELECT version,COALESCE(checksum,''),outcome FROM schema_migrations`
 	}
 	rows, err := q.Query(ctx, query)
@@ -478,12 +630,37 @@ func bootstrapMigrationMetadata(ctx context.Context, conn *pgx.Conn, lockTimeout
 		if _, err := tx.Exec(ctx, `CREATE TABLE IF NOT EXISTS schema_migrations (version text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now())`); err != nil {
 			return fmt.Errorf("create migration metadata: %w", err)
 		}
-		// Column constraints are added only together with their column, so a
+		// A column constraint is added only together with its column, so a
 		// rerun adds nothing.
 		if _, err := tx.Exec(ctx, `ALTER TABLE schema_migrations
 			ADD COLUMN IF NOT EXISTS checksum text CONSTRAINT schema_migrations_checksum_format CHECK (checksum ~ '^[0-9a-f]{64}$'),
-			ADD COLUMN IF NOT EXISTS outcome text NOT NULL DEFAULT 'applied' CONSTRAINT schema_migrations_outcome_known CHECK (outcome IN ('applied'))`); err != nil {
+			ADD COLUMN IF NOT EXISTS outcome text NOT NULL DEFAULT 'applied'`); err != nil {
 			return fmt.Errorf("expand migration metadata: %w", err)
+		}
+		// Replace A1's applied-only constraint. The default stays "applied",
+		// so INSERT INTO schema_migrations(version) of earlier binaries works.
+		if _, err := tx.Exec(ctx, `ALTER TABLE schema_migrations DROP CONSTRAINT IF EXISTS `+outcomeConstraintA1); err != nil {
+			return fmt.Errorf("expand migration metadata: %w", err)
+		}
+		var present bool
+		if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pg_constraint WHERE conrelid='schema_migrations'::regclass AND conname=$1)`, outcomeConstraint).Scan(&present); err != nil {
+			return fmt.Errorf("inspect migration metadata: %w", err)
+		}
+		if !present {
+			if _, err := tx.Exec(ctx, `ALTER TABLE schema_migrations ADD CONSTRAINT `+outcomeConstraint+` CHECK (outcome IN ('applied','skipped'))`); err != nil {
+				return fmt.Errorf("expand migration metadata: %w", err)
+			}
+		}
+		return nil
+	})
+}
+
+// recordSkippedMigration records a fixture migration as skipped with its
+// checksum. None of the file's SQL runs.
+func recordSkippedMigration(ctx context.Context, conn *pgx.Conn, file migrationFile, lockTimeout time.Duration) error {
+	return inMigrationTx(ctx, conn, lockTimeout, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, `INSERT INTO schema_migrations(version,checksum,outcome) VALUES($1,$2,'skipped')`, file.version, file.checksum); err != nil {
+			return fmt.Errorf("record skipped migration %s: %w", file.version, err)
 		}
 		return nil
 	})

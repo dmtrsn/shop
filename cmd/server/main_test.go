@@ -2,10 +2,14 @@ package main
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"strings"
 	"testing"
+
+	postgresrepo "sweetshop/internal/repository/postgres"
 )
 
 func TestRepositoryMode(t *testing.T) {
@@ -74,6 +78,21 @@ func TestInvalidRunMigrationsFailsBeforeConnecting(t *testing.T) {
 	defer cleanup()
 	if repo != nil || err == nil || !strings.Contains(err.Error(), "RUN_MIGRATIONS") {
 		t.Fatalf("invalid RUN_MIGRATIONS: %v", err)
+	}
+}
+
+func TestSchemaErrorGuidesTheOperator(t *testing.T) {
+	behind := schemaError("verify schema", fmt.Errorf("%w: 1 pending", postgresrepo.ErrSchemaNotCurrent))
+	if !strings.Contains(behind.Error(), "run `shopctl migrate`") {
+		t.Fatal(behind)
+	}
+	fixtures := schemaError("verify schema", fmt.Errorf("%w: %w: use a fresh production database", postgresrepo.ErrFixturePolicyConflict, postgresrepo.ErrDemoFixturesApplied))
+	if strings.Contains(fixtures.Error(), "shopctl migrate") || !strings.Contains(fixtures.Error(), "fresh production database") || !errors.Is(fixtures, postgresrepo.ErrDemoFixturesApplied) {
+		t.Fatal(fixtures)
+	}
+	other := schemaError("migrate", errors.New("checksum mismatch"))
+	if strings.Contains(other.Error(), "shopctl") || !strings.Contains(other.Error(), "migrate: checksum mismatch") {
+		t.Fatal(other)
 	}
 }
 
