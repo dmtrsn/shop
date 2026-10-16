@@ -2,9 +2,11 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 
 import { Container } from "@/components/ui/container";
+import { Panel } from "@/components/ui/panel";
 import type { Product } from "@/lib/api/product";
 import { categoryUrl } from "@/lib/category-tree";
 
+import { ProductBadges } from "./product-badges";
 import { ProductGallery } from "./product-gallery";
 import { ProductOffer } from "./product-offer";
 import { ProductPurchase } from "./product-purchase";
@@ -47,56 +49,58 @@ export function ProductDetail({ product }: ProductDetailProps) {
             <ProductGallery images={productImages(product)} productName={product.name} />
 
             <div className={styles.productInfo}>
+              <p className={styles.eyebrow}>{product.category.name}</p>
+              <h1>{product.name}</h1>
               <p aria-label="Производитель, бренд и серия" className={styles.lineage}>
                 <span>{product.manufacturer.name}</span>
-                <span aria-hidden="true">/</span>
+                <span aria-hidden="true">·</span>
                 <span>{product.brand.name}</span>
                 {product.series ? (
                   <>
-                    <span aria-hidden="true">/</span>
+                    <span aria-hidden="true">·</span>
                     <span>{product.series}</span>
                   </>
                 ) : null}
               </p>
+              <ProductBadges badges={product.badges} className={styles.badges} limit={product.badges.length} />
 
-              <h1>{product.name}</h1>
-              <div className={styles.identity}>
-                <span>Артикул: {product.sku}</span>
-                <span>{product.unit}</span>
+              {/* Fact chips: only real packaging and identity fields. */}
+              <dl className={styles.facts}>
+                <div><dt>Упаковка</dt><dd>{product.unit}</dd></div>
+                <div><dt>Артикул</dt><dd>{product.sku}</dd></div>
                 {product.weightGrams && !product.unit.includes(String(product.weightGrams)) ? (
-                  <span>{product.weightGrams} г</span>
+                  <div><dt>Вес</dt><dd>{product.weightGrams} г</dd></div>
                 ) : null}
-              </div>
+              </dl>
 
-              <ProductOffer product={product} part="price" detail />
-              <ProductOffer product={product} part="stock" detail />
+              {product.description ? (
+                <section aria-labelledby="description-heading" className={styles.description}>
+                  <h2 id="description-heading">Описание</h2>
+                  <p>{product.description}</p>
+                </section>
+              ) : null}
 
-              <ProductPurchase product={product} />
+              <Panel aria-label="Цена и покупка" as="section" className={styles.offer} padding="lg">
+                <ProductOffer product={product} part="price" detail />
+                <ProductOffer product={product} part="stock" detail />
+                <ProductPurchase product={product} />
+              </Panel>
             </div>
           </div>
 
-          <div className={styles.details}>
-            {product.description ? (
-              <section aria-labelledby="description-heading" className={styles.description}>
-                <h2 id="description-heading">Описание</h2>
-                <p>{product.description}</p>
-              </section>
-            ) : null}
-
-            {presentAttributes.length ? (
-              <section aria-labelledby="attributes-heading" className={styles.attributes}>
-                <h2 id="attributes-heading">О товаре</h2>
-                <dl>
-                  {presentAttributes.map(([label, value]) => (
-                    <div key={label}>
-                      <dt>{label}</dt>
-                      <dd>{value}</dd>
-                    </div>
-                  ))}
-                </dl>
-              </section>
-            ) : null}
-          </div>
+          {presentAttributes.length ? (
+            <section aria-labelledby="attributes-heading" className={styles.attributes}>
+              <h2 id="attributes-heading">О товаре</h2>
+              <dl>
+                {presentAttributes.map(([label, value]) => (
+                  <div key={label}>
+                    <dt>{label}</dt>
+                    <dd>{value}</dd>
+                  </div>
+                ))}
+              </dl>
+            </section>
+          ) : null}
         </article>
       </Container>
     </main>

@@ -73,6 +73,7 @@
   --font-size-eyebrow: 0.6875rem;
   --font-size-card-title: 0.9375rem;
   --font-size-price: 1.25rem;
+  --font-size-price-detail: 1.8125rem;
   --font-size-page-title: clamp(2.125rem, 5vw, 3.625rem);
   --font-size-section-title: clamp(1.75rem, 3vw, 2.625rem);
   --font-size-hero: clamp(3rem, 6vw, 5.125rem);

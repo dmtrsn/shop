@@ -5,6 +5,7 @@ import type { Product } from "@/lib/api/product";
 import { CartControl } from "./cart-control";
 import { CatalogProductImage } from "./catalog-product-image";
 import { FavoriteButton } from "./favorite-button";
+import { ProductBadges } from "./product-badges";
 import { ProductOffer } from "./product-offer";
 import styles from "./catalog.module.css";
 
@@ -17,14 +18,6 @@ function productLineage(product: Product): string {
   return values.join(" · ");
 }
 
-// Backend badges only, shown verbatim. Tone follows the text: "Новинка" is lime,
-// a reduced-price badge ("-10%", "Скидка …") is the sale tone, anything else neutral.
-function badgeTone(badge: string): string {
-  if (/^новинк/i.test(badge)) return styles.badgeNew;
-  if (/^[-−]\s?\d+\s?%$|скидк/i.test(badge)) return styles.badgeSale;
-  return "";
-}
-
 function ProductMedia({ product }: { product: Product }) {
   return (
     <Link
@@ -33,13 +26,7 @@ function ProductMedia({ product }: { product: Product }) {
       href={`/products/${product.slug}`}
     >
       <CatalogProductImage image={product.image} name={product.name} />
-      {product.badges.length ? (
-        <span className={styles.badges}>
-          {product.badges.slice(0, 2).map((badge) => (
-            <span className={badgeTone(badge)} key={badge}>{badge}</span>
-          ))}
-        </span>
-      ) : null}
+      <ProductBadges badges={product.badges} className={styles.badges} />
     </Link>
   );
 }

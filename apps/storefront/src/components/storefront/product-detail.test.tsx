@@ -1,4 +1,4 @@
-import { fireEvent, screen } from "@testing-library/react";
+import { fireEvent, screen, within } from "@testing-library/react";
 import { render } from "@/test/render-with-favorites";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
@@ -63,6 +63,65 @@ describe("ProductDetail", () => {
     expect(quantity).toHaveValue("4");
     expect(screen.getByRole("button", { name: /добавить в корзину/i })).toHaveAttribute("aria-disabled", "true");
     expect(screen.getByText(/не резервирует товар/i)).toBeInTheDocument();
+  });
+
+  it("has one h1, a category eyebrow, real lineage and section headings", () => {
+    render(<ProductDetail product={product} />);
+
+    expect(screen.getAllByRole("heading", { level: 1 }).map((heading) => heading.textContent)).toEqual([product.name]);
+    expect(screen.getAllByRole("heading", { level: 2 }).map((heading) => heading.textContent)).toEqual(["Описание", "О товаре"]);
+    expect(screen.getByLabelText("Производитель, бренд и серия")).toHaveTextContent("Choco Atelier·Choco Atelier·Origins");
+    const breadcrumbs = screen.getByRole("navigation", { name: "Хлебные крошки" });
+    expect(within(breadcrumbs).getByRole("link", { name: "Главная" })).toHaveAttribute("href", "/");
+    expect(within(breadcrumbs).getByText(product.name)).toHaveAttribute("aria-current", "page");
+  });
+
+  it("shows every real badge verbatim in the shared tones", () => {
+    render(<ProductDetail product={{ ...product, badges: ["Новинка", "-11%", "Хит"] }} />);
+
+    expect(screen.getByText("Новинка").className).toMatch(/badgeNew/);
+    expect(screen.getByText("-11%").className).toMatch(/badgeSale/);
+    expect(screen.getByText("Хит").className).not.toMatch(/badgeNew|badgeSale/);
+  });
+
+  it("limits fact chips to real packaging and identity data and adds no claims", () => {
+    const { container } = render(<ProductDetail product={product} />);
+
+    const facts = container.querySelector("dl")!;
+    expect([...facts.querySelectorAll("dt")].map((term) => term.textContent)).toEqual(["Упаковка", "Артикул"]);
+    expect(within(facts as HTMLElement).getByText("плитка 90 г")).toBeInTheDocument();
+    expect(within(facts as HTMLElement).getByText("CHA-701")).toBeInTheDocument();
+    expect(container.textContent).not.toMatch(/★|рейтинг|отзыв|популяр|бестселлер|доставк|похожие/i);
+
+    render(<ProductDetail product={{ ...product, unit: "коробка", weightGrams: 200 }} />);
+    expect(screen.getAllByText("200 г")).toHaveLength(1);
+  });
+
+  it("groups price, stock and the real controls in one offer panel", () => {
+    const { container } = render(<ProductDetail product={product} />);
+
+    const offer = screen.getByRole("region", { name: "Цена и покупка" });
+    expect(within(offer).getByLabelText("Цена")).toHaveTextContent(/489,00\s*₽/);
+    expect(within(offer).getByText(/549,00\s*₽/).tagName).toBe("DEL");
+    expect(within(offer).getByRole("button", { name: /добавить в корзину/i })).toBeInTheDocument();
+    const favorite = container.querySelector('[data-favorite-product="p01"]')!;
+    expect(offer).toContainElement(favorite as HTMLElement);
+    expect(favorite.closest("a")).toBeNull();
+  });
+
+  it("does not fabricate a discount when there is no old price", () => {
+    render(<ProductDetail product={{ ...product, oldPriceMinor: undefined, badges: [] }} />);
+
+    expect(screen.getByLabelText("Цена").querySelector("del")).toBeNull();
+    expect(screen.queryByText(/[-−]\d+\s?%/)).toBeNull();
+  });
+
+  it("states unavailability truthfully and offers no purchase", () => {
+    render(<ProductDetail product={{ ...product, stock: 0 }} />);
+
+    expect(screen.getByText("Нет в наличии")).toBeInTheDocument();
+    expect(screen.getByText("Покупка недоступна")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /добавить в корзину/i })).toBeNull();
   });
 
   it("links the product category to its canonical category page", () => {
