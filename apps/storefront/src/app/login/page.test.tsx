@@ -2,12 +2,12 @@ import { render, screen } from "@testing-library/react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { getServerSession, getDemoLoginAllowed, redirect } = vi.hoisted(() => ({
+const { getServerSession, getAuthCapabilities, redirect } = vi.hoisted(() => ({
   getServerSession: vi.fn(),
-  getDemoLoginAllowed: vi.fn(),
+  getAuthCapabilities: vi.fn(),
   redirect: vi.fn((target: string) => { throw Object.assign(new Error("NEXT_REDIRECT"), { target }); }),
 }));
-vi.mock("@/lib/api/session", () => ({ getServerSession, getDemoLoginAllowed }));
+vi.mock("@/lib/api/session", () => ({ getServerSession, getAuthCapabilities }));
 vi.mock("next/navigation", () => ({ redirect }));
 // The client form is tested separately; here only the server-normalized target matters.
 vi.mock("@/components/storefront/login-form", () => ({
@@ -27,7 +27,7 @@ const targetOf = (element: Awaited<ReturnType<typeof Page>>) => {
 beforeEach(() => {
   vi.clearAllMocks();
   getServerSession.mockResolvedValue({ status: "anonymous" });
-  getDemoLoginAllowed.mockResolvedValue(false);
+  getAuthCapabilities.mockResolvedValue({ status: "available", demoLogin: false, selfService: false });
 });
 
 describe("/login server page", () => {
@@ -64,7 +64,7 @@ describe("/login server page", () => {
     expect(redirect).toHaveBeenCalledExactlyOnceWith("/account");
     await expect(page({ returnTo: "https://evil.example/" })).rejects.toMatchObject({ target: "/" });
     await expect(page({ returnTo: ["/cart", "/cart"] })).rejects.toMatchObject({ target: "/" });
-    expect(getDemoLoginAllowed).not.toHaveBeenCalled();
+    expect(getAuthCapabilities).not.toHaveBeenCalled();
   });
 
   it("keeps the form when the session check is unavailable, with a neutral notice", async () => {
@@ -79,11 +79,23 @@ describe("/login server page", () => {
   it("shows the demo account only when Go explicitly advertises it", async () => {
     render(await page());
     expect(screen.queryByText(/Демо-режим/)).toBeNull();
-    getDemoLoginAllowed.mockResolvedValue(true);
+    getAuthCapabilities.mockResolvedValue({ status: "available", demoLogin: true, selfService: false });
     const html = renderToStaticMarkup(await page());
     expect(html).toContain("Демо-режим");
     expect(html).toContain("demo@sugar.ru");
     expect(html).not.toContain('value="Sweet2026!"');
+  });
+
+  it("offers registration only when Go says self-registration works here", async () => {
+    render(await page());
+    expect(screen.queryByRole("link", { name: "Создать аккаунт" })).toBeNull();
+    getAuthCapabilities.mockResolvedValue({ status: "unavailable" });
+    expect(renderToStaticMarkup(await page())).not.toContain("Создать аккаунт");
+    getAuthCapabilities.mockResolvedValue({ status: "available", demoLogin: false, selfService: true });
+    const html = renderToStaticMarkup(await page({ returnTo: "/checkout" }));
+    expect(html).toContain('href="/register"');
+    expect(html).toContain("Создать аккаунт");
+    expect(html).not.toMatch(/забыли пароль|forgot-password/i);
   });
 
   it("has a busy loading state", () => {

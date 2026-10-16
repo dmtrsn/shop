@@ -1,11 +1,12 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { LoginForm } from "@/components/storefront/login-form";
 import styles from "@/components/storefront/login.module.css";
 import cartStyles from "@/components/storefront/cart.module.css";
 import { Container } from "@/components/ui/container";
-import { getDemoLoginAllowed, getServerSession } from "@/lib/api/session";
+import { getAuthCapabilities, getServerSession } from "@/lib/api/session";
 import { loginReturnTarget } from "@/lib/return-to";
 
 export const dynamic = "force-dynamic";
@@ -20,7 +21,10 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
   const session = await getServerSession();
   // redirect() adds any basePath. Only a confirmed session skips the form.
   if (session.status === "authenticated") redirect(target);
-  const demoLogin = await getDemoLoginAllowed();
+  const capabilities = await getAuthCapabilities();
+  const demoLogin = capabilities.status === "available" && capabilities.demoLogin;
+  // Only when Go says self-registration works here; never inferred.
+  const selfService = capabilities.status === "available" && capabilities.selfService;
   return (
     <main className={cartStyles.main} id="main-content">
       <Container>
@@ -33,6 +37,11 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
             </p>
           ) : null}
           <LoginForm target={target} />
+          {selfService ? (
+            <p className={styles.links}>
+              Нет аккаунта? <Link href="/register">Создать аккаунт</Link>
+            </p>
+          ) : null}
           {/* Shown only when Go explicitly advertises its seeded demo account. */}
           {demoLogin ? (
             <p className={styles.demo}>

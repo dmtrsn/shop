@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { getDemoLoginAllowed, getServerSession, parseServerSession, sessionCookieHeader } from "./session";
+import { getAuthCapabilities, getDemoLoginAllowed, getServerSession, parseServerSession, sessionCookieHeader } from "./session";
 
 // The raw incoming Cookie header, which (unlike a name-keyed map) can repeat names.
 const cookieJar = vi.hoisted(() => ({ pairs: [] as [string, string][] }));
@@ -236,5 +236,27 @@ describe("getDemoLoginAllowed", () => {
     await expect(getDemoLoginAllowed({ fetcher })).resolves.toBe(false);
     fetcher.mockRejectedValueOnce(new TypeError("offline"));
     await expect(getDemoLoginAllowed({ fetcher })).resolves.toBe(false);
+  });
+});
+
+describe("getAuthCapabilities", () => {
+  it("reports selfService and demoLogin only when Go sends exactly true, without browser cookies", async () => {
+    cookieJar.pairs.push([SECURE, TOKEN]);
+    fetcher.mockResolvedValueOnce(json({ authenticated: false, demoLogin: false, selfService: true }));
+    await expect(getAuthCapabilities({ fetcher })).resolves.toEqual({ status: "available", demoLogin: false, selfService: true });
+    expect(sentCookie()).toBeNull();
+    fetcher.mockResolvedValueOnce(json({ authenticated: false, demoLogin: true, selfService: "true" }));
+    await expect(getAuthCapabilities({ fetcher })).resolves.toEqual({ status: "available", demoLogin: true, selfService: false });
+    fetcher.mockResolvedValueOnce(json({ authenticated: false }));
+    await expect(getAuthCapabilities({ fetcher })).resolves.toEqual({ status: "available", demoLogin: false, selfService: false });
+  });
+
+  it("is unavailable, not disabled, when Go fails, is unreachable or answers nonsense", async () => {
+    fetcher.mockResolvedValueOnce(json({ error: { code: "internal_error" } }, 500));
+    await expect(getAuthCapabilities({ fetcher })).resolves.toEqual({ status: "unavailable" });
+    fetcher.mockRejectedValueOnce(new TypeError("offline"));
+    await expect(getAuthCapabilities({ fetcher })).resolves.toEqual({ status: "unavailable" });
+    fetcher.mockResolvedValueOnce(json([true]));
+    await expect(getAuthCapabilities({ fetcher })).resolves.toEqual({ status: "unavailable" });
   });
 });

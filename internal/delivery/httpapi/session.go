@@ -360,6 +360,9 @@ type sessionStateResponse struct {
 	ExpiresAt     *time.Time   `json:"expiresAt,omitempty"`
 	CSRFToken     string       `json:"csrfToken,omitempty"`
 	DemoLogin     bool         `json:"demoLogin"`
+	// SelfService: customers can register themselves here (PostgreSQL and
+	// working email). Clients never infer it.
+	SelfService bool `json:"selfService"`
 }
 
 // startSession is the browser login. It requires a trusted Origin (login CSRF)
@@ -388,15 +391,13 @@ func (s *Server) startSession(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, r, err)
 		return
 	}
-	s.setSessionCookie(w, result.Token, result.ExpiresAt)
-	setAuthTransport(r, string(domain.SessionCookie))
-	writeJSON(w, http.StatusOK, cookieSessionResponse{User: result.User, ExpiresAt: result.ExpiresAt, CSRFToken: csrfToken(result.Token)})
+	s.writeCookieSession(w, r, result)
 }
 
 // sessionState reports the cookie session only; Authorization is ignored.
 func (s *Server) sessionState(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
-	state := sessionStateResponse{DemoLogin: s.service.DemoLoginAllowed()}
+	state := sessionStateResponse{DemoLogin: s.service.DemoLoginAllowed(), SelfService: s.selfServiceEnabled()}
 	cookie, hasCookie, err := s.sessionCookie(r)
 	if err != nil || !hasCookie {
 		writeJSON(w, http.StatusOK, state)

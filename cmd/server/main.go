@@ -61,6 +61,21 @@ func main() {
 		logger.Error("invalid staff session configuration", "error", err)
 		os.Exit(1)
 	}
+	registrations, err := selfService(repo, service, mail, logger)
+	if err != nil {
+		logger.Error("invalid self-registration configuration", "error", err)
+		os.Exit(1)
+	}
+	cleanupDone := make(chan struct{})
+	if registrations != nil {
+		options = append(options, httpapi.WithSelfService(registrations))
+		go func() {
+			defer close(cleanupDone)
+			registrations.RunCleanup(ctx, registrationCleanupInterval)
+		}()
+	} else {
+		close(cleanupDone)
+	}
 	handler := httpapi.New(service, logger, env("WEB_DIR", "web"), storage, sessions, options...)
 	server := &http.Server{Addr: env("HTTP_ADDR", ":"+env("PORT", "8080")), Handler: handler, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 75 * time.Second, MaxHeaderBytes: 1 << 20}
 	shutdownDone := make(chan struct{})
@@ -86,23 +101,33 @@ func main() {
 	// ListenAndServe returns as soon as Shutdown starts; requests still in
 	// flight may enqueue email, so drain only after Shutdown has finished.
 	<-shutdownDone
+	// The cleanup loop stops with ctx; wait so it never outlives the pool.
+	<-cleanupDone
 	if mail != nil {
 		drainCtx, drainCancel := context.WithTimeout(context.Background(), emailDrainTimeout)
 		defer drainCancel()
-		if err := mail.Shutdown(drainCtx); err != nil {
+		if err := mail.dispatcher.Shutdown(drainCtx); err != nil {
 			logger.Error("email drain", "error", err)
 		}
 	}
 }
 
-const emailDrainTimeout = 10 * time.Second
+const (
+	emailDrainTimeout           = 10 * time.Second
+	registrationCleanupInterval = 15 * time.Minute
+)
+
+// outgoingEmail is a running dispatcher and the origin its links use.
+type outgoingEmail struct {
+	dispatcher *email.Dispatcher
+	origin     email.PublicOrigin
+}
 
 // emailDispatcher validates the email configuration and starts the
-// dispatcher, or returns nil when no transport is configured. Self-service
-// (A7/A8) will enqueue through it; until then nothing does, and the shop works
-// without email. PUBLIC_SHOP_ORIGIN, which emailed links use, must be one of
-// the shop's own TRUSTED_ORIGINS.
-func emailDispatcher(mode string, sessions httpapi.SessionConfig, logger *slog.Logger) (*email.Dispatcher, error) {
+// dispatcher, or returns nil when no transport is configured; the shop then
+// works without email and without self-registration. PUBLIC_SHOP_ORIGIN,
+// which emailed links use, must be one of the shop's own TRUSTED_ORIGINS.
+func emailDispatcher(mode string, sessions httpapi.SessionConfig, logger *slog.Logger) (*outgoingEmail, error) {
 	config, err := email.LoadConfig(os.Getenv, mode == "production")
 	if err != nil {
 		return nil, err
@@ -130,7 +155,30 @@ func emailDispatcher(mode string, sessions httpapi.SessionConfig, logger *slog.L
 	}
 	dispatcher.Start()
 	logger.Info("email transport configured", "transport", config.Describe())
-	return dispatcher, nil
+	return &outgoingEmail{dispatcher: dispatcher, origin: config.PublicOrigin}, nil
+}
+
+// selfService enables customer self-registration only when it can work end
+// to end: PostgreSQL keeps pending registrations and a running dispatcher
+// sends their confirmation email. Otherwise its routes do not exist and
+// GET /api/auth/session reports selfService=false; operators still create
+// accounts with shopctl.
+func selfService(repo domain.Repository, service *application.Service, mail *outgoingEmail, logger *slog.Logger) (*application.CustomerRegistrations, error) {
+	if mail == nil {
+		logger.Info("self-registration disabled: email is not configured")
+		return nil, nil
+	}
+	store, ok := repo.(application.RegistrationStore)
+	if !ok {
+		logger.Warn("self-registration disabled: it needs PostgreSQL storage")
+		return nil, nil
+	}
+	registrations, err := application.NewCustomerRegistrations(store, service, mail.dispatcher, mail.origin, logger, application.RegistrationOptions{})
+	if err != nil {
+		return nil, err
+	}
+	logger.Info("self-registration enabled")
+	return registrations, nil
 }
 
 func repository(ctx context.Context, logger *slog.Logger) (domain.Repository, string, func(), error) {

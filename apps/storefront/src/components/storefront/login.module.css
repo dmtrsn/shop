@@ -65,3 +65,51 @@
 .demo strong {
   color: var(--color-text);
 }
+
+.links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+  align-items: baseline;
+  margin: var(--space-4) 0 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.links a,
+.textButton {
+  color: var(--color-text);
+  font-weight: var(--weight-semibold);
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+}
+
+.textButton {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-weight: var(--weight-semibold);
+  cursor: pointer;
+}
+
+.sent {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.sent p {
+  margin: 0;
+}
+
+.sentTitle {
+  margin: 0;
+  font-size: var(--font-size-lg);
+  line-height: var(--line-height-heading);
+}
+
+.resend {
+  display: grid;
+  gap: var(--space-2);
+  justify-items: start;
+}

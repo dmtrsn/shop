@@ -433,7 +433,7 @@ func TestSessionStateEndpoint(t *testing.T) {
 	response := h.do(http.MethodGet, "/api/auth/session", "", nil)
 	expectStatus(t, response, http.StatusOK)
 	_ = json.Unmarshal(response.Body.Bytes(), &state)
-	if state["authenticated"] != false || state["demoLogin"] != true || len(state) != 2 {
+	if state["authenticated"] != false || state["demoLogin"] != true || state["selfService"] != false || len(state) != 3 {
 		t.Fatalf("anonymous state: %v", state)
 	}
 	token, csrf := h.cookieLogin(nil)

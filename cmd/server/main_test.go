@@ -9,7 +9,9 @@ import (
 	"strings"
 	"testing"
 
+	"sweetshop/internal/application"
 	"sweetshop/internal/delivery/httpapi"
+	"sweetshop/internal/email"
 	"sweetshop/internal/repository/memory"
 	postgresrepo "sweetshop/internal/repository/postgres"
 )
@@ -224,7 +226,7 @@ func TestEmailDispatcherConfiguration(t *testing.T) {
 	if err != nil || d == nil {
 		t.Fatalf("development log transport: %v", err)
 	}
-	if err := d.Shutdown(context.Background()); err != nil {
+	if err := d.dispatcher.Shutdown(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	clear()
@@ -236,5 +238,30 @@ func TestEmailDispatcherConfiguration(t *testing.T) {
 	t.Setenv("PUBLIC_SHOP_ORIGIN", "https://shop.example")
 	if _, err := emailDispatcher("production", sessions, logger); err == nil || strings.Contains(err.Error(), "SENTINEL") {
 		t.Fatalf("plaintext production SMTP: %v", err)
+	}
+}
+
+// Self-registration exists only with PostgreSQL and a running dispatcher.
+func TestSelfServiceNeedsEmailAndPostgreSQL(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	origin, err := email.ParsePublicOrigin("https://shop.example", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dispatcher, err := email.NewDispatcher(email.LogMailer{Logger: logger}, logger, email.DefaultDispatcherOptions())
+	if err != nil {
+		t.Fatal(err)
+	}
+	mail := &outgoingEmail{dispatcher: dispatcher, origin: origin}
+	postgresStore := postgresrepo.New(nil)
+	memoryStore := memory.NewDemo()
+	if r, err := selfService(postgresStore, application.New(postgresStore, application.Options{}), nil, logger); err != nil || r != nil {
+		t.Fatalf("enabled without email: %v", err)
+	}
+	if r, err := selfService(memoryStore, application.New(memoryStore, application.Options{}), mail, logger); err != nil || r != nil {
+		t.Fatalf("enabled on the memory store: %v", err)
+	}
+	if r, err := selfService(postgresStore, application.New(postgresStore, application.Options{}), mail, logger); err != nil || r == nil {
+		t.Fatalf("not enabled with PostgreSQL and email: %v", err)
 	}
 }

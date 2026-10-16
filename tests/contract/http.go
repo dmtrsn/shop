@@ -115,8 +115,11 @@ func AdminDocument(t *testing.T) *openapi3.T {
 	return loadContract(t, "admin-openapi.yaml", admin, true)
 }
 
-// Run requires a fresh demo fixture. Requests execute in order, with assertions
-// on meaningful legacy behaviors as well as all operation response schemas.
+// Run requires a fresh demo fixture and a handler without self-registration
+// (the memory adapter, or PostgreSQL without email). Requests execute in
+// order, with assertions on meaningful legacy behaviors as well as all
+// operation response schemas. Operations marked x-self-service must be absent
+// here; RunSelfService covers them on PostgreSQL.
 func Run(t *testing.T, handler http.Handler) {
 	t.Helper()
 	doc := document(t)
@@ -155,7 +158,7 @@ func Run(t *testing.T, handler http.Handler) {
 		if rec.Header().Get("X-Request-ID") != "contract-test" {
 			t.Fatal("missing request ID")
 		}
-		if headers["Authorization"] != "" || headers["Cookie"] != "" || path == "/api/auth/login" || strings.HasPrefix(path, "/api/auth/session") {
+		if headers["Authorization"] != "" || headers["Cookie"] != "" || path == "/api/auth/login" || strings.HasPrefix(path, "/api/auth/") {
 			if rec.Header().Get("Cache-Control") != "no-store" {
 				t.Fatal("private response missing no-store")
 			}
@@ -360,9 +363,12 @@ func Run(t *testing.T, handler http.Handler) {
 	// Bearer logout revokes only the presented bearer session.
 	request("DELETE", "/api/auth/session", "", 204, true)
 	request("GET", "/api/cart", "", 401, true)
+	// Self-service operations are absent from this handler and covered by
+	// RunSelfService against PostgreSQL; they are never silently skipped.
+	assertSelfServiceAbsent(t, doc, handler)
 	for path, item := range doc.Paths.Map() {
 		for method, operation := range item.Operations() {
-			if !covered[operation.OperationID] {
+			if !covered[operation.OperationID] && !selfServiceOperation(operation) {
 				t.Errorf("no success response checked for %s %s", method, path)
 			}
 		}

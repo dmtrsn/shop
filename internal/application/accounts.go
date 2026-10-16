@@ -9,8 +9,6 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"golang.org/x/crypto/bcrypt"
-
 	"sweetshop/internal/domain"
 )
 
@@ -60,6 +58,25 @@ type NewCustomerInput struct {
 
 // Create validates the input, hashes the password and inserts the account.
 func (a *CustomerAccounts) Create(ctx context.Context, input NewCustomerInput) (domain.CustomerAccount, error) {
+	customer, err := validateNewCustomer(input)
+	if err != nil {
+		return domain.CustomerAccount{}, err
+	}
+	hash, err := hashPassword(ctx, input.Password, a.cost)
+	if err != nil {
+		return domain.CustomerAccount{}, fmt.Errorf("hash password: %w", err)
+	}
+	id, err := newCustomerID()
+	if err != nil {
+		return domain.CustomerAccount{}, err
+	}
+	customer.ID, customer.PasswordHash = id, hash
+	return a.store.CreateCustomer(ctx, customer)
+}
+
+// validateNewCustomer applies the customer rules shared by operator
+// provisioning and self-registration. The result has no ID or hash yet.
+func validateNewCustomer(input NewCustomerInput) (domain.NewCustomer, error) {
 	fields := []domain.FieldError{}
 	email, ok := NormalizeEmail(input.Email)
 	if !ok {
@@ -77,17 +94,9 @@ func (a *CustomerAccounts) Create(ctx context.Context, input NewCustomerInput) (
 		fields = append(fields, domain.FieldError{Field: "password", Message: message})
 	}
 	if len(fields) > 0 {
-		return domain.CustomerAccount{}, &domain.ValidationError{Fields: fields}
+		return domain.NewCustomer{}, &domain.ValidationError{Fields: fields}
 	}
-	hash, err := bcrypt.GenerateFromPassword([]byte(input.Password), a.cost)
-	if err != nil {
-		return domain.CustomerAccount{}, fmt.Errorf("hash password: %w", err)
-	}
-	id, err := newCustomerID()
-	if err != nil {
-		return domain.CustomerAccount{}, err
-	}
-	return a.store.CreateCustomer(ctx, domain.NewCustomer{ID: id, Email: email, Name: name, Phone: phone, PasswordHash: string(hash)})
+	return domain.NewCustomer{Email: email, Name: name, Phone: phone}, nil
 }
 
 // SetPassword replaces the password and revokes every session.
@@ -99,11 +108,11 @@ func (a *CustomerAccounts) SetPassword(ctx context.Context, email, password stri
 	if len(fields) > 0 {
 		return domain.AccountChange{}, &domain.ValidationError{Fields: fields}
 	}
-	hash, err := bcrypt.GenerateFromPassword([]byte(password), a.cost)
+	hash, err := hashPassword(ctx, password, a.cost)
 	if err != nil {
 		return domain.AccountChange{}, fmt.Errorf("hash password: %w", err)
 	}
-	return a.store.SetCustomerPassword(ctx, normalized, string(hash))
+	return a.store.SetCustomerPassword(ctx, normalized, hash)
 }
 
 // Disable refuses future sign-ins and revokes every session.

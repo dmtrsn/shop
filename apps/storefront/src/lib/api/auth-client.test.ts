@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { jsonResponse } from "@/test/favorites-fixtures";
 
-import { startBrowserSession } from "./auth-client";
+import { confirmRegistration, registerCustomer, resendRegistration, startBrowserSession } from "./auth-client";
 import { BrowserRequestError } from "./browser-request";
 
 const fetcher = vi.fn<typeof fetch>();
@@ -48,5 +48,54 @@ describe("startBrowserSession", () => {
     fetcher.mockRejectedValue(new TypeError("offline"));
     await expect(startBrowserSession(credentials)).rejects.toMatchObject({ status: undefined });
     expect(fetcher).toHaveBeenCalledOnce();
+  });
+});
+
+describe("self-registration calls", () => {
+  const registration = { name: "Анна", email: "ann@example.test", password: "unit-test-only", phone: "" };
+
+  it("registers once without CSRF or identity headers and omits an empty phone", async () => {
+    fetcher.mockResolvedValueOnce(jsonResponse({ status: "pending" }, 202, null));
+    await expect(registerCustomer(registration)).resolves.toBeUndefined();
+    expect(fetcher).toHaveBeenCalledExactlyOnceWith("/api/auth/registration", expect.objectContaining({
+      method: "POST", credentials: "same-origin", cache: "no-store",
+      headers: { Accept: "application/json", "Content-Type": "application/json" },
+      body: JSON.stringify({ name: "Анна", email: "ann@example.test", password: "unit-test-only" }),
+    }));
+    fetcher.mockResolvedValueOnce(jsonResponse({ status: "pending" }, 202, null));
+    await registerCustomer({ ...registration, phone: "+7 900" });
+    expect(JSON.parse(fetcher.mock.calls[1][1]!.body as string)).toMatchObject({ phone: "+7 900" });
+  });
+
+  it.each([
+    ["200 instead of 202", { status: "pending" }, 200], ["another status", { status: "created" }, 202], ["not an object", ["pending"], 202],
+  ])("rejects an unexpected registration answer (%s)", async (_, body, status) => {
+    fetcher.mockResolvedValueOnce(jsonResponse(body, status, null));
+    await expect(registerCustomer(registration)).rejects.toBeInstanceOf(BrowserRequestError);
+  });
+
+  it("surfaces Go field errors for registration", async () => {
+    fetcher.mockResolvedValueOnce(jsonResponse({ error: { code: "validation_error", message: "x", fields: [{ field: "password", message: "Короткий" }] } }, 422, null));
+    await expect(registerCustomer(registration)).rejects.toMatchObject({ status: 422, fields: [{ field: "password", message: "Короткий" }] });
+  });
+
+  it("resends with the address only", async () => {
+    fetcher.mockResolvedValueOnce(jsonResponse({ status: "pending" }, 202, null));
+    await resendRegistration("ann@example.test");
+    expect(fetcher).toHaveBeenCalledExactlyOnceWith("/api/auth/registration/resend", expect.objectContaining({ method: "POST", body: JSON.stringify({ email: "ann@example.test" }) }));
+  });
+
+  it("confirms with the token in the POST body only and drops the session body", async () => {
+    const token = "t".repeat(43);
+    fetcher.mockResolvedValueOnce(jsonResponse(success, 200, null));
+    await expect(confirmRegistration({ token, password: "unit-test-only" })).resolves.toBeUndefined();
+    const [url, init] = fetcher.mock.calls[0];
+    expect(url).toBe("/api/auth/registration/confirm");
+    expect(String(url)).not.toContain(token);
+    expect(init?.body).toBe(JSON.stringify({ token, password: "unit-test-only" }));
+    fetcher.mockResolvedValueOnce(jsonResponse({ ...success, csrfToken: "" }, 200, null));
+    await expect(confirmRegistration({ token, password: "unit-test-only" })).rejects.toBeInstanceOf(BrowserRequestError);
+    fetcher.mockResolvedValueOnce(jsonResponse({ error: { code: "link_invalid", message: "x" } }, 410, null));
+    await expect(confirmRegistration({ token, password: "unit-test-only" })).rejects.toMatchObject({ status: 410, code: "link_invalid" });
   });
 });

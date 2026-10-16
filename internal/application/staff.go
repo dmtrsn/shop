@@ -7,8 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"golang.org/x/crypto/bcrypt"
-
 	"sweetshop/internal/domain"
 )
 
@@ -79,7 +77,7 @@ func (a *StaffAccounts) Create(ctx context.Context, input NewStaffInput) (domain
 	if len(fields) > 0 {
 		return domain.StaffAccount{}, &domain.ValidationError{Fields: fields}
 	}
-	hash, err := bcrypt.GenerateFromPassword([]byte(input.Password), a.cost)
+	hash, err := hashPassword(ctx, input.Password, a.cost)
 	if err != nil {
 		return domain.StaffAccount{}, fmt.Errorf("hash password: %w", err)
 	}
@@ -87,7 +85,7 @@ func (a *StaffAccounts) Create(ctx context.Context, input NewStaffInput) (domain
 	if err != nil {
 		return domain.StaffAccount{}, err
 	}
-	return a.store.CreateStaff(ctx, domain.NewStaff{ID: id, Email: email, DisplayName: name, PasswordHash: string(hash)})
+	return a.store.CreateStaff(ctx, domain.NewStaff{ID: id, Email: email, DisplayName: name, PasswordHash: hash})
 }
 
 // SetPassword replaces the password and revokes every staff session.
@@ -99,11 +97,11 @@ func (a *StaffAccounts) SetPassword(ctx context.Context, email, password string)
 	if len(fields) > 0 {
 		return domain.StaffChange{}, &domain.ValidationError{Fields: fields}
 	}
-	hash, err := bcrypt.GenerateFromPassword([]byte(password), a.cost)
+	hash, err := hashPassword(ctx, password, a.cost)
 	if err != nil {
 		return domain.StaffChange{}, fmt.Errorf("hash password: %w", err)
 	}
-	return a.store.SetStaffPassword(ctx, normalized, string(hash))
+	return a.store.SetStaffPassword(ctx, normalized, hash)
 }
 
 // Disable and Enable both revoke every staff session of the account.
@@ -152,12 +150,18 @@ func (a *StaffAuth) Login(ctx context.Context, email, password, previousToken st
 	credential, err := a.store.FindStaffByEmail(ctx, email)
 	if err != nil {
 		if errors.Is(err, domain.ErrNotFound) {
-			_ = bcrypt.CompareHashAndPassword([]byte(dummyPasswordHash), []byte(password))
+			if _, err := passwordMatches(ctx, dummyPasswordHash, password); err != nil {
+				return StaffLoginResult{}, err
+			}
 			return StaffLoginResult{}, domain.ErrUnauthorized
 		}
 		return StaffLoginResult{}, err
 	}
-	if bcrypt.CompareHashAndPassword([]byte(credential.PasswordHash), []byte(password)) != nil {
+	matched, err := passwordMatches(ctx, credential.PasswordHash, password)
+	if err != nil {
+		return StaffLoginResult{}, err
+	}
+	if !matched {
 		return StaffLoginResult{}, domain.ErrUnauthorized
 	}
 	if credential.Disabled {

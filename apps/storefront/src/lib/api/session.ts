@@ -49,7 +49,7 @@ function unavailable(requestId?: string): ServerSession {
 }
 
 // Maps Go's GET /api/auth/session body. The user is rebuilt field by field so
-// csrfToken, expiresAt, demoLogin and unknown fields never leave this module.
+// csrfToken, expiresAt, demoLogin, selfService and unknown fields never leave this module.
 export function parseServerSession(body: unknown, requestId?: string): ServerSession {
   if (!isRecord(body) || typeof body.authenticated !== "boolean") return unavailable(requestId);
   if (!body.authenticated) return { status: "anonymous" };
@@ -91,18 +91,38 @@ export async function getServerSession(
   }
 }
 
+export type AuthCapabilities =
+  | { status: "available"; demoLogin: boolean; selfService: boolean }
+  | { status: "unavailable" };
+
 /**
- * Whether Go advertises its seeded demo account. Asks the session endpoint
- * without any browser cookie and returns only the boolean; any failure or an
+ * What Go advertises about signing in: its seeded demo account (demoLogin)
+ * and customer self-registration (selfService, only when Go has PostgreSQL and
+ * working email). Asks the session endpoint without any browser cookie. Each
+ * flag is true only when Go sends exactly true; a failed or malformed answer is
+ * "unavailable", never "registration disabled".
+ */
+export async function getAuthCapabilities(
+  options: Pick<ApiRequestOptions, "fetcher" | "signal" | "timeoutMs"> = {},
+): Promise<AuthCapabilities> {
+  try {
+    const response = await requestApiJsonWithMeta("/api/auth/session", options);
+    if (response.status !== 200 || !isRecord(response.body) || typeof response.body.authenticated !== "boolean") {
+      return { status: "unavailable" };
+    }
+    return { status: "available", demoLogin: response.body.demoLogin === true, selfService: response.body.selfService === true };
+  } catch {
+    return { status: "unavailable" };
+  }
+}
+
+/**
+ * Whether Go advertises its seeded demo account. Any failure or an
  * absent/malformed flag is false, so the hint appears only on explicit demo mode.
  */
 export async function getDemoLoginAllowed(
   options: Pick<ApiRequestOptions, "fetcher" | "signal" | "timeoutMs"> = {},
 ): Promise<boolean> {
-  try {
-    const response = await requestApiJsonWithMeta("/api/auth/session", options);
-    return response.status === 200 && isRecord(response.body) && response.body.demoLogin === true;
-  } catch {
-    return false;
-  }
+  const capabilities = await getAuthCapabilities(options);
+  return capabilities.status === "available" && capabilities.demoLogin;
 }

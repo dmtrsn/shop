@@ -70,7 +70,7 @@ func TestMessageValidation(t *testing.T) {
 }
 
 func TestMessageRedactsItselfWhenFormatted(t *testing.T) {
-	m, err := email.RegistrationConfirmation("ann@example.com", "usr_1", "Анна", secretLink(t), 48*time.Hour)
+	m, err := email.RegistrationConfirmation("ann@example.com", "usr_1", secretLink(t), 48*time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,7 +78,7 @@ func TestMessageRedactsItselfWhenFormatted(t *testing.T) {
 	slog.New(slog.NewTextHandler(&logs, nil)).Info("event", "message", m)
 	slog.New(slog.NewJSONHandler(&logs, nil)).Info("event", "message", m)
 	formatted := fmt.Sprintf("%v %+v %#v %s", m, m, m, m) + logs.String() + fmt.Sprint([]email.Message{m})
-	for _, secret := range []string{secretToken, "ann@example.com", "Подтвердите", "Анна"} {
+	for _, secret := range []string{secretToken, "ann@example.com", "Подтвердите", "Здравствуйте"} {
 		if strings.Contains(formatted, secret) {
 			t.Fatalf("formatted message leaks %q", secret)
 		}
@@ -150,13 +150,12 @@ func TestLinksComeOnlyFromThePublicOrigin(t *testing.T) {
 func TestTemplatesRender(t *testing.T) {
 	o := origin(t)
 	signIn, _ := o.Link("/login", "")
-	reset, _ := o.Link("/forgot-password", "")
 	resetLink, _ := o.Link("/reset-password", "t="+secretToken)
-	confirm, err := email.RegistrationConfirmation("ann@example.com", "pending_1", "Анна Ли", secretLink(t), 48*time.Hour)
+	confirm, err := email.RegistrationConfirmation("ann@example.com", "pending_1", secretLink(t), 48*time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}
-	exists, err := email.AccountExists("ann@example.com", "usr_1", signIn, reset)
+	exists, err := email.AccountExists("ann@example.com", "usr_1", signIn)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -175,8 +174,8 @@ func TestTemplatesRender(t *testing.T) {
 		contains       []string
 		doesNotContain []string
 	}{
-		{confirm, email.KindRegistrationConfirmation, "Подтвердите регистрацию в магазине «Слой»", []string{"Анна Ли", "https://shop.example.com/register/confirm#t=" + secretToken, "48 часов"}, nil},
-		{exists, email.KindAccountExists, "Аккаунт в магазине «Слой» уже существует", []string{"https://shop.example.com/login", "https://shop.example.com/forgot-password"}, []string{"#t="}},
+		{confirm, email.KindRegistrationConfirmation, "Подтвердите регистрацию в магазине «Слой»", []string{"https://shop.example.com/register/confirm#t=" + secretToken, "48 часов", "пароль, который вы указали"}, []string{"Анна"}},
+		{exists, email.KindAccountExists, "Аккаунт в магазине «Слой» уже существует", []string{"https://shop.example.com/login", "не изменён"}, []string{"#t=", "forgot-password", "reset-password"}},
 		{passwordReset, email.KindPasswordReset, "Восстановление пароля в магазине «Слой»", []string{"https://shop.example.com/reset-password#t=" + secretToken, "1 час"}, nil},
 		{test, email.KindTest, "Тестовое письмо магазина «Слой»", []string{"тестовое письмо"}, []string{"http"}},
 	} {

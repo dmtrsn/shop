@@ -77,18 +77,34 @@ jobs:
 
   edge-routing:
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    timeout-minutes: 30
+    env:
+      # Disposable mail capture: the app sends real SMTP to Mailpit, so
+      # self-registration is enabled exactly as with a real provider.
+      COMPOSE_PROFILES: mail
+      EMAIL_TRANSPORT: smtp
+      SMTP_HOST: mailpit
+      SMTP_PORT: '1025'
+      SMTP_TLS: none
+      SMTP_FROM: shop@example.com
+      PUBLIC_SHOP_ORIGIN: http://127.0.0.1:8080
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
       - name: Build the production root topology and wait for its health checks
-        run: docker compose -p sweetshop-edge-smoke --env-file .env.example up --build --wait --wait-timeout 180 edge
+        run: docker compose -p sweetshop-edge-smoke --env-file .env.example up --build --wait --wait-timeout 180 edge mailpit
       - name: Verify public edge route ownership (Next owns /)
         run: EXPECT_ROOT_OWNER=next bash scripts/test-edge-routes.sh
       - name: Authenticated release flow through the edge (disposable data)
         run: node scripts/test-release-flow.mjs
+      - name: Self-registration journey with the Mailpit confirmation email (disposable data)
+        run: node scripts/test-registration-flow.mjs
+      - name: Recreate the edge so the registration limiters start from fresh zones
+        run: docker compose -p sweetshop-edge-smoke --env-file .env.example up -d --no-deps --force-recreate --wait --wait-timeout 60 edge
+      - name: Registration, resend and confirmation rate limits through the edge (exhausts this runner's buckets)
+        run: bash scripts/test-registration-rate-limit.sh
       - name: Recreate the edge so the sign-in limiter starts from a fresh zone
         run: docker compose -p sweetshop-edge-smoke --env-file .env.example up -d --no-deps --force-recreate --wait --wait-timeout 60 edge
       - name: Customer sign-in rate limit through the edge (exhausts this runner's bucket)

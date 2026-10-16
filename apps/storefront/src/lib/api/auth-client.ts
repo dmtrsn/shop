@@ -22,3 +22,40 @@ export async function startBrowserSession(credentials: LoginCredentials): Promis
     throw new BrowserRequestError(200, "invalid_response");
   }
 }
+
+export type RegistrationInput = { name: string; email: string; password: string; phone: string };
+
+// Go answers every valid registration and resend with the same 202
+// {status:"pending"}, whatever the address is; nothing else is read.
+function assertPending(body: unknown): void {
+  if (!isRecord(body) || body.status !== "pending") throw new BrowserRequestError(202, "invalid_response");
+}
+
+// Starts a self-registration. No session or CSRF token exists yet; Go checks
+// Origin. Sent once, never retried. The empty phone is omitted.
+export async function registerCustomer(input: RegistrationInput): Promise<void> {
+  const body = await browserRequest("/api/auth/registration", {
+    method: "POST",
+    success: 202,
+    body: { name: input.name, email: input.email, password: input.password, ...(input.phone ? { phone: input.phone } : {}) },
+  });
+  assertPending(body);
+}
+
+export async function resendRegistration(email: string): Promise<void> {
+  assertPending(await browserRequest("/api/auth/registration/resend", { method: "POST", success: 202, body: { email } }));
+}
+
+// Confirms a registration with the emailed token and the chosen password. Like
+// startBrowserSession, success only proves the session cookie now exists; the
+// body is dropped. The token travels only in this POST body.
+export async function confirmRegistration(input: { token: string; password: string }): Promise<void> {
+  const body = await browserRequest("/api/auth/registration/confirm", {
+    method: "POST",
+    body: { token: input.token, password: input.password },
+  });
+  if (!isRecord(body) || !isRecord(body.user) || typeof body.user.id !== "string" || !body.user.id ||
+      typeof body.csrfToken !== "string" || !body.csrfToken.trim()) {
+    throw new BrowserRequestError(200, "invalid_response");
+  }
+}

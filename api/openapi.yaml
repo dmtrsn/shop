@@ -8,9 +8,11 @@ info:
     is not enforced. Go accepts case-insensitive JSON member names and null as zero/unset values; schemas describe
     canonical spellings and usable requests. No independent batch item-count limit. HTTP server MaxHeaderBytes=1048576,
     ReadHeaderTimeout=5s, ReadTimeout=15s, WriteTimeout=30s. Every GET also accepts HEAD through Go ServeMux (network
-    HEAD has no response body). Protected responses, login and /api/auth/session use no-store. Protected operations accept
+    HEAD has no response body). Protected responses, login, /api/auth/session and /api/auth/registration* use no-store. Protected operations accept
     a legacy bearer token or the HttpOnly session cookie; cookie-authenticated POST/PUT/PATCH/DELETE also require a
-    trusted Origin and X-CSRF-Token (403 csrf_failed otherwise). No CORS headers are sent. Unmatched /api routes/methods reach
+    trusted Origin and X-CSRF-Token (403 csrf_failed otherwise). Operations marked x-self-service exist only when
+    GET /api/auth/session reports selfService=true (PostgreSQL storage and configured email); the memory adapter
+    never has them. No CORS headers are sent. Unmatched /api routes/methods reach
     the static fallback and return 404 in the deployed configuration; no standardized 405 envelope. Generic error
     mapper also supports forbidden=403, though no current use case emits it. Public collections/entity lists and
     order history have no pagination. No promise of JavaScript-safe bounds for int64 money.
@@ -117,6 +119,19 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        '503':
+          description: service_unavailable; too many password checks are running in this process. Nothing changed; retry after Retry-After seconds.
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+            Retry-After:
+              $ref: '#/components/headers/RetryAfter'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
       requestBody:
         required: true
         content:
@@ -129,7 +144,9 @@ paths:
       summary: sessionState
       description: Reports the cookie session only; Authorization is ignored. Successful checks return 200; storage failures return 500. Signed out, missing,
         invalid or expired cookies return authenticated=false (an invalid cookie is cleared). demoLogin reports
-        whether the seeded demo principal may sign in in this deployment.
+        whether the seeded demo principal may sign in in this deployment. selfService reports whether customers
+        can register themselves here, that is whether the x-self-service operations exist; it is true only with
+        PostgreSQL storage and configured email delivery.
       security: []
       responses:
         '200':
@@ -227,6 +244,19 @@ paths:
               description: Echoed X-Request-ID or server-generated identifier.
               schema:
                 type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: service_unavailable; too many password checks are running in this process. Nothing changed; retry after Retry-After seconds.
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+            Retry-After:
+              $ref: '#/components/headers/RetryAfter'
           content:
             application/json:
               schema:
@@ -329,6 +359,271 @@ paths:
               description: Present only after successful guarded authentication, including a revocation storage failure; absent on authentication failure and in legacy mode.
               schema:
                 type: string
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/auth/registration:
+    post:
+      operationId: startRegistration
+      summary: startRegistration
+      x-self-service: true
+      description: >-
+        Self-registration with mandatory email confirmation. Exists only when selfService is true (PostgreSQL and
+        configured email); otherwise the route is absent and returns 404 like any unknown /api path. Requires an
+        Origin equal to a configured trusted origin; no session or CSRF token is needed. Email, name, phone and
+        password follow the operator provisioning rules (ASCII email normalized to lowercase; name 1-100
+        characters; optional phone; password 10+ characters, at most 72 bytes). Every valid request hashes the
+        password and returns the same 202: a new address gets a pending registration (not an account) and a
+        confirmation email; a pending address has its registration, password and token replaced (the earlier
+        link stops working); an existing account is never changed and may get an "account exists" notice. Each
+        address gets at most one email a minute and ten a day across every server; beyond that nothing changes
+        and the answer is still 202. Email delivery is in memory and not durable; use the resend operation if a
+        message does not arrive.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegistrationInput'
+      responses:
+        '202':
+          description: Accepted. The same answer whatever the address is (new, pending, an existing account) and whether
+            or not an email was sent or throttled.
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RegistrationAccepted'
+        '403':
+          description: csrf_failed; missing or untrusted Origin.
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: validation_error; error.fields identifies invalid input.
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: service_unavailable; too many password checks are running in this process. Nothing changed; retry after Retry-After seconds.
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+            Retry-After:
+              $ref: '#/components/headers/RetryAfter'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: internal_error; unexpected storage or server failure.
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/auth/registration/resend:
+    post:
+      operationId: resendRegistration
+      summary: resendRegistration
+      x-self-service: true
+      description: >-
+        Asks for the confirmation email again. Exists only when selfService is true. Requires a trusted Origin.
+        A pending, unexpired registration gets a new token (the earlier link stops working) and email; an existing
+        account may get the "account exists" notice; any other address gets nothing and no registration is
+        created. Subject to the same per-address allowance as registration. Every syntactically valid address gets
+        the same 202.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegistrationResendInput'
+      responses:
+        '202':
+          description: Accepted. The same answer whatever the address is (new, pending, an existing account) and whether
+            or not an email was sent or throttled.
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RegistrationAccepted'
+        '403':
+          description: csrf_failed; missing or untrusted Origin.
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: validation_error; error.fields identifies invalid input.
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: internal_error; unexpected storage or server failure.
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/auth/registration/confirm:
+    post:
+      operationId: confirmRegistration
+      summary: confirmRegistration
+      x-self-service: true
+      description: >-
+        Confirms a pending registration with the emailed token and the password chosen at registration, creates
+        the customer account and signs it in exactly like POST /api/auth/session (same cookie, same response, a
+        presented session cookie is replaced). Exists only when selfService is true. Requires a trusted Origin;
+        no CSRF token. A token works once, for 48 hours, and only while it is the latest one of its address. An
+        unknown, malformed, used, replaced or expired token, and an address that meanwhile got an account, all
+        return 410 link_invalid. A wrong password returns 401 and leaves the token usable.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegistrationConfirmInput'
+      responses:
+        '200':
+          description: The account exists and is signed in.
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+            Set-Cookie:
+              description: The session cookie (see sessionCookie).
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CookieSession'
+        '401':
+          description: unauthorized; the password is not the one chosen at registration.
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: csrf_failed; missing or untrusted Origin.
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '410':
+          description: link_invalid; the link is unknown, used, replaced or expired, or the address already has an account.
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: validation_error; error.fields identifies invalid input.
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: service_unavailable; too many password checks are running in this process. Nothing changed; retry after Retry-After seconds.
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+            Retry-After:
+              $ref: '#/components/headers/RetryAfter'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: internal_error; unexpected storage or server failure.
+          headers:
             X-Request-ID:
               description: Echoed X-Request-ID or server-generated identifier.
               schema:
@@ -2350,6 +2645,10 @@ paths:
           pattern: ^[A-Za-z0-9_-]{16,128}$
 components:
   headers:
+    RetryAfter:
+      description: Seconds to wait before retrying.
+      schema:
+        type: string
     AuthenticatedUserID:
       description: Canonical user ID that authorized this request. Present after successful authentication, including downstream errors and HEAD; absent on authentication or pre-authentication CSRF rejection. Derived only from Go authentication, never an incoming header. Not a credential or revision.
       schema:
@@ -3387,6 +3686,8 @@ components:
               - repeat_changed
               - idempotency_key_reused
               - authenticated_user_changed
+              - link_invalid
+              - service_unavailable
               - internal_error
             message:
               type: string
@@ -3441,6 +3742,7 @@ components:
       required:
       - authenticated
       - demoLogin
+      - selfService
       additionalProperties: false
       properties:
         authenticated:
@@ -3454,6 +3756,9 @@ components:
           type: string
         demoLogin:
           type: boolean
+        selfService:
+          type: boolean
+          description: Customers can register themselves in this deployment (PostgreSQL and configured email).
     Health:
       type: object
       required:
@@ -3543,6 +3848,55 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/Order'
+    RegistrationInput:
+      type: object
+      properties:
+        email:
+          type: string
+        password:
+          type: string
+          format: password
+        name:
+          type: string
+        phone:
+          type: string
+          description: Optional; digits, spaces, +, parentheses and hyphens, at most 32 characters.
+      required:
+      - email
+      - password
+      - name
+      additionalProperties: false
+    RegistrationResendInput:
+      type: object
+      properties:
+        email:
+          type: string
+      required:
+      - email
+      additionalProperties: false
+    RegistrationConfirmInput:
+      type: object
+      properties:
+        token:
+          type: string
+          description: The value of t in the fragment of the emailed /register/confirm link.
+        password:
+          type: string
+          format: password
+      required:
+      - token
+      - password
+      additionalProperties: false
+    RegistrationAccepted:
+      type: object
+      required:
+      - status
+      additionalProperties: false
+      properties:
+        status:
+          type: string
+          enum:
+          - pending
     LoginInput:
       type: object
       properties:

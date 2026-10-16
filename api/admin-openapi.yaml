@@ -82,6 +82,20 @@ paths:
           $ref: '#/components/responses/ValidationError'
         '500':
           $ref: '#/components/responses/InternalError'
+        '503':
+          description: service_unavailable; too many password checks are running in this process (the bound is
+            shared with customer sign-in and registration). Nothing changed; retry after Retry-After seconds.
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestID'
+            Retry-After:
+              description: Seconds to wait before retrying.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
     delete:
       operationId: endStaffSession
       summary: endStaffSession
@@ -257,6 +271,7 @@ components:
               - unauthorized
               - csrf_failed
               - authenticated_staff_changed
+              - service_unavailable
               - internal_error
             message:
               type: string

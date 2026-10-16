@@ -27,6 +27,14 @@ limit_req_zone $auth_rate_limit_key zone=customer_auth:10m rate=10r/m;
 #   limit_req zone=staff_auth burst=3 nodelay;   (Retry-After: 12)
 limit_req_zone $auth_rate_limit_key zone=staff_auth:1m rate=5r/m;
 
+# Self-registration. Registration hashes a password and may send an email:
+# 3 per minute per client (one every 20 s), burst 5. Resend sends an email
+# without a password: 3 per minute, burst 3. Confirmation verifies a password
+# and shares the sign-in zone above. Per-address email limits live in
+# PostgreSQL; these zones bound the work one client can cause.
+limit_req_zone $auth_rate_limit_key zone=customer_signup:10m rate=3r/m;
+limit_req_zone $auth_rate_limit_key zone=customer_email:10m rate=3r/m;
+
 server {
     listen 8080;
     server_name _;
@@ -72,6 +80,24 @@ server {
         proxy_pass http://app:8080;
     }
 
+    location = /api/auth/registration/confirm {
+        limit_req zone=customer_auth burst=10 nodelay;
+        error_page 429 @auth_rate_limited;
+        proxy_pass http://app:8080;
+    }
+
+    location = /api/auth/registration {
+        limit_req zone=customer_signup burst=5 nodelay;
+        error_page 429 @registration_rate_limited;
+        proxy_pass http://app:8080;
+    }
+
+    location = /api/auth/registration/resend {
+        limit_req zone=customer_email burst=3 nodelay;
+        error_page 429 @registration_rate_limited;
+        proxy_pass http://app:8080;
+    }
+
     # A slot frees every 6 s at 10r/m, so the retry hint is exact. The body
     # says nothing about accounts or credentials.
     location @auth_rate_limited {
@@ -80,6 +106,15 @@ server {
         add_header Cache-Control no-store always;
         add_header X-Content-Type-Options nosniff always;
         return 429 "Too many sign-in attempts. Try again later.\n";
+    }
+
+    # Both registration zones free a slot every 20 s (3r/m).
+    location @registration_rate_limited {
+        default_type text/plain;
+        add_header Retry-After 20 always;
+        add_header Cache-Control no-store always;
+        add_header X-Content-Type-Options nosniff always;
+        return 429 "Too many registration requests. Try again later.\n";
     }
 
     location = /api {

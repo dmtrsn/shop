@@ -11,7 +11,7 @@ Self-registration (A7) and self-service password recovery (A8) need email: a reg
 `internal/email` provides:
 
 - `Mailer` with one method, `Send(ctx, Message)`. A `Message` is a recipient, a fixed subject and a plain-text UTF-8 body, plus a template kind and an internal reference used for logs. `Validate` rejects anything that could alter SMTP headers; `String`, `GoString` and `LogValue` redact the recipient, subject and body.
-- Fixed templates for the three customer messages and `shopctl email test`. Links are a `Link` type that only `PublicOrigin.Link` creates, so they always use `PUBLIC_SHOP_ORIGIN`, never `Host` or `X-Forwarded-Host`. The origin must be one of `TRUSTED_ORIGINS`; tokens go in the URL fragment.
+- Fixed templates for the three customer messages and `shopctl email test`. Since A7 the confirmation quotes nothing the registrant typed, and the "account exists" notice links only to sign-in until recovery exists (ADR 010). Links are a `Link` type that only `PublicOrigin.Link` creates, so they always use `PUBLIC_SHOP_ORIGIN`, never `Host` or `X-Forwarded-Host`. The origin must be one of `TRUSTED_ORIGINS`; tokens go in the URL fragment.
 - `SMTPMailer` on `net/smtp` and `crypto/tls`, provider-neutral:
   - `SMTP_TLS=implicit` (465) or `starttls` (587) with certificate and hostname verification, TLS 1.2+. STARTTLS is mandatory in that mode; there is no plaintext fallback.
   - Credentials are sent only over a verified TLS connection; `none` (plaintext) is development-only and never carries credentials.

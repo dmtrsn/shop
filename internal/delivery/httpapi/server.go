@@ -42,6 +42,9 @@ type Server struct {
 	staff           *application.StaffAuth
 	staffOrigins    map[string]bool
 	staffCookieName string
+
+	// Self-registration; nil means its routes do not exist.
+	registrations *application.CustomerRegistrations
 }
 
 // Option configures optional parts of the server.
@@ -80,6 +83,9 @@ func New(service *application.Service, logger *slog.Logger, staticDir, storage s
 	mux.Handle("POST /api/orders/{order}/repeat/commit", s.auth(http.HandlerFunc(s.repeatCommit)))
 	mux.Handle("POST /api/v2/orders/{order}/repeat/preview", s.auth(http.HandlerFunc(s.repeatPreviewV2)))
 	mux.Handle("POST /api/v2/orders/{order}/repeat/commit", s.auth(http.HandlerFunc(s.repeatCommitV2)))
+	if s.selfServiceEnabled() {
+		s.registerSelfServiceRoutes(mux)
+	}
 	if s.staffEnabled() {
 		s.registerStaffRoutes(mux)
 	}
@@ -541,6 +547,11 @@ type apiError struct {
 func (s *Server) writeError(w http.ResponseWriter, r *http.Request, err error) {
 	status, code, message := http.StatusInternalServerError, "internal_error", "Не удалось выполнить запрос"
 	switch {
+	case errors.Is(err, domain.ErrRegistrationLinkInvalid):
+		status, code, message = http.StatusGone, "link_invalid", "Ссылка недействительна или устарела"
+	case errors.Is(err, domain.ErrBusy):
+		status, code, message = http.StatusServiceUnavailable, "service_unavailable", "Сервис перегружен, повторите попытку через несколько секунд"
+		w.Header().Set("Retry-After", "2")
 	case errors.Is(err, domain.ErrValidation):
 		status, code, message = http.StatusUnprocessableEntity, "validation_error", "Проверьте заполненные поля"
 	case errors.Is(err, domain.ErrUnauthorized):

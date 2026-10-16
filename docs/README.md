@@ -18,6 +18,7 @@ These documents describe the approved architectural and product direction for th
 - [ADR 007: Separate staff identity](adr/007-staff-identity.md).
 - [ADR 008: Sign-in rate limits at the edge](adr/008-edge-sign-in-rate-limits.md).
 - [ADR 009: Transactional email foundation](adr/009-transactional-email.md).
+- [ADR 010: Customer self-registration](adr/010-customer-self-registration.md).
 
 The architectural recommendation is to preserve the Go application and PostgreSQL, introduce a TypeScript/React storefront with Next.js, and replace complete routes incrementally. Keep the existing frontend available until each replacement meets behavioral, accessibility, security, and performance gates. Administration becomes a separate React application using authorized Go use cases.
 

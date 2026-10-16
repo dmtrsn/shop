@@ -22,17 +22,20 @@ var subjects = map[Kind]string{
 }
 
 // RegistrationConfirmation is the confirmation email for a pending
-// registration; link carries the token in its fragment.
-func RegistrationConfirmation(to, ref, name string, link Link, expiresIn time.Duration) (Message, error) {
+// registration; link carries the token in its fragment. It quotes nothing the
+// registrant typed: anyone can register any address, so a name would let a
+// stranger put their own text into someone else's mailbox.
+func RegistrationConfirmation(to, ref string, link Link, expiresIn time.Duration) (Message, error) {
 	return render(KindRegistrationConfirmation, to, ref, struct {
-		Name, Link, ExpiresIn string
-	}{name, link.value, russianDuration(expiresIn)}, link)
+		Link, ExpiresIn string
+	}{link.value, russianDuration(expiresIn)}, link)
 }
 
 // AccountExists answers a registration for an address that already has an
-// account. It carries no token.
-func AccountExists(to, ref string, signIn, reset Link) (Message, error) {
-	return render(KindAccountExists, to, ref, struct{ SignInLink, ResetLink string }{signIn.value, reset.value}, signIn, reset)
+// account. It carries no token and links only to sign-in; a reset link
+// belongs here once password recovery exists.
+func AccountExists(to, ref string, signIn Link) (Message, error) {
+	return render(KindAccountExists, to, ref, struct{ SignInLink string }{signIn.value}, signIn)
 }
 
 // PasswordReset carries a reset link with the token in its fragment.

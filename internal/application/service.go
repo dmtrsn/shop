@@ -15,8 +15,6 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"golang.org/x/crypto/bcrypt"
-
 	"sweetshop/internal/domain"
 )
 
@@ -85,14 +83,31 @@ func (s *Service) login(ctx context.Context, email, password string, transport d
 	credential, err := s.repo.FindUserByEmail(ctx, email)
 	if err != nil {
 		if errors.Is(err, domain.ErrNotFound) {
-			_ = bcrypt.CompareHashAndPassword([]byte(dummyPasswordHash), []byte(password))
+			// The same guarded comparison as a real account, so an unknown
+			// address neither answers faster nor skips the bcrypt bound.
+			if _, err := passwordMatches(ctx, dummyPasswordHash, password); err != nil {
+				return LoginResult{}, err
+			}
 			return LoginResult{}, domain.ErrUnauthorized
 		}
 		return LoginResult{}, err
 	}
-	if bcrypt.CompareHashAndPassword([]byte(credential.PasswordHash), []byte(password)) != nil {
+	matched, err := passwordMatches(ctx, credential.PasswordHash, password)
+	if err != nil {
+		return LoginResult{}, err
+	}
+	if !matched {
 		return LoginResult{}, domain.ErrUnauthorized
 	}
+	return s.startSession(ctx, credential, transport, previousToken)
+}
+
+// startSession issues a session for a credential whose password the caller
+// has just verified: login, or registration confirmation. It is the only
+// place sessions are created. The session is bound to that password hash and
+// to an enabled account (NewSession.PasswordHash), so a concurrent reset or
+// disable wins.
+func (s *Service) startSession(ctx context.Context, credential domain.UserCredential, transport domain.SessionTransport, previousToken string) (LoginResult, error) {
 	// Checked after the password so a disabled account costs the same and
 	// answers the same as a wrong password.
 	if credential.Disabled {

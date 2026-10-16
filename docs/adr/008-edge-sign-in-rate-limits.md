@@ -10,12 +10,16 @@ The shop edge (`deploy/nginx/*.conf.template`, both route maps) limits password 
 | --- | --- | --- | --- | --- | --- |
 | `customer_auth` | `POST /api/auth/session`, `POST /api/auth/login` (shared bucket) | 10/min | 10, `nodelay` | rejected at once | 6 s (one slot per 6 s) |
 | `staff_auth` | nothing on the shop host; the future admin host's `POST /api/admin/v1/auth/session` | 5/min | 3, `nodelay` | rejected at once | 12 s |
+| `customer_signup` (A7) | `POST /api/auth/registration` | 3/min | 5, `nodelay` | rejected at once | 20 s |
+| `customer_email` (A7) | `POST /api/auth/registration/resend` | 3/min | 3, `nodelay` | rejected at once | 20 s |
+
+`POST /api/auth/registration/confirm` verifies a password, so it joins the `customer_auth` bucket (ADR 010).
 
 The key is `$binary_remote_addr` for `POST` and empty for every other method, so session reads and sign-out are never limited. `nodelay` rejects excess immediately instead of queueing it toward bcrypt. The limiter answers with a short `text/plain` 429 from nginx that says nothing about accounts or credentials; Go never sees the request.
 
 `customer_auth` lets a client make 11 sign-in attempts at once and then one every 6 seconds, about 600 per hour: enough for retries, password managers and a few people behind one NAT, while making per-address guessing slow and keeping bcrypt cost bounded. The staff zone is stricter because a handful of staff sign in rarely.
 
-The Go service has no separate bcrypt concurrency limit. Go is reachable only inside the Compose network; every browser sign-in passes the edge. Revisit this if Go is ever exposed another way.
+Go is reachable only inside the Compose network; every browser sign-in passes the edge. Since A7, Go also bounds concurrent bcrypt work in each process (ADR 010), so a limiter bypass or a shared bucket can no longer occupy every CPU.
 
 ## Client-IP provenance
 
