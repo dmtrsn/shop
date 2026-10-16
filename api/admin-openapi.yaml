@@ -1,0 +1,276 @@
+openapi: 3.0.3
+info:
+  title: Sweetshop staff (admin) HTTP API
+  version: 0.1.0-a4
+  description: >-
+    Staff API under /api/admin/v1, separate from the customer contract in openapi.yaml. Staff are a separate
+    principal: staff_users/staff_sessions, the HttpOnly SameSite=Strict cookie __Host-sweetshop_staff
+    (sweetshop_staff without Secure in development), a CSRF token derived in its own namespace, and
+    STAFF_TRUSTED_ORIGINS, which must not overlap the customer TRUSTED_ORIGINS. The routes exist only when
+    STAFF_TRUSTED_ORIGINS is configured with PostgreSQL storage; otherwise every /api/admin path is 404, as it
+    is at the customer edge in every configuration. Customer cookies and any Authorization header never
+    authenticate staff. Responses use no-store. Bodies follow the customer JSON rules (one JSON value, no
+    unknown members, 1048576-byte cap, 422 for malformed input). This first contract covers only the staff
+    session.
+servers:
+- url: /
+paths:
+  /api/admin/v1/auth/session:
+    get:
+      operationId: staffSessionState
+      summary: staffSessionState
+      description: >-
+        Reports the staff cookie session only. A missing, invalid, expired or disabled-account session returns
+        authenticated=false (an invalid cookie is cleared). Any Authorization header is 401.
+      security: []
+      responses:
+        '200':
+          description: Success
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestID'
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+            X-Authenticated-Staff-ID:
+              description: Present when authenticated.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StaffSessionState'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    post:
+      operationId: startStaffSession
+      summary: startStaffSession
+      description: >-
+        Staff login. Requires an Origin in STAFF_TRUSTED_ORIGINS (403 csrf_failed otherwise; customer origins
+        are never staff origins). Unknown email, wrong password and a disabled account all return the same 401.
+        Always mints a new random session; a presented staff cookie is revoked atomically with creating it.
+        The token is only in the Set-Cookie header, never in the body. Any Authorization header is 401.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StaffLoginInput'
+      responses:
+        '200':
+          description: Success
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestID'
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+            Set-Cookie:
+              description: The staff session cookie; HttpOnly, SameSite=Strict, Path=/, no Domain, Max-Age up to 12 hours.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StaffSession'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/CSRFFailed'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    delete:
+      operationId: endStaffSession
+      summary: endStaffSession
+      description: >-
+        Revokes the presented staff session. With a staff cookie, requires an Origin in STAFF_TRUSTED_ORIGINS
+        and the staff X-CSRF-Token (a customer CSRF token never validates). X-Expected-Staff-ID opts into
+        authentication and owner binding (409 authenticated_staff_changed when it names another staff member,
+        401 when the session is not valid); without it a stale or missing session is still a 204. Always clears
+        the staff cookie on 204. Any Authorization header is 401.
+      security: []
+      parameters:
+      - name: X-CSRF-Token
+        in: header
+        required: false
+        schema:
+          type: string
+      - name: X-Expected-Staff-ID
+        in: header
+        required: false
+        schema:
+          type: string
+      responses:
+        '204':
+          description: Signed out.
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestID'
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/CSRFFailed'
+        '409':
+          description: authenticated_staff_changed; X-Expected-Staff-ID names a different staff member.
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestID'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          $ref: '#/components/responses/InternalError'
+components:
+  headers:
+    RequestID:
+      description: Echoed X-Request-ID or server-generated identifier.
+      schema:
+        type: string
+    NoStore:
+      schema:
+        type: string
+        enum:
+        - no-store
+  responses:
+    Unauthorized:
+      description: unauthorized; bad credentials, disabled account, invalid session or an Authorization header.
+      headers:
+        X-Request-ID:
+          $ref: '#/components/headers/RequestID'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    CSRFFailed:
+      description: csrf_failed; missing or non-staff Origin, or a missing/invalid staff CSRF token.
+      headers:
+        X-Request-ID:
+          $ref: '#/components/headers/RequestID'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    ValidationError:
+      description: validation_error; optional error.fields identifies invalid input.
+      headers:
+        X-Request-ID:
+          $ref: '#/components/headers/RequestID'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    InternalError:
+      description: internal_error; unexpected storage or server failure.
+      headers:
+        X-Request-ID:
+          $ref: '#/components/headers/RequestID'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+  schemas:
+    StaffLoginInput:
+      type: object
+      required:
+      - email
+      - password
+      additionalProperties: false
+      properties:
+        email:
+          type: string
+        password:
+          type: string
+    StaffUser:
+      type: object
+      required:
+      - id
+      - email
+      - displayName
+      - createdAt
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          pattern: '^stf_[0-9a-f]{32}$'
+        email:
+          type: string
+        displayName:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+    StaffSession:
+      type: object
+      required:
+      - staff
+      - expiresAt
+      - csrfToken
+      additionalProperties: false
+      properties:
+        staff:
+          $ref: '#/components/schemas/StaffUser'
+        expiresAt:
+          type: string
+          format: date-time
+        csrfToken:
+          type: string
+          description: Send as X-CSRF-Token on unsafe staff requests; valid only in the staff namespace.
+    StaffSessionState:
+      type: object
+      required:
+      - authenticated
+      additionalProperties: false
+      properties:
+        authenticated:
+          type: boolean
+        staff:
+          $ref: '#/components/schemas/StaffUser'
+        expiresAt:
+          type: string
+          format: date-time
+        csrfToken:
+          type: string
+    Error:
+      type: object
+      required:
+      - error
+      additionalProperties: false
+      properties:
+        error:
+          type: object
+          required:
+          - code
+          - message
+          - requestId
+          additionalProperties: false
+          properties:
+            code:
+              type: string
+              enum:
+              - validation_error
+              - unauthorized
+              - csrf_failed
+              - authenticated_staff_changed
+              - internal_error
+            message:
+              type: string
+            requestId:
+              type: string
+            fields:
+              type: array
+              items:
+                type: object
+                required:
+                - field
+                - message
+                properties:
+                  field:
+                    type: string
+                  message:
+                    type: string

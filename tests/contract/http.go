@@ -32,28 +32,61 @@ func SessionConfig() httpapi.SessionConfig {
 
 const sessionCookieName = "__Host-sweetshop_session"
 
-func document(t *testing.T) *openapi3.T {
-	t.Helper()
+func repositoryRoot() string {
 	_, file, _, _ := runtime.Caller(0)
-	root := filepath.Join(filepath.Dir(file), "../..")
-	doc, err := openapi3.NewLoader().LoadFromFile(filepath.Join(root, "api/openapi.yaml"))
+	return filepath.Join(filepath.Dir(file), "../..")
+}
+
+const adminPrefix = "/api/admin/"
+
+// registeredRoutes returns "METHOD /path" for every route the httpapi package
+// registers in any non-test file, split into customer and admin routes.
+func registeredRoutes(t *testing.T) (customer, admin map[string]bool) {
+	t.Helper()
+	files, err := filepath.Glob(filepath.Join(repositoryRoot(), "internal/delivery/httpapi/*.go"))
+	if err != nil || len(files) == 0 {
+		t.Fatal("no httpapi sources", err)
+	}
+	pattern := regexp.MustCompile(`mux\.Handle(?:Func)?\("(GET|POST|PATCH|PUT|DELETE) ([^"]+)"`)
+	customer, admin = map[string]bool{}, map[string]bool{}
+	for _, file := range files {
+		if strings.HasSuffix(file, "_test.go") {
+			continue
+		}
+		source, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, route := range pattern.FindAllStringSubmatch(string(source), -1) {
+			if strings.HasPrefix(route[2], adminPrefix) {
+				admin[route[1]+" "+route[2]] = true
+			} else {
+				customer[route[1]+" "+route[2]] = true
+			}
+		}
+	}
+	return customer, admin
+}
+
+// loadContract validates one OpenAPI document and requires its operations to
+// equal the registered routes of its namespace.
+func loadContract(t *testing.T, name string, registered map[string]bool, admin bool) *openapi3.T {
+	t.Helper()
+	doc, err := openapi3.NewLoader().LoadFromFile(filepath.Join(repositoryRoot(), "api", name))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := doc.Validate(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	// Fail if a route is added/removed without updating the contract (and vice versa).
-	source, err := os.ReadFile(filepath.Join(root, "internal/delivery/httpapi/server.go"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	routes := regexp.MustCompile(`mux\.Handle(?:Func)?\("(GET|POST|PATCH|PUT|DELETE) ([^"]+)"`).FindAllStringSubmatch(string(source), -1)
 	actual := map[string]bool{}
-	for _, route := range routes {
-		actual[route[1]+" "+route[2]] = true
+	for route := range registered {
+		actual[route] = true
 	}
 	for path, item := range doc.Paths.Map() {
+		if strings.HasPrefix(path, adminPrefix) != admin {
+			t.Errorf("%s documents %s outside its namespace", name, path)
+		}
 		for method := range item.Operations() {
 			key := method + " " + path
 			if !actual[key] {
@@ -63,9 +96,23 @@ func document(t *testing.T) *openapi3.T {
 		}
 	}
 	for route := range actual {
-		t.Errorf("registered route missing from OpenAPI: %s", route)
+		t.Errorf("registered route missing from %s: %s", name, route)
 	}
 	return doc
+}
+
+func document(t *testing.T) *openapi3.T {
+	t.Helper()
+	customer, _ := registeredRoutes(t)
+	return loadContract(t, "openapi.yaml", customer, false)
+}
+
+// AdminDocument validates api/admin-openapi.yaml against the registered
+// /api/admin routes.
+func AdminDocument(t *testing.T) *openapi3.T {
+	t.Helper()
+	_, admin := registeredRoutes(t)
+	return loadContract(t, "admin-openapi.yaml", admin, true)
 }
 
 // Run requires a fresh demo fixture. Requests execute in order, with assertions

@@ -642,6 +642,35 @@ docker compose run --rm --no-deps --entrypoint /app/shopctl app customer enable 
 отключении: такие образы снова пускают отключённые записи. Сессии, отозванные при
 отключении, не возвращаются, но после такого отката отключите запись повторно.
 
+### Учётные записи сотрудников (staff)
+
+Сотрудники — отдельный принципал: таблицы `staff_users`/`staff_sessions`, cookie
+`__Host-sweetshop_staff` (SameSite=Strict; в разработке — `sweetshop_staff` без Secure), CSRF в
+собственном пространстве, origin-ы `STAFF_TRUSTED_ORIGINS` и API `/api/admin/v1/*`
+(контракт — `api/admin-openapi.yaml`). Ни cookie, ни bearer-токен покупателя не
+аутентифицируют сотрудника, и наоборот. Решения и отклонения от ADR 006 (одна роль, MFA
+отложена) — в [ADR 007](docs/adr/007-staff-identity.md).
+
+```bash
+read -rs PASSWORD
+printf '%s\n' "$PASSWORD" | docker compose run --rm --no-deps -T --entrypoint /app/shopctl app \
+  staff create --email ops@example.com --name 'Оператор' --password-stdin
+unset PASSWORD
+# staff set-password --email E --password-stdin | staff disable --email E | staff enable --email E
+```
+
+- пароль сотрудника — от 12 символов (остальные правила и вывод — как у `shopctl customer`);
+- `set-password`, `disable` и `enable` в одной транзакции отзывают все сессии сотрудника;
+  неизвестный email, неверный пароль и отключённая запись дают одинаковый 401;
+- сессия — 12 часов без продления; вход всегда выдаёт новый токен и отзывает предъявленную
+  staff-сессию; в БД хранится только SHA-256 токена;
+- staff API регистрируется только при непустом `STAFF_TRUSTED_ORIGINS` и PostgreSQL; иначе
+  `/api/admin/*` отвечает 404. Origin-ы — точные, https в production и не пересекаются с
+  `TRUSTED_ORIGINS` (иначе сервер не стартует);
+- магазинный edge сам отвечает 404 на `/api/admin` и `/api/admin/*` при любой настройке Go:
+  админке нужен отдельный origin (ADR 006), он появится в следующих этапах. Ролей, MFA и
+  audit-журнала пока нет.
+
 ## Конфигурация backend
 
 Сервер читает переменные окружения напрямую; `.env` автоматически обрабатывает Docker Compose, но не команда `go run`.
@@ -651,6 +680,7 @@ docker compose run --rm --no-deps --entrypoint /app/shopctl app customer enable 
 | `APP_MODE` | `production` | `production`, `development` или `demo`. Только два последних допускают memory repository без DSN. |
 | `DATABASE_URL` | пусто | PostgreSQL DSN. Обязателен в production; ошибочный или недоступный DSN никогда не вызывает переход в memory. |
 | `RUN_MIGRATIONS` | по режиму | Пусто: `production` только проверяет схему, `demo`/`development` применяют миграции. Допустимы только `true` и `false`. |
+| `STAFF_TRUSTED_ORIGINS` | пусто | Origin-ы отдельного admin-хоста для staff API. Пусто — staff API нет (404). Только с PostgreSQL; https в production; не пересекается с `TRUSTED_ORIGINS`. |
 | `WEB_DIR` | `web` | Каталог статического frontend. В образе — `/app/web`. |
 | `MIGRATIONS_DIR` | `migrations` | Каталог SQL-миграций. В образе — `/app/migrations`. |
 | `HTTP_ADDR` | `:$PORT` | Полный адрес HTTP listener; имеет приоритет над `PORT`. |

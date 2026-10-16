@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 
+	"sweetshop/internal/delivery/httpapi"
+	"sweetshop/internal/repository/memory"
 	postgresrepo "sweetshop/internal/repository/postgres"
 )
 
@@ -136,5 +138,58 @@ func TestSessionConfigFailsClosedInProduction(t *testing.T) {
 	t.Setenv("SESSION_COOKIE_SECURE", "true")
 	if config, _ := sessionConfig("development"); !config.Secure {
 		t.Fatal("development may opt in to Secure cookies")
+	}
+}
+
+func TestStaffOriginsConfig(t *testing.T) {
+	production := httpapi.SessionConfig{Secure: true, TrustedOrigins: []string{"https://shop.example"}}
+	for _, tc := range []struct {
+		name, mode, raw string
+		want            []string
+		ok              bool
+	}{
+		{"unset disables staff", "production", "", nil, true},
+		{"blank disables staff", "production", "  ", nil, true},
+		{"production https", "production", "https://admin.shop.example", []string{"https://admin.shop.example"}, true},
+		{"normalized", "production", " HTTPS://Admin.Shop.Example:443 ", []string{"https://admin.shop.example"}, true},
+		{"production refuses http", "production", "http://admin.shop.example", nil, false},
+		{"overlap is refused", "production", "https://admin.shop.example,https://shop.example", nil, false},
+		{"overlap after normalization", "production", "https://SHOP.example:443", nil, false},
+		{"wildcard", "production", "https://*.shop.example", nil, false},
+		{"path", "production", "https://admin.shop.example/admin", nil, false},
+		{"empty entry", "production", "https://admin.shop.example,", nil, false},
+		{"development http loopback", "development", "http://127.0.0.1:8081", []string{"http://127.0.0.1:8081"}, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("STAFF_TRUSTED_ORIGINS", tc.raw)
+			sessions := production
+			if tc.mode == "development" {
+				sessions = httpapi.SessionConfig{TrustedOrigins: []string{"http://127.0.0.1:8080"}}
+			}
+			origins, err := staffOriginsConfig(tc.mode, sessions)
+			if (err == nil) != tc.ok || strings.Join(origins, ",") != strings.Join(tc.want, ",") {
+				t.Fatalf("origins=%v err=%v", origins, err)
+			}
+			if err != nil && strings.Contains(err.Error(), "shop.example") {
+				t.Fatal("configuration error exposed the configured value")
+			}
+			if err != nil && !strings.HasPrefix(err.Error(), "STAFF_TRUSTED_ORIGINS entry") {
+				t.Fatalf("error must name the staff variable: %v", err)
+			}
+		})
+	}
+	// Development defaults are customer origins too; reusing one is refused.
+	t.Setenv("STAFF_TRUSTED_ORIGINS", "http://127.0.0.1:8080")
+	if _, err := staffOriginsConfig("development", httpapi.SessionConfig{TrustedOrigins: strings.Split(developmentTrustedOrigins, ",")}); err == nil {
+		t.Fatal("staff reused a development customer origin")
+	}
+}
+
+func TestStaffRequiresPostgreSQL(t *testing.T) {
+	if options, err := staffOptions(memory.NewDemo(), nil); err != nil || options != nil {
+		t.Fatal("no staff origins means no staff option")
+	}
+	if _, err := staffOptions(memory.NewDemo(), []string{"https://admin.shop.example"}); err == nil {
+		t.Fatal("staff enabled on the memory store")
 	}
 }

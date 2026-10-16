@@ -38,6 +38,11 @@ func main() {
 		logger.Error("invalid session configuration", "error", err)
 		os.Exit(1)
 	}
+	staffOrigins, err := staffOriginsConfig(mode, sessions)
+	if err != nil {
+		logger.Error("invalid staff session configuration", "error", err)
+		os.Exit(1)
+	}
 	repo, storage, cleanup, err := repository(ctx, logger)
 	if err != nil {
 		logger.Error("initialize repository", "error", err)
@@ -45,7 +50,12 @@ func main() {
 	}
 	defer cleanup()
 	service := application.New(repo, application.Options{AllowDemoAccount: mode != "production"})
-	handler := httpapi.New(service, logger, env("WEB_DIR", "web"), storage, sessions)
+	options, err := staffOptions(repo, staffOrigins)
+	if err != nil {
+		logger.Error("invalid staff session configuration", "error", err)
+		os.Exit(1)
+	}
+	handler := httpapi.New(service, logger, env("WEB_DIR", "web"), storage, sessions, options...)
 	server := &http.Server{Addr: env("HTTP_ADDR", ":"+env("PORT", "8080")), Handler: handler, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 75 * time.Second, MaxHeaderBytes: 1 << 20}
 	go func() {
 		<-ctx.Done()
@@ -206,6 +216,44 @@ func sessionConfig(mode string) (httpapi.SessionConfig, error) {
 		return httpapi.SessionConfig{}, err
 	}
 	return httpapi.SessionConfig{Secure: secure, TrustedOrigins: origins}, nil
+}
+
+// staffOriginsConfig reads STAFF_TRUSTED_ORIGINS. Unset means no staff API.
+// Origins follow the customer rules (https-only in production, exact,
+// normalized) and must not overlap TRUSTED_ORIGINS, so a staff session and a
+// customer session never share an origin.
+func staffOriginsConfig(mode string, sessions httpapi.SessionConfig) ([]string, error) {
+	raw := os.Getenv("STAFF_TRUSTED_ORIGINS")
+	if strings.TrimSpace(raw) == "" {
+		return nil, nil
+	}
+	origins, err := httpapi.ParseStaffTrustedOrigins(raw, mode == "production")
+	if err != nil {
+		return nil, err
+	}
+	customer := map[string]bool{}
+	for _, origin := range sessions.TrustedOrigins {
+		customer[origin] = true
+	}
+	for i, origin := range origins {
+		if customer[origin] {
+			return nil, fmt.Errorf("STAFF_TRUSTED_ORIGINS entry %d is also in TRUSTED_ORIGINS; staff need a separate origin", i+1)
+		}
+	}
+	return origins, nil
+}
+
+// staffOptions enables the staff API only with PostgreSQL: the memory store
+// has no staff persistence, and configuring staff for it is an error.
+func staffOptions(repo domain.Repository, origins []string) ([]httpapi.Option, error) {
+	if len(origins) == 0 {
+		return nil, nil
+	}
+	store, ok := repo.(application.StaffStore)
+	if !ok {
+		return nil, errors.New("STAFF_TRUSTED_ORIGINS requires PostgreSQL storage")
+	}
+	return []httpapi.Option{httpapi.WithStaff(application.NewStaffAuth(store), httpapi.StaffConfig{TrustedOrigins: origins})}, nil
 }
 
 func env(key, fallback string) string {

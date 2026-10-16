@@ -38,6 +38,8 @@ services:
       # Empty: production verifies only (run shopctl migrate); demo/development migrate.
       RUN_MIGRATIONS: ${RUN_MIGRATIONS:-}
       TRUSTED_ORIGINS: ${TRUSTED_ORIGINS:-}
+      # Empty: no staff API. Never reachable through this shop edge either.
+      STAFF_TRUSTED_ORIGINS: ${STAFF_TRUSTED_ORIGINS:-}
       SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-}
       WEB_DIR: ${WEB_DIR:-/app/web}
       MIGRATIONS_DIR: ${MIGRATIONS_DIR:-/app/migrations}

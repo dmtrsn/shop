@@ -37,20 +37,18 @@ type Server struct {
 	cookieName     string
 	secureCookie   bool
 	trustedOrigins map[string]bool
+
+	// Staff identity is separate; nil staff means no staff routes exist.
+	staff           *application.StaffAuth
+	staffOrigins    map[string]bool
+	staffCookieName string
 }
 
-func New(service *application.Service, logger *slog.Logger, staticDir, storage string, sessions SessionConfig) http.Handler {
-	s := &Server{service: service, logger: logger, staticDir: staticDir, storage: storage, secureCookie: sessions.Secure, cookieName: insecureSessionCookieName, trustedOrigins: map[string]bool{}}
-	if sessions.Secure {
-		s.cookieName = secureSessionCookieName
-	}
-	for _, origin := range sessions.TrustedOrigins {
-		if normalized, err := ParseOrigin(origin, false); err == nil && normalized == origin {
-			s.trustedOrigins[origin] = true
-		} else {
-			logger.Error("ignoring trusted origin that is not normalized")
-		}
-	}
+// Option configures optional parts of the server.
+type Option func(*Server)
+
+func New(service *application.Service, logger *slog.Logger, staticDir, storage string, sessions SessionConfig, options ...Option) http.Handler {
+	s := newServer(service, logger, staticDir, storage, sessions, options...)
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/health", s.health)
 	mux.HandleFunc("POST /api/auth/login", s.login)
@@ -82,8 +80,30 @@ func New(service *application.Service, logger *slog.Logger, staticDir, storage s
 	mux.Handle("POST /api/orders/{order}/repeat/commit", s.auth(http.HandlerFunc(s.repeatCommit)))
 	mux.Handle("POST /api/v2/orders/{order}/repeat/preview", s.auth(http.HandlerFunc(s.repeatPreviewV2)))
 	mux.Handle("POST /api/v2/orders/{order}/repeat/commit", s.auth(http.HandlerFunc(s.repeatCommitV2)))
+	if s.staffEnabled() {
+		s.registerStaffRoutes(mux)
+	}
 	mux.Handle("/", s.staticHandler())
 	return s.middleware(mux)
+}
+
+// newServer builds the server state; New registers the routes.
+func newServer(service *application.Service, logger *slog.Logger, staticDir, storage string, sessions SessionConfig, options ...Option) *Server {
+	s := &Server{service: service, logger: logger, staticDir: staticDir, storage: storage, secureCookie: sessions.Secure, cookieName: insecureSessionCookieName, trustedOrigins: map[string]bool{}}
+	if sessions.Secure {
+		s.cookieName = secureSessionCookieName
+	}
+	for _, origin := range sessions.TrustedOrigins {
+		if normalized, err := ParseOrigin(origin, false); err == nil && normalized == origin {
+			s.trustedOrigins[origin] = true
+		} else {
+			logger.Error("ignoring trusted origin that is not normalized")
+		}
+	}
+	for _, option := range options {
+		option(s)
+	}
+	return s
 }
 
 func (s *Server) health(w http.ResponseWriter, r *http.Request) {
@@ -541,6 +561,8 @@ func (s *Server) writeError(w http.ResponseWriter, r *http.Request, err error) {
 		status, code, message = http.StatusConflict, "idempotency_key_reused", "Ключ идемпотентности уже использован для другого заказа"
 	case errors.Is(err, errAuthenticatedUserChanged):
 		status, code, message = http.StatusConflict, "authenticated_user_changed", "Сессия принадлежит другому пользователю: обновите страницу"
+	case errors.Is(err, errAuthenticatedStaffChanged):
+		status, code, message = http.StatusConflict, "authenticated_staff_changed", "Сессия принадлежит другому сотруднику: обновите страницу"
 	case errors.Is(err, domain.ErrConflict):
 		status, code, message = http.StatusConflict, "conflict", "Операцию нельзя выполнить в текущем состоянии"
 	}

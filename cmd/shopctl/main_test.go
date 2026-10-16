@@ -141,3 +141,33 @@ func TestCustomerPasswordNeverPrintedWhenTheDatabaseFails(t *testing.T) {
 		t.Fatalf("exit=%d output=%s%s", code, stdout.String(), stderr.String())
 	}
 }
+
+func TestStaffUsageErrorsNeedNoDatabase(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		args  []string
+		stdin string
+		want  int
+	}{
+		{"no subcommand", []string{"staff"}, "", exitUsage},
+		{"help", []string{"staff", "help"}, "", exitOK},
+		{"unknown subcommand", []string{"staff", "promote", "--email", "a@b.co"}, "", exitUsage},
+		{"no phone for staff", []string{"staff", "create", "--email", "a@b.co", "--name", "A", "--phone", "1", "--password-stdin"}, "staff password 1\n", exitUsage},
+		{"password as flag", []string{"staff", "create", "--email", "a@b.co", "--name", "A", "--password", "staff password 1"}, "", exitUsage},
+		{"create without stdin flag", []string{"staff", "create", "--email", "a@b.co", "--name", "A"}, "staff password 1\n", exitUsage},
+		{"two lines", []string{"staff", "set-password", "--email", "a@b.co", "--password-stdin"}, "one\ntwo\n", exitUsage},
+		{"no DSN", []string{"staff", "disable", "--email", "a@b.co"}, "", exitUsage},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("APP_MODE", "")
+			t.Setenv("DATABASE_URL", "")
+			var stdout, stderr bytes.Buffer
+			if got := run(tc.args, strings.NewReader(tc.stdin), &stdout, &stderr); got != tc.want {
+				t.Fatalf("exit=%d want=%d stderr=%s", got, tc.want, stderr.String())
+			}
+			if strings.Contains(stdout.String()+stderr.String(), "staff password 1") {
+				t.Fatal("password echoed")
+			}
+		})
+	}
+}

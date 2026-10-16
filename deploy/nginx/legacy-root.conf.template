@@ -15,6 +15,18 @@ server {
         return 200 '{"status":"ok"}\n';
     }
 
+    # Staff (admin) API is never served from the shop host: per ADR 006 it
+    # belongs to a separate admin origin. This holds even when Go has
+    # STAFF_TRUSTED_ORIGINS configured. Matching uses the normalized URI, so
+    # encoded or doubled-slash spellings are caught too.
+    location = /api/admin {
+        return 404;
+    }
+
+    location ^~ /api/admin/ {
+        return 404;
+    }
+
     location = /api {
         proxy_pass http://app:8080;
     }

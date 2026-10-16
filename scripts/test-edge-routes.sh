@@ -115,6 +115,21 @@ expect_status 200 "$status" api-health
 expect_go api-health
 expect_body api-health '"status":"ok"'
 
+# The staff (admin) API never answers on the shop host, whatever Go's
+# STAFF_TRUSTED_ORIGINS is: the edge itself returns 404 (ADR 006).
+for method in GET POST DELETE; do
+  for path in /api/admin /api/admin/v1/auth/session /%61pi/admin/v1/auth/session //api//admin/v1/auth/session; do
+    status="$(curl --silent --show-error --path-as-is --max-time 15 --request "$method" \
+      --header 'Origin: https://admin.invalid' --header 'Content-Type: application/json' --data '{}' \
+      --dump-header "$temporary_dir/admin.headers" --output "$temporary_dir/admin.body" \
+      --write-out '%{http_code}' "$edge_origin$path")"
+    expect_status 404 "$status" "admin-blocked $method $path"
+    if grep -qi '^set-cookie:.*sweetshop_staff' "$temporary_dir/admin.headers"; then
+      fail "admin-blocked $method $path: staff cookie set"
+    fi
+  done
+done
+
 # Nginx matches the decoded path, so an encoded /api still reaches Go.
 request api-encoded /%61pi/health
 expect_status 200 "$status" api-encoded

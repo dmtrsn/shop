@@ -120,12 +120,21 @@ func ParseOrigin(raw string, httpsOnly bool) (string, error) {
 // ParseTrustedOrigins parses a comma-separated TRUSTED_ORIGINS value. Errors
 // identify an entry by position only, never by value.
 func ParseTrustedOrigins(raw string, httpsOnly bool) ([]string, error) {
+	return parseOriginList("TRUSTED_ORIGINS", raw, httpsOnly)
+}
+
+// ParseStaffTrustedOrigins parses STAFF_TRUSTED_ORIGINS with the same rules.
+func ParseStaffTrustedOrigins(raw string, httpsOnly bool) ([]string, error) {
+	return parseOriginList("STAFF_TRUSTED_ORIGINS", raw, httpsOnly)
+}
+
+func parseOriginList(variable, raw string, httpsOnly bool) ([]string, error) {
 	seen := map[string]bool{}
 	origins := []string{}
 	for i, entry := range strings.Split(raw, ",") {
 		origin, err := ParseOrigin(strings.TrimSpace(entry), httpsOnly)
 		if err != nil {
-			return nil, fmt.Errorf("TRUSTED_ORIGINS entry %d is invalid: %w", i+1, err)
+			return nil, fmt.Errorf("%s entry %d is invalid: %w", variable, i+1, err)
 		}
 		if !seen[origin] {
 			seen[origin] = true
@@ -200,8 +209,14 @@ func (s *Server) clearSessionCookie(w http.ResponseWriter) {
 	http.SetCookie(w, &http.Cookie{Name: s.cookieName, Value: "", Path: "/", MaxAge: -1, HttpOnly: true, Secure: s.secureCookie, SameSite: http.SameSiteLaxMode})
 }
 
-// checkOrigin returns a rejection reason, or "" when Origin is trusted.
+// checkOrigin returns a rejection reason, or "" when Origin is a trusted
+// customer origin.
 func (s *Server) checkOrigin(r *http.Request) string {
+	return checkOriginIn(r, s.trustedOrigins)
+}
+
+// checkOriginIn checks Origin against one principal's allow-list only.
+func checkOriginIn(r *http.Request, trusted map[string]bool) string {
 	values := r.Header.Values("Origin")
 	if len(values) == 0 {
 		return "missing origin"
@@ -210,7 +225,7 @@ func (s *Server) checkOrigin(r *http.Request) string {
 		return "multiple origin headers"
 	}
 	origin, err := ParseOrigin(values[0], false)
-	if err != nil || !s.trustedOrigins[origin] {
+	if err != nil || !trusted[origin] {
 		return "untrusted origin"
 	}
 	return ""

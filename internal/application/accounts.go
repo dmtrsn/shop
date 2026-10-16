@@ -175,13 +175,19 @@ func NormalizeEmail(raw string) (string, bool) {
 // at least MinCustomerPasswordRunes characters, at most MaxPasswordBytes
 // bytes of UTF-8, no control characters and no surrounding whitespace.
 func ValidateCustomerPassword(password string) string {
+	return validatePassword(password, MinCustomerPasswordRunes)
+}
+
+// validatePassword is the shared rule; only the minimum length differs
+// between customers and staff.
+func validatePassword(password string, minRunes int) string {
 	switch {
 	case !utf8.ValidString(password):
 		return "Пароль должен быть в кодировке UTF-8"
 	case len(password) > MaxPasswordBytes:
 		return fmt.Sprintf("Пароль длиннее %d байт", MaxPasswordBytes)
-	case utf8.RuneCountInString(password) < MinCustomerPasswordRunes:
-		return fmt.Sprintf("Пароль должен быть не короче %d символов", MinCustomerPasswordRunes)
+	case utf8.RuneCountInString(password) < minRunes:
+		return fmt.Sprintf("Пароль должен быть не короче %d символов", minRunes)
 	case strings.TrimSpace(password) != password:
 		return "Пароль не должен начинаться или заканчиваться пробелом"
 	case strings.IndexFunc(password, unicode.IsControl) >= 0:
@@ -221,9 +227,13 @@ func validatePhone(phone string) string {
 
 // newCustomerID is "usr_" and 128 random bits, distinct from fixture IDs.
 func newCustomerID() (string, error) {
+	return newAccountID("usr_")
+}
+
+func newAccountID(prefix string) (string, error) {
 	b := make([]byte, 16)
 	if _, err := rand.Read(b); err != nil {
-		return "", fmt.Errorf("create customer id: %w", err)
+		return "", fmt.Errorf("create account id: %w", err)
 	}
-	return "usr_" + hex.EncodeToString(b), nil
+	return prefix + hex.EncodeToString(b), nil
 }

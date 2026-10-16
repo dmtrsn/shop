@@ -1,10 +1,11 @@
 // Command shopctl is the operator tool. It applies and reports database
 // migrations with the same engine the server uses, and provisions customer
-// accounts:
+// and staff accounts:
 //
 //	shopctl migrate [--timeout=10m] [--lock-timeout=5s]
 //	shopctl migrate --status
 //	shopctl customer create|set-password|disable|enable ...
+//	shopctl staff create|set-password|disable|enable ...
 //
 // Configuration follows the server: DATABASE_URL (required), MIGRATIONS_DIR
 // (default "migrations") and APP_MODE (production, development or demo).
@@ -38,7 +39,7 @@ const (
 	exitUsage   = 2
 	// exitNotCurrent: --status found pending work for `shopctl migrate`.
 	exitNotCurrent = 3
-	// exitConflict: the customer email is taken, or no account has it.
+	// exitConflict: the account email is taken, or no account has it.
 	exitConflict = 3
 )
 
@@ -49,6 +50,8 @@ const usage = `Usage:
   shopctl customer set-password --email E --password-stdin
   shopctl customer disable --email E
   shopctl customer enable --email E
+  shopctl staff create --email E --name DISPLAY_NAME --password-stdin
+  shopctl staff set-password|disable|enable --email E [--password-stdin]
 
 Environment: DATABASE_URL (required), MIGRATIONS_DIR (default migrations),
 APP_MODE (production, development or demo; default production). APP_MODE
@@ -57,7 +60,7 @@ skipped without running it; development and demo apply it.
 
 Exit codes: 0 success or current, 1 failure or inconsistent schema,
 2 usage, configuration or validation error, 3 --status found pending work
-or the customer email is taken / unknown.
+or the account email is taken / unknown.
 `
 
 func main() {
@@ -74,6 +77,8 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return migrate(args[1:], stdout, stderr)
 	case "customer":
 		return customer(args[1:], stdin, stdout, stderr)
+	case "staff":
+		return staff(args[1:], stdin, stdout, stderr)
 	case "help", "-h", "--help":
 		fmt.Fprint(stdout, usage)
 		return exitOK
