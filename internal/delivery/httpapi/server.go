@@ -42,6 +42,8 @@ type Server struct {
 	staff           *application.StaffAuth
 	staffOrigins    map[string]bool
 	staffCookieName string
+	// products enables staff product management (nil: no product routes).
+	products *application.ProductAdmin
 
 	// Self-service registration and recovery; nil means their routes do not
 	// exist.
@@ -574,6 +576,8 @@ func (s *Server) writeError(w http.ResponseWriter, r *http.Request, err error) {
 		status, code, message = http.StatusConflict, "idempotency_key_reused", "Ключ идемпотентности уже использован для другого заказа"
 	case errors.Is(err, errAuthenticatedUserChanged):
 		status, code, message = http.StatusConflict, "authenticated_user_changed", "Сессия принадлежит другому пользователю: обновите страницу"
+	case errors.Is(err, domain.ErrStaleRevision):
+		status, code, message = http.StatusConflict, "stale_revision", "Товар уже изменён: загрузите актуальную версию и повторите"
 	case errors.Is(err, errAuthenticatedStaffChanged):
 		status, code, message = http.StatusConflict, "authenticated_staff_changed", "Сессия принадлежит другому сотруднику: обновите страницу"
 	case errors.Is(err, domain.ErrConflict):

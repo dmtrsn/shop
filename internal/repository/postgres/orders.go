@@ -199,14 +199,20 @@ func (s *Store) createOrder(ctx context.Context, userID string, input domain.Che
 			&p.Rating, &p.ReviewsCount, &p.Stock, &p.MinimumQuantity, &p.QuantityStep, &p.Featured, &p.CreatedAt,
 			&p.Category.ID, &p.Category.Slug, &p.Category.Name, &p.Category.Description, &p.Category.ParentID, &p.Category.Icon,
 			&p.Manufacturer.ID, &p.Manufacturer.Slug, &p.Manufacturer.Name, &p.Manufacturer.Country, &p.Manufacturer.Description, &p.Manufacturer.Logo,
-			&p.Brand.ID, &p.Brand.Slug, &p.Brand.Name, &p.Brand.ManufacturerID, &p.Brand.Manufacturer, &p.Brand.Description, &p.Brand.Logo, &qty)
+			&p.Brand.ID, &p.Brand.Slug, &p.Brand.Name, &p.Brand.ManufacturerID, &p.Brand.Manufacturer, &p.Brand.Description, &p.Brand.Logo, &p.Archived, &qty)
 		if err != nil {
 			rows.Close()
 			return domain.Order{}, fmt.Errorf("scan checkout cart: %w", err)
 		}
-		if qty > p.Stock {
+		// The locked rows are authoritative: staff may have archived the
+		// product or changed its rules after the line was added (ADR 013).
+		if p.Archived || qty > p.Stock {
 			rows.Close()
 			return domain.Order{}, domain.ErrOutOfStock
+		}
+		if !domain.QuantityAllowed(qty, p.MinimumQuantity, p.QuantityStep) {
+			rows.Close()
+			return domain.Order{}, domain.ErrCheckoutChanged
 		}
 		selected = append(selected, checkoutRow{product: p, quantity: qty})
 	}
@@ -280,8 +286,10 @@ func (s *Store) createOrder(ctx context.Context, userID string, input domain.Che
 	if err != nil {
 		return domain.Order{}, fmt.Errorf("insert order items: %w", err)
 	}
+	// The decrement is a new product revision, so a staff edit based on the
+	// earlier stock is refused instead of overwriting the sale.
 	command, err := tx.Exec(ctx, `
-		UPDATE products AS product SET stock=product.stock-items.quantity,updated_at=now()
+		UPDATE products AS product SET stock=product.stock-items.quantity,revision=product.revision+1,updated_at=now()
 		FROM unnest($1::text[],$2::integer[]) AS items(product_id,quantity)
 		WHERE product.id=items.product_id AND product.stock>=items.quantity`, productIDs, quantities)
 	if err != nil {

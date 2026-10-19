@@ -657,6 +657,10 @@ func (s *Store) CreateOrder(_ context.Context, userID string, input domain.Check
 		if !ok || row.quantity > p.Stock {
 			return domain.Order{}, false, domain.ErrOutOfStock
 		}
+		// The quantity rules may have changed since the line was added.
+		if !domain.QuantityAllowed(row.quantity, p.MinimumQuantity, p.QuantityStep) {
+			return domain.Order{}, false, domain.ErrCheckoutChanged
+		}
 		items = append(items, orderItem(p, row.quantity))
 	}
 	if len(items) == 0 {
@@ -799,11 +803,7 @@ func (s *Store) buildCart(userID string) domain.Cart {
 			continue
 		}
 		item := domain.CartItem{Product: cloneProduct(p), Quantity: row.quantity, Selected: row.selected, Available: p.Stock, LineTotalMinor: int64(row.quantity) * p.PriceMinor}
-		if p.Stock == 0 {
-			item.Issue = "Нет в наличии"
-		} else if row.quantity > p.Stock {
-			item.Issue = fmt.Sprintf("Доступно только %d", p.Stock)
-		}
+		item.Issue = domain.CartLineIssue(p, row.quantity)
 		if row.updated.After(updated) {
 			updated = row.updated
 		}

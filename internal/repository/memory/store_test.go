@@ -201,3 +201,38 @@ func TestCreateSessionRequiresTheVerifiedCredential(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// Checkout rechecks the current quantity rules, as PostgreSQL does: a line
+// valid when added fails after the rules change, and nothing is consumed.
+func TestCheckoutRevalidatesQuantityRules(t *testing.T) {
+	ctx := context.Background()
+	store := NewDemo()
+	if _, err := store.ClearCart(ctx, domain.DemoUserID, false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.SetCartItem(ctx, domain.DemoUserID, "p01", 3, true); err != nil {
+		t.Fatal(err)
+	}
+	store.mu.Lock()
+	product := store.products["p01"]
+	product.MinimumQuantity, product.QuantityStep = 2, 2
+	store.products["p01"] = product
+	stock := product.Stock
+	store.mu.Unlock()
+	cart, err := store.Cart(ctx, domain.DemoUserID)
+	if err != nil || len(cart.Items) != 1 || cart.Items[0].Issue != "Минимум 2, шаг 2" || cart.Summary.UnavailableCount != 1 {
+		t.Fatalf("cart: %+v %v", cart.Items, err)
+	}
+	if _, _, err := store.CreateOrder(ctx, domain.DemoUserID, domain.CheckoutInput{DeliveryAddress: "Address"}); !errors.Is(err, domain.ErrCheckoutChanged) {
+		t.Fatalf("checkout: %v", err)
+	}
+	if after, _ := store.Product(ctx, "p01"); after.Stock != stock {
+		t.Fatal("stock consumed")
+	}
+	if _, err := store.SetCartItem(ctx, domain.DemoUserID, "p01", 4, true); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := store.CreateOrder(ctx, domain.DemoUserID, domain.CheckoutInput{DeliveryAddress: "Address"}); err != nil {
+		t.Fatalf("valid quantity: %v", err)
+	}
+}

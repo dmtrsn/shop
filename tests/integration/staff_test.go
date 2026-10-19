@@ -27,14 +27,16 @@ const (
 	shopCookie    = "__Host-sweetshop_session"
 )
 
-// staffServer is the production-shaped handler with the staff API enabled.
+// staffServer is the production-shaped handler with the staff API and staff
+// product management enabled.
 func (d *database) staffServer(t *testing.T, logs io.Writer) http.Handler {
 	t.Helper()
 	if logs == nil {
 		logs = io.Discard
 	}
 	return httpapi.New(d.service, slog.New(slog.NewTextHandler(logs, nil)), "", "postgres", contract.SessionConfig(),
-		httpapi.WithStaff(application.NewStaffAuth(d.store), contract.StaffConfig()))
+		httpapi.WithStaff(application.NewStaffAuth(d.store), contract.StaffConfig()),
+		httpapi.WithProductAdmin(application.NewProductAdmin(d.store)))
 }
 
 func (d *database) createStaff(t *testing.T) domain.StaffAccount {

@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: Sweetshop staff (admin) HTTP API
-  version: 0.1.0-a4
+  version: 0.2.0-b1
   description: >-
     Staff API under /api/admin/v1, separate from the customer contract in openapi.yaml. Staff are a separate
     principal: staff_users/staff_sessions, the HttpOnly SameSite=Strict cookie __Host-sweetshop_staff
@@ -10,8 +10,13 @@ info:
     STAFF_TRUSTED_ORIGINS is configured with PostgreSQL storage; otherwise every /api/admin path is 404, as it
     is at the customer edge in every configuration. Customer cookies and any Authorization header never
     authenticate staff. Responses use no-store. Bodies follow the customer JSON rules (one JSON value, no
-    unknown members, 1048576-byte cap, 422 for malformed input). This first contract covers only the staff
-    session.
+    unknown members, 1048576-byte cap, 422 for malformed input). Besides the staff session it covers product
+    management (ADR 013): every product route requires the staff cookie (401 otherwise, including any
+    Authorization header or a customer session), and unsafe methods also require an Origin in
+    STAFF_TRUSTED_ORIGINS and the staff X-CSRF-Token (403 csrf_failed). X-Expected-Staff-ID, when sent, must
+    name the authenticated staff member (409 authenticated_staff_changed). Each successful product mutation
+    commits together with one staff audit event whose actor is the session's staff member (ADR 012); rejected
+    requests write nothing. Products are archived and restored, never deleted.
 servers:
 - url: /
 paths:
@@ -140,6 +145,262 @@ paths:
                 $ref: '#/components/schemas/Error'
         '500':
           $ref: '#/components/responses/InternalError'
+  /api/admin/v1/products:
+    get:
+      operationId: listProducts
+      summary: listProducts
+      description: >-
+        Staff product list ordered by name, then ID. status is active (default), archived or all. q (up to 100
+        characters, one line) matches the ID or SKU exactly, or a case-insensitive substring of the name, slug or
+        SKU. page starts at 1 (at most 10000); limit is 1-100, default 50. Archived products are included only
+        when requested.
+      parameters:
+      - name: status
+        in: query
+        required: false
+        schema:
+          type: string
+          enum:
+          - active
+          - archived
+          - all
+      - name: q
+        in: query
+        required: false
+        schema:
+          type: string
+          maxLength: 100
+      - name: page
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 10000
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+      responses:
+        '200':
+          description: Success
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestID'
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminProductPage'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/StaffChanged'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    post:
+      operationId: createProduct
+      summary: createProduct
+      description: >-
+        Creates an active product with a new ID (prd_ + 32 hex digits) at revision 1, without images, and appends
+        it to the end of each listed collection. Every member is required. References must exist and the brand
+        must belong to the manufacturer. The slug must not equal any other product's slug, ID or SKU
+        (case-insensitive), and the SKU must not equal any other product's SKU, slug or ID (case-insensitive),
+        because customer product lookups accept any of them. Audited as product.create.
+      parameters:
+      - $ref: '#/components/parameters/CSRFToken'
+      - $ref: '#/components/parameters/ExpectedStaffID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProductInput'
+      responses:
+        '201':
+          description: Created
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestID'
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminProduct'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/CSRFFailed'
+        '409':
+          $ref: '#/components/responses/StaffChanged'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/admin/v1/products/{product}:
+    parameters:
+    - $ref: '#/components/parameters/Product'
+    get:
+      operationId: getProduct
+      summary: getProduct
+      description: One product by ID, archived or not. Unknown IDs are 404.
+      responses:
+        '200':
+          description: Success
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestID'
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminProduct'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/StaffChanged'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    put:
+      operationId: updateProduct
+      summary: updateProduct
+      description: >-
+        Replaces every staff-editable field (the same members as createProduct, all required) and the collection
+        memberships; kept memberships keep their position. expectedRevision must be the product's current
+        revision, otherwise 409 stale_revision and nothing changes. Success increments the revision by exactly
+        one. Checkout stock decrements also increment the revision, so an edit based on an older stock value is
+        refused. Archived products may be edited and stay archived. Image, gallery, rating, reviews, currency
+        and archive state are not changed here. Audited as product.update.
+      parameters:
+      - $ref: '#/components/parameters/CSRFToken'
+      - $ref: '#/components/parameters/ExpectedStaffID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProductUpdateInput'
+      responses:
+        '200':
+          description: Updated
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestID'
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminProduct'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/CSRFFailed'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/RevisionConflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/admin/v1/products/{product}/archive:
+    parameters:
+    - $ref: '#/components/parameters/Product'
+    post:
+      operationId: archiveProduct
+      summary: archiveProduct
+      description: >-
+        Withdraws an active product from sale and increments its revision. Nothing is deleted. Customers no longer
+        see it in the catalog, search, facets, collections, product detail (404) or favorites (kept, shown again
+        after a restore); cart lines stay and are reported unavailable, checkout refuses them with out_of_stock,
+        and repeat flows report it as discontinued. Order history is unchanged. Archiving an archived product is
+        409 conflict. Audited as product.archive.
+      parameters:
+      - $ref: '#/components/parameters/CSRFToken'
+      - $ref: '#/components/parameters/ExpectedStaffID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RevisionInput'
+      responses:
+        '200':
+          description: Archived
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestID'
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminProduct'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/CSRFFailed'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/RevisionConflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/admin/v1/products/{product}/restore:
+    parameters:
+    - $ref: '#/components/parameters/Product'
+    post:
+      operationId: restoreProduct
+      summary: restoreProduct
+      description: >-
+        Returns an archived product to sale and increments its revision. Restoring an active product is 409
+        conflict. Audited as product.restore.
+      parameters:
+      - $ref: '#/components/parameters/CSRFToken'
+      - $ref: '#/components/parameters/ExpectedStaffID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RevisionInput'
+      responses:
+        '200':
+          description: Restored
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestID'
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminProduct'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/CSRFFailed'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/RevisionConflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '500':
+          $ref: '#/components/responses/InternalError'
 components:
   headers:
     RequestID:
@@ -151,6 +412,27 @@ components:
         type: string
         enum:
         - no-store
+  parameters:
+    Product:
+      name: product
+      in: path
+      required: true
+      description: Product ID (legacy IDs such as p01, or prd_ + 32 hex digits).
+      schema:
+        type: string
+    CSRFToken:
+      name: X-CSRF-Token
+      in: header
+      required: true
+      description: The staff CSRF token from the staff session.
+      schema:
+        type: string
+    ExpectedStaffID:
+      name: X-Expected-Staff-ID
+      in: header
+      required: false
+      schema:
+        type: string
   responses:
     Unauthorized:
       description: unauthorized; bad credentials, disabled account, invalid session or an Authorization header.
@@ -172,6 +454,36 @@ components:
             $ref: '#/components/schemas/Error'
     ValidationError:
       description: validation_error; optional error.fields identifies invalid input.
+      headers:
+        X-Request-ID:
+          $ref: '#/components/headers/RequestID'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    NotFound:
+      description: not_found; no product has this ID.
+      headers:
+        X-Request-ID:
+          $ref: '#/components/headers/RequestID'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    StaffChanged:
+      description: authenticated_staff_changed; X-Expected-Staff-ID names a different staff member.
+      headers:
+        X-Request-ID:
+          $ref: '#/components/headers/RequestID'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    RevisionConflict:
+      description: >-
+        stale_revision (expectedRevision is not the current revision; reload and reapply); conflict (archive of
+        an archived product or restore of an active one); authenticated_staff_changed. Nothing changed and no
+        audit event was written.
       headers:
         X-Request-ID:
           $ref: '#/components/headers/RequestID'
@@ -250,6 +562,435 @@ components:
           format: date-time
         csrfToken:
           type: string
+    ProductInput:
+      type: object
+      description: Every staff-editable product field; all members are required and none may be null.
+      required:
+      - slug
+      - sku
+      - name
+      - shortName
+      - description
+      - priceMinor
+      - oldPriceMinor
+      - unit
+      - weightGrams
+      - categoryId
+      - manufacturerId
+      - brandId
+      - collectionIds
+      - series
+      - tags
+      - badges
+      - ingredients
+      - nutrition
+      - shelfLifeDays
+      - stock
+      - minimumQuantity
+      - quantityStep
+      - featured
+      additionalProperties: false
+      properties:
+        slug:
+          type: string
+          pattern: '^[a-z0-9]+(?:-[a-z0-9]+)*$'
+          maxLength: 120
+        sku:
+          type: string
+          pattern: '^[A-Za-z0-9][A-Za-z0-9._-]*$'
+          maxLength: 64
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        shortName:
+          type: string
+          maxLength: 100
+        description:
+          type: string
+          maxLength: 5000
+        priceMinor:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 1000000000
+          description: Price in kopecks.
+        oldPriceMinor:
+          type: integer
+          format: int64
+          minimum: 0
+          maximum: 1000000000
+          description: 0 (no old price) or greater than priceMinor.
+        unit:
+          type: string
+          minLength: 1
+          maxLength: 50
+        weightGrams:
+          type: integer
+          minimum: 0
+          maximum: 1000000
+        categoryId:
+          type: string
+          maxLength: 100
+        manufacturerId:
+          type: string
+          maxLength: 100
+        brandId:
+          type: string
+          maxLength: 100
+          description: A brand of manufacturerId.
+        collectionIds:
+          type: array
+          maxItems: 20
+          uniqueItems: true
+          items:
+            type: string
+        series:
+          type: string
+          maxLength: 100
+        tags:
+          type: array
+          maxItems: 20
+          uniqueItems: true
+          items:
+            type: string
+            minLength: 1
+            maxLength: 50
+        badges:
+          type: array
+          maxItems: 20
+          uniqueItems: true
+          items:
+            type: string
+            minLength: 1
+            maxLength: 50
+        ingredients:
+          type: string
+          maxLength: 5000
+        nutrition:
+          type: string
+          maxLength: 5000
+        shelfLifeDays:
+          type: integer
+          minimum: 0
+          maximum: 3650
+        stock:
+          type: integer
+          minimum: 0
+          maximum: 1000000
+        minimumQuantity:
+          type: integer
+          minimum: 1
+          maximum: 10000
+        quantityStep:
+          type: integer
+          minimum: 1
+          maximum: 10000
+          description: Cart quantities are minimumQuantity plus a whole multiple of quantityStep; checkout rechecks the current rule.
+        featured:
+          type: boolean
+    ProductUpdateInput:
+      type: object
+      description: ProductInput plus the revision the replacement is based on.
+      required:
+      - slug
+      - sku
+      - name
+      - shortName
+      - description
+      - priceMinor
+      - oldPriceMinor
+      - unit
+      - weightGrams
+      - categoryId
+      - manufacturerId
+      - brandId
+      - collectionIds
+      - series
+      - tags
+      - badges
+      - ingredients
+      - nutrition
+      - shelfLifeDays
+      - stock
+      - minimumQuantity
+      - quantityStep
+      - featured
+      - expectedRevision
+      additionalProperties: false
+      properties:
+        expectedRevision:
+          type: integer
+          format: int64
+          minimum: 1
+          description: The revision the change is based on.
+        slug:
+          type: string
+          pattern: '^[a-z0-9]+(?:-[a-z0-9]+)*$'
+          maxLength: 120
+        sku:
+          type: string
+          pattern: '^[A-Za-z0-9][A-Za-z0-9._-]*$'
+          maxLength: 64
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        shortName:
+          type: string
+          maxLength: 100
+        description:
+          type: string
+          maxLength: 5000
+        priceMinor:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 1000000000
+          description: Price in kopecks.
+        oldPriceMinor:
+          type: integer
+          format: int64
+          minimum: 0
+          maximum: 1000000000
+          description: 0 (no old price) or greater than priceMinor.
+        unit:
+          type: string
+          minLength: 1
+          maxLength: 50
+        weightGrams:
+          type: integer
+          minimum: 0
+          maximum: 1000000
+        categoryId:
+          type: string
+          maxLength: 100
+        manufacturerId:
+          type: string
+          maxLength: 100
+        brandId:
+          type: string
+          maxLength: 100
+          description: A brand of manufacturerId.
+        collectionIds:
+          type: array
+          maxItems: 20
+          uniqueItems: true
+          items:
+            type: string
+        series:
+          type: string
+          maxLength: 100
+        tags:
+          type: array
+          maxItems: 20
+          uniqueItems: true
+          items:
+            type: string
+            minLength: 1
+            maxLength: 50
+        badges:
+          type: array
+          maxItems: 20
+          uniqueItems: true
+          items:
+            type: string
+            minLength: 1
+            maxLength: 50
+        ingredients:
+          type: string
+          maxLength: 5000
+        nutrition:
+          type: string
+          maxLength: 5000
+        shelfLifeDays:
+          type: integer
+          minimum: 0
+          maximum: 3650
+        stock:
+          type: integer
+          minimum: 0
+          maximum: 1000000
+        minimumQuantity:
+          type: integer
+          minimum: 1
+          maximum: 10000
+        quantityStep:
+          type: integer
+          minimum: 1
+          maximum: 10000
+          description: Cart quantities are minimumQuantity plus a whole multiple of quantityStep; checkout rechecks the current rule.
+        featured:
+          type: boolean
+    Reference:
+      type: object
+      required:
+      - id
+      - name
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+    AdminProduct:
+      type: object
+      description: Staff view of a product. Image, gallery, rating, reviewsCount and currency are read-only.
+      required:
+      - id
+      - revision
+      - archived
+      - slug
+      - sku
+      - name
+      - shortName
+      - description
+      - priceMinor
+      - oldPriceMinor
+      - unit
+      - weightGrams
+      - series
+      - tags
+      - badges
+      - ingredients
+      - nutrition
+      - shelfLifeDays
+      - stock
+      - minimumQuantity
+      - quantityStep
+      - featured
+      - currency
+      - image
+      - gallery
+      - category
+      - manufacturer
+      - brand
+      - collections
+      - rating
+      - reviewsCount
+      - createdAt
+      - updatedAt
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+        revision:
+          type: integer
+          format: int64
+          minimum: 1
+        archived:
+          type: boolean
+        archivedAt:
+          type: string
+          format: date-time
+          description: Present only when archived.
+        slug:
+          type: string
+        sku:
+          type: string
+        name:
+          type: string
+        shortName:
+          type: string
+        description:
+          type: string
+        priceMinor:
+          type: integer
+          format: int64
+          description: Price in kopecks.
+        oldPriceMinor:
+          type: integer
+          format: int64
+        unit:
+          type: string
+        weightGrams:
+          type: integer
+        series:
+          type: string
+        tags:
+          type: array
+          items:
+            type: string
+        badges:
+          type: array
+          items:
+            type: string
+        ingredients:
+          type: string
+        nutrition:
+          type: string
+        shelfLifeDays:
+          type: integer
+        stock:
+          type: integer
+        minimumQuantity:
+          type: integer
+        quantityStep:
+          type: integer
+        featured:
+          type: boolean
+        currency:
+          type: string
+        image:
+          type: string
+          description: Read-only until media management exists.
+        gallery:
+          type: array
+          items:
+            type: string
+        category:
+          $ref: '#/components/schemas/Reference'
+        manufacturer:
+          $ref: '#/components/schemas/Reference'
+        brand:
+          $ref: '#/components/schemas/Reference'
+        collections:
+          type: array
+          items:
+            $ref: '#/components/schemas/Reference'
+        rating:
+          type: number
+        reviewsCount:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    AdminProductPage:
+      type: object
+      required:
+      - items
+      - total
+      - page
+      - limit
+      - totalPages
+      additionalProperties: false
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminProduct'
+        total:
+          type: integer
+        page:
+          type: integer
+        limit:
+          type: integer
+        totalPages:
+          type: integer
+    RevisionInput:
+      type: object
+      required:
+      - expectedRevision
+      additionalProperties: false
+      properties:
+        expectedRevision:
+          type: integer
+          format: int64
+          minimum: 1
+          description: The revision the change is based on.
     Error:
       type: object
       required:
@@ -271,6 +1012,9 @@ components:
               - unauthorized
               - csrf_failed
               - authenticated_staff_changed
+              - not_found
+              - stale_revision
+              - conflict
               - service_unavailable
               - internal_error
             message:

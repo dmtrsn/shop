@@ -364,7 +364,11 @@ func staffOptions(repo domain.Repository, origins []string) ([]httpapi.Option, e
 	if !ok {
 		return nil, errors.New("STAFF_TRUSTED_ORIGINS requires PostgreSQL storage")
 	}
-	return []httpapi.Option{httpapi.WithStaff(application.NewStaffAuth(store), httpapi.StaffConfig{TrustedOrigins: origins})}, nil
+	options := []httpapi.Option{httpapi.WithStaff(application.NewStaffAuth(store), httpapi.StaffConfig{TrustedOrigins: origins})}
+	if products, ok := repo.(application.ProductAdminStore); ok {
+		options = append(options, httpapi.WithProductAdmin(application.NewProductAdmin(products)))
+	}
+	return options, nil
 }
 
 func env(key, fallback string) string {

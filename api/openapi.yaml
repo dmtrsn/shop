@@ -2093,9 +2093,11 @@ paths:
       operationId: checkout
       summary: checkout
       description: 'Trimmed nonempty deliveryAddress required; comment is stored as sent. Uses persisted selected
-        cart lines only. Current stock shortage on ANY selected line aborts everything with 409 out_of_stock; no
-        selected lines returns 409 conflict. Locks selected products/cart rows, snapshots current names/prices,
-        decrements stock, deletes captured lines atomically. Unselected lines remain. Does not recheck minimum/step,
+        cart lines only. Current stock shortage or a product withdrawn from sale on ANY selected line aborts
+        everything with 409 out_of_stock; a selected quantity that no longer satisfies the current product
+        minimumQuantity/quantityStep aborts everything with 409 checkout_changed; no selected lines returns 409
+        conflict. Locks selected products/cart rows, rechecks these rules on the locked rows, snapshots current
+        names/prices, decrements stock, deletes captured lines atomically. Unselected lines remain. Does not
         reserve stock or take payment. Optional review guard: expectedItems and expectedTotalMinor (both or neither)
         must equal, inside the same locked transaction, the selected lines (same canonical product IDs, no extra or
         missing line, same quantities, unitPriceMinor equal to the current price) and the Go-computed total
@@ -2175,8 +2177,9 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
         '409':
-          description: out_of_stock (selected line short of current stock); conflict (no selected lines);
-            checkout_changed (expectation differs from the locked selection, prices or total); idempotency_key_reused
+          description: out_of_stock (selected line short of current stock, or its product withdrawn from sale);
+            conflict (no selected lines); checkout_changed (expectation differs from the locked selection, prices
+            or total, or a selected quantity no longer fits the current minimum/step); idempotency_key_reused
             (key already committed a different request); authenticated_user_changed when
             X-Expected-Authenticated-User-ID is present but empty, repeated or not the authenticated user; the
             handler did not run. With an Idempotency-Key none of these is returned when the key already committed the
@@ -3477,6 +3480,8 @@ components:
           format: int64
         issue:
           type: string
+          description: Present when the line cannot be checked out now (no or short stock, withdrawn from sale,
+            or a quantity outside the current minimum/step); such lines are excluded from the totals.
       required:
       - product
       - quantity

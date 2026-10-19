@@ -38,7 +38,8 @@ func (s *Store) Cart(ctx context.Context, userID string) (domain.Cart, error) {
 	if err := rows.Err(); err != nil {
 		return domain.Cart{}, err
 	}
-	products, err := s.Products(ctx, ids)
+	// Archived lines stay visible as unavailable, so they can be removed.
+	products, err := s.productsByID(ctx, ids, true)
 	if err != nil {
 		return domain.Cart{}, fmt.Errorf("load cart products: %w", err)
 	}
@@ -53,12 +54,11 @@ func buildCart(rows []storedCartRow, products map[string]domain.Product) domain.
 		if !ok {
 			continue
 		}
-		item := domain.CartItem{Product: p, Quantity: row.quantity, Selected: row.selected, Available: p.Stock, LineTotalMinor: int64(row.quantity) * p.PriceMinor}
-		if p.Stock == 0 {
-			item.Issue = "Нет в наличии"
-		} else if row.quantity > p.Stock {
-			item.Issue = fmt.Sprintf("Доступно только %d", p.Stock)
+		if p.Archived {
+			p.Stock = 0
 		}
+		item := domain.CartItem{Product: p, Quantity: row.quantity, Selected: row.selected, Available: p.Stock, LineTotalMinor: int64(row.quantity) * p.PriceMinor}
+		item.Issue = domain.CartLineIssue(p, row.quantity)
 		items = append(items, item)
 		if row.updatedAt.After(updated) {
 			updated = row.updatedAt
@@ -109,7 +109,7 @@ func (s *Store) SetCartItem(ctx context.Context, userID, productID string, quant
 	defer tx.Rollback(ctx)
 	var id string
 	var stock int
-	err = tx.QueryRow(ctx, `SELECT id,stock FROM products WHERE id=$1 OR slug=$1 OR lower(sku)=lower($1) ORDER BY id FOR UPDATE`, productID).Scan(&id, &stock)
+	err = tx.QueryRow(ctx, `SELECT id,stock FROM products WHERE (id=$1 OR slug=$1 OR lower(sku)=lower($1)) AND archived_at IS NULL ORDER BY id FOR UPDATE`, productID).Scan(&id, &stock)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.Cart{}, domain.ErrNotFound
 	}
@@ -208,7 +208,7 @@ func (s *Store) AddCartItems(ctx context.Context, userID string, mutations []dom
 		step    int
 	}
 	rules := make(map[string]quantityRule, len(productIDs))
-	rows, err := tx.Query(ctx, `SELECT id,stock,minimum_quantity,quantity_step FROM products WHERE id=ANY($1) ORDER BY id FOR UPDATE`, productIDs)
+	rows, err := tx.Query(ctx, `SELECT id,stock,minimum_quantity,quantity_step FROM products WHERE id=ANY($1) AND archived_at IS NULL ORDER BY id FOR UPDATE`, productIDs)
 	if err != nil {
 		return domain.Cart{}, fmt.Errorf("lock repeated products: %w", err)
 	}
@@ -279,7 +279,8 @@ func (s *Store) AddCartItems(ctx context.Context, userID string, mutations []dom
 }
 
 func (s *Store) Favorites(ctx context.Context, userID string) (domain.Favorites, error) {
-	rows, err := s.pool.Query(ctx, "SELECT "+productColumns+productJoins+` JOIN favorites f ON f.product_id=p.id WHERE f.user_id=$1 ORDER BY m.name,p.name`, userID)
+	// Favorites of archived products are kept but hidden until a restore.
+	rows, err := s.pool.Query(ctx, "SELECT "+productColumns+productJoins+` JOIN favorites f ON f.product_id=p.id WHERE f.user_id=$1 AND p.archived_at IS NULL ORDER BY m.name,p.name`, userID)
 	if err != nil {
 		return domain.Favorites{}, fmt.Errorf("load favorites: %w", err)
 	}

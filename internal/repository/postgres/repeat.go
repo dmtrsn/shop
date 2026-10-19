@@ -114,7 +114,7 @@ func (s *Store) commitRepeatV2(ctx context.Context, userID, orderID string, inpu
 	}
 	sort.Strings(ids)
 	products := map[string]domain.Product{}
-	rows, err = tx.Query(ctx, `SELECT id,price_minor,currency,minimum_quantity,quantity_step,stock FROM products WHERE id=ANY($1) ORDER BY id FOR UPDATE`, ids)
+	rows, err = tx.Query(ctx, `SELECT id,price_minor,currency,minimum_quantity,quantity_step,stock FROM products WHERE id=ANY($1) AND archived_at IS NULL ORDER BY id FOR UPDATE`, ids)
 	if err != nil {
 		return domain.RepeatReceipt{}, false, err
 	}

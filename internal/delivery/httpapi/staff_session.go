@@ -79,6 +79,9 @@ func (s *Server) registerStaffRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/admin/v1/auth/session", s.staffStartSession)
 	mux.HandleFunc("GET /api/admin/v1/auth/session", s.staffSessionState)
 	mux.HandleFunc("DELETE /api/admin/v1/auth/session", s.staffEndSession)
+	if s.products != nil {
+		s.registerStaffProductRoutes(mux)
+	}
 }
 
 func staffCSRFToken(sessionToken string) string {

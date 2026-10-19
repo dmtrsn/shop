@@ -62,8 +62,8 @@ func (d *database) outcomes(t *testing.T) string {
 	return d.text(t, `SELECT string_agg(version||'='||outcome, ',' ORDER BY version) FROM schema_migrations`)
 }
 
-const allApplied = "001_init=applied,002_demo_seed=applied,003_catalog_scale_indexes=applied,004_brand_manufacturer_integrity=applied,005_session_transport=applied,006_order_idempotency=applied,007_repeat_commits=applied,008_customer_account_status=applied,009_staff_identity=applied,010_customer_self_registration=applied,011_customer_password_resets=applied,012_staff_audit=applied"
-const productionOutcomes = "001_init=applied,002_demo_seed=skipped,003_catalog_scale_indexes=applied,004_brand_manufacturer_integrity=applied,005_session_transport=applied,006_order_idempotency=applied,007_repeat_commits=applied,008_customer_account_status=applied,009_staff_identity=applied,010_customer_self_registration=applied,011_customer_password_resets=applied,012_staff_audit=applied"
+const allApplied = "001_init=applied,002_demo_seed=applied,003_catalog_scale_indexes=applied,004_brand_manufacturer_integrity=applied,005_session_transport=applied,006_order_idempotency=applied,007_repeat_commits=applied,008_customer_account_status=applied,009_staff_identity=applied,010_customer_self_registration=applied,011_customer_password_resets=applied,012_staff_audit=applied,013_product_revisions=applied"
+const productionOutcomes = "001_init=applied,002_demo_seed=skipped,003_catalog_scale_indexes=applied,004_brand_manufacturer_integrity=applied,005_session_transport=applied,006_order_idempotency=applied,007_repeat_commits=applied,008_customer_account_status=applied,009_staff_identity=applied,010_customer_self_registration=applied,011_customer_password_resets=applied,012_staff_audit=applied,013_product_revisions=applied"
 
 // productionDatabase migrates a fresh database the way APP_MODE=production does.
 func productionDatabase(t *testing.T) *database {

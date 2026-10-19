@@ -135,6 +135,9 @@ type Product struct {
 	QuantityStep    int          `json:"quantityStep"`
 	Featured        bool         `json:"featured,omitempty"`
 	CreatedAt       time.Time    `json:"createdAt"`
+	// Archived products are withdrawn from sale (ADR 013). Customer reads
+	// omit them, except cart lines, which show them as unavailable.
+	Archived bool `json:"-"`
 }
 
 type Collection struct {

@@ -111,7 +111,7 @@ func (s *Store) DeleteSession(ctx context.Context, hash string, transport domain
 func (s *Store) ListCategories(ctx context.Context) ([]domain.Category, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT c.id,c.slug,c.name,c.description,COALESCE(c.parent_id,''),c.icon,
-			(SELECT count(*) FROM products p JOIN categories pc ON pc.id=p.category_id WHERE pc.id=c.id OR pc.parent_id=c.id)
+			(SELECT count(*) FROM products p JOIN categories pc ON pc.id=p.category_id WHERE (pc.id=c.id OR pc.parent_id=c.id) AND p.archived_at IS NULL)
 		FROM categories c ORDER BY c.sort_order,c.name`)
 	if err != nil {
 		return nil, fmt.Errorf("list categories: %w", err)
@@ -134,7 +134,7 @@ func (s *Store) ListCategories(ctx context.Context) ([]domain.Category, error) {
 func (s *Store) ListManufacturers(ctx context.Context) ([]domain.Manufacturer, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT m.id,m.slug,m.name,m.country,m.description,m.logo,count(p.id)
-		FROM manufacturers m LEFT JOIN products p ON p.manufacturer_id=m.id
+		FROM manufacturers m LEFT JOIN products p ON p.manufacturer_id=m.id AND p.archived_at IS NULL
 		GROUP BY m.id ORDER BY m.sort_order,m.name`)
 	if err != nil {
 		return nil, fmt.Errorf("list manufacturers: %w", err)
@@ -154,7 +154,7 @@ func (s *Store) ListManufacturers(ctx context.Context) ([]domain.Manufacturer, e
 func (s *Store) ListBrands(ctx context.Context) ([]domain.Brand, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT b.id,b.slug,b.name,b.manufacturer_id,m.name,b.description,b.logo,count(p.id)
-		FROM brands b JOIN manufacturers m ON m.id=b.manufacturer_id LEFT JOIN products p ON p.brand_id=b.id
+		FROM brands b JOIN manufacturers m ON m.id=b.manufacturer_id LEFT JOIN products p ON p.brand_id=b.id AND p.archived_at IS NULL
 		GROUP BY b.id,m.name HAVING count(p.id)>0 ORDER BY b.sort_order,b.name`)
 	if err != nil {
 		return nil, fmt.Errorf("list brands: %w", err)
@@ -175,7 +175,7 @@ func (s *Store) ListCollections(ctx context.Context) ([]domain.Collection, error
 	rows, err := s.pool.Query(ctx, `
 		SELECT c.id,c.slug,c.name,c.description,c.accent,c.image,c.starts_at,c.ends_at,
 			COALESCE(array_agg(cp.product_id ORDER BY cp.sort_order) FILTER (WHERE cp.product_id IS NOT NULL),'{}'),count(cp.product_id)
-		FROM collections c LEFT JOIN collection_products cp ON cp.collection_id=c.id
+		FROM collections c LEFT JOIN (collection_products cp JOIN products cpp ON cpp.id=cp.product_id AND cpp.archived_at IS NULL) ON cp.collection_id=c.id
 		WHERE (c.starts_at IS NULL OR c.starts_at<=now()) AND (c.ends_at IS NULL OR c.ends_at>=now())
 		GROUP BY c.id ORDER BY c.sort_order,c.name`)
 	if err != nil {
@@ -206,7 +206,7 @@ const productColumns = `
 	p.rating,p.reviews_count,p.stock,p.minimum_quantity,p.quantity_step,p.featured,p.created_at,
 	c.id,c.slug,c.name,c.description,COALESCE(c.parent_id,''),c.icon,
 	m.id,m.slug,m.name,m.country,m.description,m.logo,
-	b.id,b.slug,b.name,b.manufacturer_id,m.name,b.description,b.logo`
+	b.id,b.slug,b.name,b.manufacturer_id,m.name,b.description,b.logo,p.archived_at IS NOT NULL`
 
 const productJoins = ` FROM products p JOIN categories c ON c.id=p.category_id JOIN manufacturers m ON m.id=p.manufacturer_id JOIN brands b ON b.id=p.brand_id `
 
@@ -220,7 +220,7 @@ func scanProduct(row scanner) (domain.Product, error) {
 		&p.Rating, &p.ReviewsCount, &p.Stock, &p.MinimumQuantity, &p.QuantityStep, &p.Featured, &p.CreatedAt,
 		&p.Category.ID, &p.Category.Slug, &p.Category.Name, &p.Category.Description, &p.Category.ParentID, &p.Category.Icon,
 		&p.Manufacturer.ID, &p.Manufacturer.Slug, &p.Manufacturer.Name, &p.Manufacturer.Country, &p.Manufacturer.Description, &p.Manufacturer.Logo,
-		&p.Brand.ID, &p.Brand.Slug, &p.Brand.Name, &p.Brand.ManufacturerID, &p.Brand.Manufacturer, &p.Brand.Description, &p.Brand.Logo,
+		&p.Brand.ID, &p.Brand.Slug, &p.Brand.Name, &p.Brand.ManufacturerID, &p.Brand.Manufacturer, &p.Brand.Description, &p.Brand.Logo, &p.Archived,
 	)
 	if err != nil {
 		return domain.Product{}, err
@@ -238,7 +238,8 @@ func scanProduct(row scanner) (domain.Product, error) {
 }
 
 func productWhere(filter domain.ProductFilter) (string, []any) {
-	conditions := []string{"true"}
+	// Archived products are withdrawn from sale and absent from every catalog read.
+	conditions := []string{"p.archived_at IS NULL"}
 	args := []any{}
 	add := func(value any) string { args = append(args, value); return fmt.Sprintf("$%d", len(args)) }
 	if filter.Query != "" {
@@ -418,7 +419,7 @@ func (s *Store) queryFacetValues(ctx context.Context, query string, args []any) 
 }
 
 func (s *Store) Product(ctx context.Context, idOrSlug string) (domain.Product, error) {
-	row := s.pool.QueryRow(ctx, "SELECT "+productColumns+productJoins+" WHERE p.id=$1 OR p.slug=$1 OR lower(p.sku)=lower($1) LIMIT 1", idOrSlug)
+	row := s.pool.QueryRow(ctx, "SELECT "+productColumns+productJoins+" WHERE (p.id=$1 OR p.slug=$1 OR lower(p.sku)=lower($1)) AND p.archived_at IS NULL LIMIT 1", idOrSlug)
 	p, err := scanProduct(row)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.Product{}, domain.ErrNotFound
@@ -461,11 +462,17 @@ func (s *Store) Suggestions(ctx context.Context, query string, limit int) ([]dom
 	return result, rows.Err()
 }
 
+// Products omits archived products, so repeat flows report them as
+// discontinued.
 func (s *Store) Products(ctx context.Context, ids []string) (map[string]domain.Product, error) {
+	return s.productsByID(ctx, ids, false)
+}
+
+func (s *Store) productsByID(ctx context.Context, ids []string, includeArchived bool) (map[string]domain.Product, error) {
 	if len(ids) == 0 {
 		return map[string]domain.Product{}, nil
 	}
-	rows, err := s.pool.Query(ctx, "SELECT "+productColumns+productJoins+" WHERE p.id=ANY($1)", ids)
+	rows, err := s.pool.Query(ctx, "SELECT "+productColumns+productJoins+" WHERE p.id=ANY($1) AND ($2 OR p.archived_at IS NULL)", ids, includeArchived)
 	if err != nil {
 		return nil, err
 	}
