@@ -20,6 +20,7 @@ These documents describe the approved architectural and product direction for th
 - [ADR 009: Transactional email foundation](adr/009-transactional-email.md).
 - [ADR 010: Customer self-registration](adr/010-customer-self-registration.md).
 - [ADR 011: Self-service password recovery](adr/011-customer-password-recovery.md).
+- [ADR 012: Transactional staff audit](adr/012-transactional-staff-audit.md).
 
 The architectural recommendation is to preserve the Go application and PostgreSQL, introduce a TypeScript/React storefront with Next.js, and replace complete routes incrementally. Keep the existing frontend available until each replacement meets behavioral, accessibility, security, and performance gates. Administration becomes a separate React application using authorized Go use cases.
 

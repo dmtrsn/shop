@@ -138,3 +138,21 @@ func TestAuthorizeIsTheSingleStaffEntrypoint(t *testing.T) {
 		t.Fatal("anonymous or unnamed action authorized")
 	}
 }
+
+func TestAuthorizeMutationAuthorizesTheStaffActor(t *testing.T) {
+	auth := NewStaffAuth(&fakeStaffStore{})
+	staff := domain.StaffUser{ID: "stf_" + strings.Repeat("b", 32)}
+	mutation, err := auth.AuthorizeMutation(staff, "product.update", "req-1")
+	if err != nil || mutation.Actor() != staff.ID || mutation.Action() != "product.update" || mutation.RequestID() != "req-1" {
+		t.Fatalf("%+v %v", mutation, err)
+	}
+	if _, err := auth.AuthorizeMutation(domain.StaffUser{}, "product.update", ""); !errors.Is(err, domain.ErrForbidden) {
+		t.Fatal("anonymous actor authorized")
+	}
+	if _, err := auth.AuthorizeMutation(staff, "", ""); !errors.Is(err, domain.ErrForbidden) {
+		t.Fatal("unnamed action authorized")
+	}
+	if _, err := auth.AuthorizeMutation(domain.StaffUser{ID: "usr-demo"}, "product.update", ""); !errors.Is(err, domain.ErrForbidden) {
+		t.Fatal("customer ID authorized as an actor")
+	}
+}

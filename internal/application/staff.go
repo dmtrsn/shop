@@ -210,3 +210,14 @@ func (a *StaffAuth) Authorize(staff domain.StaffUser, action string) error {
 	}
 	return nil
 }
+
+// AuthorizeMutation is Authorize for an audited business mutation. The
+// returned StaffMutation names the actor and action the mutation's store
+// method commits its audit event with; requestID is the HTTP request ID, or
+// "" outside HTTP.
+func (a *StaffAuth) AuthorizeMutation(staff domain.StaffUser, action domain.AuditAction, requestID string) (domain.StaffMutation, error) {
+	if err := a.Authorize(staff, string(action)); err != nil {
+		return domain.StaffMutation{}, err
+	}
+	return domain.NewStaffMutation(staff, action, requestID)
+}

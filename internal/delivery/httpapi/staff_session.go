@@ -317,3 +317,15 @@ func currentStaff(r *http.Request) (domain.StaffUser, bool) {
 	staff, ok := r.Context().Value(staffKey).(domain.StaffUser)
 	return staff, ok
 }
+
+// staffMutation starts every audited staff write behind staffAuth: the
+// authenticated principal, authorized for action, with this request's ID.
+// The actor never comes from the request body.
+func (s *Server) staffMutation(r *http.Request, action domain.AuditAction) (domain.StaffMutation, error) {
+	staff, ok := currentStaff(r)
+	if !ok {
+		return domain.StaffMutation{}, domain.ErrUnauthorized
+	}
+	requestID, _ := r.Context().Value(requestIDKey).(string)
+	return s.staff.AuthorizeMutation(staff, action, requestID)
+}

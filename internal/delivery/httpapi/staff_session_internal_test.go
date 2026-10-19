@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -116,6 +117,14 @@ func staffHandler(t *testing.T, store *testStaffStore, secure bool) http.Handler
 	}
 	mux.Handle("GET /probe", s.staffAuth(http.HandlerFunc(probe)))
 	mux.Handle("POST /probe", s.staffAuth(http.HandlerFunc(probe)))
+	mux.Handle("POST /mutation-probe", s.staffAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mutation, err := s.staffMutation(r, "product.update")
+		if err != nil {
+			s.writeError(w, r, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"actor": mutation.Actor(), "action": string(mutation.Action()), "requestId": mutation.RequestID()})
+	})))
 	mux.HandleFunc("POST /api/auth/session", s.startSession)
 	mux.Handle("GET /api/me", s.auth(http.HandlerFunc(s.me)))
 	return s.middleware(mux)
@@ -265,5 +274,49 @@ func TestStaffAuthMiddlewareSeesOnlyTheStaffPrincipal(t *testing.T) {
 	}
 	if rec := call(handler, "GET", "/api/me", "", map[string]string{"Cookie": "__Host-sweetshop_session=" + staffValue}); rec.Code != 401 {
 		t.Fatalf("staff token under customer name: %d", rec.Code)
+	}
+}
+
+func TestStaffMutationActorIsTheAuthenticatedStaff(t *testing.T) {
+	store := newTestStaffStore(t)
+	handler := staffHandler(t, store, true)
+	staffCookie, staffCSRF := staffLogin(t, handler, true)
+	headers := func(extra map[string]string) map[string]string {
+		h := map[string]string{"Cookie": staffCookie, "Origin": adminOrigin, "X-CSRF-Token": staffCSRF}
+		for key, value := range extra {
+			h[key] = value
+		}
+		return h
+	}
+	// The body cannot name the actor; the request ID is the logged one.
+	spoof := `{"actor":"stf_` + strings.Repeat("9", 32) + `","staffUserId":"usr-demo"}`
+	rec := call(handler, "POST", "/mutation-probe", spoof, headers(map[string]string{"X-Request-ID": "req-42"}))
+	var got map[string]string
+	_ = json.Unmarshal(rec.Body.Bytes(), &got)
+	if rec.Code != 200 || got["actor"] != store.credential.Staff.ID || got["action"] != "product.update" || got["requestId"] != "req-42" {
+		t.Fatalf("%d %s", rec.Code, rec.Body.String())
+	}
+	rec = call(handler, "POST", "/mutation-probe", "", headers(nil))
+	_ = json.Unmarshal(rec.Body.Bytes(), &got)
+	if rec.Code != 200 || got["requestId"] == "" || got["requestId"] != rec.Header().Get("X-Request-ID") {
+		t.Fatalf("generated request ID: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := call(handler, "POST", "/mutation-probe", "", headers(map[string]string{"X-Request-ID": strings.Repeat("r", 129)})); rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("unbounded request ID: %d", rec.Code)
+	}
+	customer := call(handler, "POST", "/api/auth/session", `{"email":"demo@sugar.ru","password":"Sweet2026!"}`, map[string]string{"Origin": shopOrigin})
+	customerCookie := "__Host-sweetshop_session=" + cookieNamed(customer, "__Host-sweetshop_session").Value
+	if rec := call(handler, "POST", "/mutation-probe", "", map[string]string{"Cookie": customerCookie, "Origin": adminOrigin, "X-CSRF-Token": staffCSRF}); rec.Code != 401 {
+		t.Fatalf("customer session: %d", rec.Code)
+	}
+}
+
+func TestStaffMutationNeedsTheStaffPrincipal(t *testing.T) {
+	s := newServer(customerService(), discard(), "", "memory", SessionConfig{TrustedOrigins: []string{shopOrigin}},
+		WithStaff(application.NewStaffAuth(newTestStaffStore(t)), StaffConfig{TrustedOrigins: []string{adminOrigin}}))
+	req := httptest.NewRequest("POST", "/", nil)
+	req = req.WithContext(context.WithValue(req.Context(), userKey, domain.User{ID: "usr-demo"}))
+	if _, err := s.staffMutation(req, "product.update"); !errors.Is(err, domain.ErrUnauthorized) {
+		t.Fatalf("a customer principal became an actor: %v", err)
 	}
 }
