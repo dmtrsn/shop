@@ -1,4 +1,4 @@
-import { BrowserRequestError, browserNoContent, browserRequest, type PrivateRequestOptions } from "./browser-request";
+import { BrowserRequestError, browserAnonymousNoContent, browserNoContent, browserRequest, type PrivateRequestOptions } from "./browser-request";
 import { isRecord } from "./json";
 
 // One destructive attempt, never retried by the transport.
@@ -58,4 +58,19 @@ export async function confirmRegistration(input: { token: string; password: stri
       typeof body.csrfToken !== "string" || !body.csrfToken.trim()) {
     throw new BrowserRequestError(200, "invalid_response");
   }
+}
+
+// Asks for a password-reset email. Go answers every valid address with the
+// same 202, whether or not an account exists; nothing else is read.
+export async function requestPasswordReset(email: string): Promise<void> {
+  assertPending(await browserRequest("/api/auth/password-reset", { method: "POST", success: 202, body: { email } }));
+}
+
+// Sets a new password with the emailed reset token. Go answers 204 and signs
+// nobody in: every session of the account, and this browser's, is ended.
+export function confirmPasswordReset(input: { token: string; password: string }): Promise<void> {
+  return browserAnonymousNoContent("/api/auth/password-reset/confirm", {
+    method: "POST",
+    body: { token: input.token, password: input.password },
+  });
 }

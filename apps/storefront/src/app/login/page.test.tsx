@@ -86,16 +86,18 @@ describe("/login server page", () => {
     expect(html).not.toContain('value="Sweet2026!"');
   });
 
-  it("offers registration only when Go says self-registration works here", async () => {
+  it("offers registration and recovery only when Go says self-service works here", async () => {
     render(await page());
     expect(screen.queryByRole("link", { name: "Создать аккаунт" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Забыли пароль?" })).toBeNull();
     getAuthCapabilities.mockResolvedValue({ status: "unavailable" });
-    expect(renderToStaticMarkup(await page())).not.toContain("Создать аккаунт");
+    expect(renderToStaticMarkup(await page())).not.toMatch(/Создать аккаунт|Забыли пароль/);
     getAuthCapabilities.mockResolvedValue({ status: "available", demoLogin: false, selfService: true });
     const html = renderToStaticMarkup(await page({ returnTo: "/checkout" }));
     expect(html).toContain('href="/register"');
     expect(html).toContain("Создать аккаунт");
-    expect(html).not.toMatch(/забыли пароль|forgot-password/i);
+    expect(html).toContain('href="/forgot-password"');
+    expect(html).toContain("Забыли пароль?");
   });
 
   it("has a busy loading state", () => {

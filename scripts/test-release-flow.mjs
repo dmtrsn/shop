@@ -232,8 +232,14 @@ async function run() {
   const after = (await send("Network.getCookies", { urls: [EDGE] })).cookies.filter((cookie) => /sweetshop_session$/.test(cookie.name));
   check("private routes are signed out after logout", after.length === 0, after.map((cookie) => cookie.name).join(","));
 
-  const leaked = [...navigations, ...requests.map((request) => request.url)]
-    .filter((url) => /token|csrf|password|userid|sugar\.ru/i.test(decodeURIComponent(url)));
+  // Page paths such as /forgot-password (prefetched from /login) are fine; no
+  // query string or fragment may carry a credential, and no URL the account's
+  // email or password.
+  const leaked = [...navigations, ...requests.map((request) => request.url)].filter((url) => {
+    const { search, hash } = new URL(url);
+    return /token|csrf|password|userid/i.test(decodeURIComponent(search + hash)) ||
+      [EMAIL, PASSWORD].some((secret) => decodeURIComponent(url).toLowerCase().includes(secret.toLowerCase()));
+  });
   check("no secrets or credentials in any URL", leaked.length === 0, leaked.join(" "));
   const legacy = [...navigations, ...requests.map((request) => request.url)].filter((url) => {
     const { pathname } = new URL(url);

@@ -38,7 +38,7 @@ All three endpoints require a trusted `Origin` and no CSRF token, since there is
 
 The token is 32 random bytes in base64url (43 characters). Only `SHA-256("sweetshop/registration-confirmation/v1\0" + token)` is stored, in a namespace separate from session hashes and CSRF tokens. It lasts 48 hours, and each address has one active token. The link is `PUBLIC_SHOP_ORIGIN + /register/confirm#t=<token>`, built only through `email.PublicOrigin.Link`, never from `Host`, `X-Forwarded-Host` or `Origin`. Fragments are never sent to servers or put in `Referer` headers.
 
-The storefront reads the fragment once on the first client render, removes it with `history.replaceState`, and keeps the token only in a component ref. It never reaches storage, cookies, query parameters, server props or logs. The confirmation email quotes nothing the registrant typed; anyone can register any address, so a name would let strangers write into other people's mailboxes. The "account exists" notice links only to `/login` until recovery exists.
+The storefront reads the fragment once on the first client render, removes it with `history.replaceState`, and keeps the token only in a component ref. It never reaches storage, cookies, query parameters, server props or logs. The confirmation email quotes nothing the registrant typed; anyone can register any address, so a name would let strangers write into other people's mailboxes. The "account exists" notice links to `/login` and, since A8, to `/forgot-password` (ADR 011).
 
 ### Concurrency
 
@@ -70,4 +70,4 @@ Migration 010 is additive. An A6 image accepts the A7 schema (its migrator toler
 
 ## Not in this slice
 
-Password recovery (A8), profile editing, guest carts, admin UI, MFA and social login.
+Password recovery (ADR 011), profile editing, guest carts, admin UI, MFA and social login.

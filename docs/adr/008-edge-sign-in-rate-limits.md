@@ -11,7 +11,8 @@ The shop edge (`deploy/nginx/*.conf.template`, both route maps) limits password 
 | `customer_auth` | `POST /api/auth/session`, `POST /api/auth/login` (shared bucket) | 10/min | 10, `nodelay` | rejected at once | 6 s (one slot per 6 s) |
 | `staff_auth` | nothing on the shop host; the future admin host's `POST /api/admin/v1/auth/session` | 5/min | 3, `nodelay` | rejected at once | 12 s |
 | `customer_signup` (A7) | `POST /api/auth/registration` | 3/min | 5, `nodelay` | rejected at once | 20 s |
-| `customer_email` (A7) | `POST /api/auth/registration/resend` | 3/min | 3, `nodelay` | rejected at once | 20 s |
+| `customer_email` (A7, A8) | `POST /api/auth/registration/resend`, `POST /api/auth/password-reset` (shared bucket) | 3/min | 3, `nodelay` | rejected at once | 20 s |
+| `customer_token` (A8) | `POST /api/auth/password-reset/confirm` | 6/min | 6, `nodelay` | rejected at once | 10 s |
 
 `POST /api/auth/registration/confirm` verifies a password, so it joins the `customer_auth` bucket (ADR 010).
 

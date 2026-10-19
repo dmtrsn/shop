@@ -62,10 +62,12 @@ type selfService struct {
 	clock         *testClock
 	logs          *lockedBuffer
 	registrations *application.CustomerRegistrations
+	resets        *application.PasswordResets
+	service       *application.Service
 	handler       http.Handler
 }
 
-// selfService is a production-shaped handler with self-registration over
+// selfService is a production-shaped handler with self-service over
 // store (the test database's own unless given), a recording outbox and a
 // controllable registration clock. cost is the registration bcrypt cost; 0
 // is the production cost, which takes seconds under the race detector, so
@@ -92,8 +94,12 @@ func (d *database) selfService(t *testing.T, store *postgres.Store, outbox *emai
 	if err != nil {
 		t.Fatal(err)
 	}
-	handler := httpapi.New(service, logger, "", "postgres", contract.SessionConfig(), httpapi.WithSelfService(registrations))
-	return &selfService{database: d, store: store, outbox: outbox, clock: clock, logs: logs, registrations: registrations, handler: handler}
+	resets, err := application.NewPasswordResets(store, outbox, origin, logger, application.RegistrationOptions{PasswordCost: cost, Now: clock.Now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := httpapi.New(service, logger, "", "postgres", contract.SessionConfig(), httpapi.WithSelfService(registrations, resets))
+	return &selfService{database: d, store: store, outbox: outbox, clock: clock, logs: logs, registrations: registrations, resets: resets, service: service, handler: handler}
 }
 
 // secondStore is a separate pool on the same database, standing in for

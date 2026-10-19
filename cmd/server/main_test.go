@@ -241,7 +241,8 @@ func TestEmailDispatcherConfiguration(t *testing.T) {
 	}
 }
 
-// Self-registration exists only with PostgreSQL and a running dispatcher.
+// Self-service (registration and recovery) exists only with PostgreSQL and a
+// running dispatcher.
 func TestSelfServiceNeedsEmailAndPostgreSQL(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	origin, err := email.ParsePublicOrigin("https://shop.example", true)
@@ -255,13 +256,13 @@ func TestSelfServiceNeedsEmailAndPostgreSQL(t *testing.T) {
 	mail := &outgoingEmail{dispatcher: dispatcher, origin: origin}
 	postgresStore := postgresrepo.New(nil)
 	memoryStore := memory.NewDemo()
-	if r, err := selfService(postgresStore, application.New(postgresStore, application.Options{}), nil, logger); err != nil || r != nil {
+	if r, p, err := selfService(postgresStore, application.New(postgresStore, application.Options{}), nil, logger); err != nil || r != nil || p != nil {
 		t.Fatalf("enabled without email: %v", err)
 	}
-	if r, err := selfService(memoryStore, application.New(memoryStore, application.Options{}), mail, logger); err != nil || r != nil {
+	if r, p, err := selfService(memoryStore, application.New(memoryStore, application.Options{}), mail, logger); err != nil || r != nil || p != nil {
 		t.Fatalf("enabled on the memory store: %v", err)
 	}
-	if r, err := selfService(postgresStore, application.New(postgresStore, application.Options{}), mail, logger); err != nil || r == nil {
+	if r, p, err := selfService(postgresStore, application.New(postgresStore, application.Options{}), mail, logger); err != nil || r == nil || p == nil {
 		t.Fatalf("not enabled with PostgreSQL and email: %v", err)
 	}
 }

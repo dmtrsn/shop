@@ -45,9 +45,10 @@ func (s *Store) CreateCustomer(ctx context.Context, customer domain.NewCustomer)
 	return account, nil
 }
 
-// SetCustomerPassword replaces the hash and deletes every session of the
-// account in one transaction. The UPDATE takes the user row lock that Cart
-// writers take first, so no new lock order arises; session rows follow.
+// SetCustomerPassword replaces the hash and deletes every session and any
+// reset link of the account in one transaction. The UPDATE takes the user
+// row lock that Cart writers take first, so no new lock order arises;
+// session and reset rows follow.
 func (s *Store) SetCustomerPassword(ctx context.Context, email, passwordHash string) (domain.AccountChange, error) {
 	return s.changeCustomer(ctx, `UPDATE users SET password_hash=$2 WHERE lower(email)=lower($1) RETURNING `+customerColumns, email, passwordHash)
 }
@@ -79,6 +80,12 @@ func (s *Store) changeCustomer(ctx context.Context, update string, args ...any) 
 	tag, err := tx.Exec(ctx, `DELETE FROM sessions WHERE user_id=$1`, account.ID)
 	if err != nil {
 		return domain.AccountChange{}, fmt.Errorf("revoke customer sessions: %w", err)
+	}
+	// An outstanding reset link must not outlive the change: a disabled
+	// account would otherwise recover after an enable, and an operator's
+	// new password would be overridden by an older emailed link.
+	if _, err := tx.Exec(ctx, `DELETE FROM customer_password_resets WHERE user_id=$1`, account.ID); err != nil {
+		return domain.AccountChange{}, fmt.Errorf("revoke password reset: %w", err)
 	}
 	change := domain.AccountChange{Account: account, RevokedSessions: tag.RowsAffected()}
 	if err := tx.Commit(ctx); err != nil {

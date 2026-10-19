@@ -8,7 +8,7 @@ import { TextInput } from "@/components/ui/text-input";
 import { confirmRegistration } from "@/lib/api/auth-client";
 import { BrowserRequestError } from "@/lib/api/browser-request";
 import { replaceDocument } from "@/lib/browser-navigation";
-import { takeRegistrationToken } from "@/lib/registration-token";
+import { takeFragmentToken } from "@/lib/fragment-token";
 
 import styles from "./login.module.css";
 
@@ -49,7 +49,7 @@ export function RegistrationConfirm() {
   // Before the first paint: take the token and clear the fragment. A second
   // run (React's development double effects) keeps the token already taken.
   useLayoutEffect(() => {
-    if (token.current === undefined) token.current = takeRegistrationToken();
+    if (token.current === undefined) token.current = takeFragmentToken();
     setPhase(token.current ? "form" : "missing");
   }, []);
 

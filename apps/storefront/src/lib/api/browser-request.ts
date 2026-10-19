@@ -113,6 +113,12 @@ export async function browserNoContent(path: string, options: Omit<RequestInput,
   await requestResponse(path, { ...options, success: 204 }, true);
 }
 
+// An anonymous request answered by an empty 204. There is no session, so no
+// owner to check; any other status is an error as usual.
+export async function browserAnonymousNoContent(path: string, options: Omit<RequestInput, "success" | "expectedUserID"> = {}): Promise<void> {
+  await requestResponse(path, { ...options, success: 204 }, true);
+}
+
 export async function browserRequest(path: string, options: RequestInput = {}): Promise<unknown> {
   return (await browserResponse(path, options)).body;
 }

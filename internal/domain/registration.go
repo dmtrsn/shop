@@ -2,14 +2,20 @@ package domain
 
 import (
 	"errors"
+	"fmt"
 	"time"
 )
 
 var (
+	// ErrLinkInvalid is the one answer clients get for any unusable emailed
+	// link, whatever its purpose.
+	ErrLinkInvalid = errors.New("link is invalid or expired")
 	// ErrRegistrationLinkInvalid: the confirmation token is unknown, used,
-	// replaced or expired, or the address already has an account. Clients get
-	// one answer for all of these.
-	ErrRegistrationLinkInvalid = errors.New("registration link is invalid or expired")
+	// replaced or expired, or the address already has an account.
+	ErrRegistrationLinkInvalid = fmt.Errorf("registration link: %w", ErrLinkInvalid)
+	// ErrPasswordResetLinkInvalid: the reset token is unknown, used, replaced
+	// or expired, or the account is disabled.
+	ErrPasswordResetLinkInvalid = fmt.Errorf("password reset link: %w", ErrLinkInvalid)
 	// ErrBusy: bounded server work (password hashing) is saturated. Nothing
 	// changed and the request may be retried shortly.
 	ErrBusy = errors.New("server is busy")
@@ -53,4 +59,26 @@ type EmailAllowance struct {
 	Cooldown time.Duration
 	Window   time.Duration
 	Limit    int
+}
+
+// PasswordResetOutcome is what a reset request did; only the server sees it.
+type PasswordResetOutcome string
+
+const (
+	// PasswordResetIssued: the customer's reset token was created or
+	// replaced; the reset email is due.
+	PasswordResetIssued PasswordResetOutcome = "issued"
+	// PasswordResetThrottled: the address's email allowance is spent.
+	PasswordResetThrottled PasswordResetOutcome = "throttled"
+	// PasswordResetDisabled: the account is disabled; nothing was issued.
+	PasswordResetDisabled PasswordResetOutcome = "disabled"
+	// PasswordResetNone: no account has the address; nothing was issued.
+	PasswordResetNone PasswordResetOutcome = "none"
+)
+
+// PasswordReset is a customer's active reset token, by digest.
+type PasswordReset struct {
+	UserID    string
+	TokenHash string
+	ExpiresAt time.Time
 }

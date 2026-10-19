@@ -8,7 +8,7 @@ info:
     is not enforced. Go accepts case-insensitive JSON member names and null as zero/unset values; schemas describe
     canonical spellings and usable requests. No independent batch item-count limit. HTTP server MaxHeaderBytes=1048576,
     ReadHeaderTimeout=5s, ReadTimeout=15s, WriteTimeout=30s. Every GET also accepts HEAD through Go ServeMux (network
-    HEAD has no response body). Protected responses, login, /api/auth/session and /api/auth/registration* use no-store. Protected operations accept
+    HEAD has no response body). Protected responses, login, /api/auth/session, /api/auth/registration* and /api/auth/password-reset* use no-store. Protected operations accept
     a legacy bearer token or the HttpOnly session cookie; cookie-authenticated POST/PUT/PATCH/DELETE also require a
     trusted Origin and X-CSRF-Token (403 csrf_failed otherwise). Operations marked x-self-service exist only when
     GET /api/auth/session reports selfService=true (PostgreSQL storage and configured email); the memory adapter
@@ -145,8 +145,8 @@ paths:
       description: Reports the cookie session only; Authorization is ignored. Successful checks return 200; storage failures return 500. Signed out, missing,
         invalid or expired cookies return authenticated=false (an invalid cookie is cleared). demoLogin reports
         whether the seeded demo principal may sign in in this deployment. selfService reports whether customers
-        can register themselves here, that is whether the x-self-service operations exist; it is true only with
-        PostgreSQL storage and configured email delivery.
+        can register and recover their password themselves here, that is whether the x-self-service operations
+        exist; it is true only with PostgreSQL storage and configured email delivery.
       security: []
       responses:
         '200':
@@ -610,6 +610,170 @@ paths:
                 $ref: '#/components/schemas/Error'
         '503':
           description: service_unavailable; too many password checks are running in this process. Nothing changed; retry after Retry-After seconds.
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+            Retry-After:
+              $ref: '#/components/headers/RetryAfter'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: internal_error; unexpected storage or server failure.
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/auth/password-reset:
+    post:
+      operationId: requestPasswordReset
+      summary: requestPasswordReset
+      x-self-service: true
+      description: >-
+        Self-service password recovery, step 1. Exists only when selfService is true. Requires a trusted Origin; no
+        session or CSRF token. For an enabled account whose address allowance permits, creates or replaces its single
+        reset token (the earlier link stops working) and emails PUBLIC_SHOP_ORIGIN/reset-password#t=<token>, valid for
+        60 minutes and once. Unknown and disabled addresses get no token and no email. The allowance (one account
+        email a minute, ten in any 24 hours per address) is shared with registration and resend. Delivery is in memory
+        and not durable; if nothing arrives, ask again. At the shop edge, requests from one client share the resend
+        limit and excess gets a text/plain 429 from nginx.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegistrationResendInput'
+      responses:
+        '202':
+          description: Accepted. The same answer for an enabled account, an unknown address, a disabled account, a
+            throttled address and an account with a reset already pending; whether an email was sent is never shown.
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RegistrationAccepted'
+        '403':
+          description: csrf_failed; missing or untrusted Origin.
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: validation_error; the address is malformed.
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: internal_error; unexpected storage or server failure.
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/auth/password-reset/confirm:
+    post:
+      operationId: confirmPasswordReset
+      summary: confirmPasswordReset
+      x-self-service: true
+      description: >-
+        Self-service password recovery, step 2. Exists only when selfService is true. Requires a trusted Origin; no
+        session or CSRF token. Checks the token first: an unknown, malformed, used, replaced or expired token, or a
+        disabled account, returns 410 link_invalid. Only then is the password checked against the customer rules
+        (422). In one transaction the reset is consumed, the new bcrypt hash stored and every session of the customer
+        (cookie and bearer) deleted. It never signs in; it also ends the session this browser presented and clears
+        the session cookie. At the shop edge excess attempts get a text/plain 429 from nginx.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegistrationConfirmInput'
+      responses:
+        '204':
+          description: The password is replaced and every session of the customer is revoked. No body, no new session.
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+            Set-Cookie:
+              description: Clears the session cookie (Max-Age=0).
+              schema:
+                type: string
+        '403':
+          description: csrf_failed; missing or untrusted Origin.
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '410':
+          description: link_invalid; the link is unknown, used, replaced or expired, or the account is disabled.
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: validation_error; the new password breaks the customer password rules (only for a usable link).
+          headers:
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: service_unavailable; too many password checks are running in this process. Nothing changed; retry after Retry-After seconds. Reached only with a usable link, so it says nothing about any account.
           headers:
             X-Request-ID:
               description: Echoed X-Request-ID or server-generated identifier.
@@ -3758,7 +3922,7 @@ components:
           type: boolean
         selfService:
           type: boolean
-          description: Customers can register themselves in this deployment (PostgreSQL and configured email).
+          description: Customers can register and recover their password themselves in this deployment (PostgreSQL and configured email).
     Health:
       type: object
       required:
@@ -3879,7 +4043,7 @@ components:
       properties:
         token:
           type: string
-          description: The value of t in the fragment of the emailed /register/confirm link.
+          description: The value of t in the fragment of the emailed /register/confirm or /reset-password link.
         password:
           type: string
           format: password

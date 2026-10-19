@@ -29,6 +29,7 @@ const (
 
 	registrationConfirmPath = "/register/confirm"
 	signInPath              = "/login"
+	forgotPasswordPath      = "/forgot-password"
 )
 
 // AccountEmailAllowance is the per-address bound on account email: one
@@ -248,9 +249,11 @@ func (r *CustomerRegistrations) deliver(outcome domain.RegistrationOutcome, addr
 			message, err = email.RegistrationConfirmation(address, ref, link, RegistrationLifetime)
 		}
 	case domain.RegistrationAccountExists:
-		var link email.Link
-		if link, err = r.origin.Link(signInPath, ""); err == nil {
-			message, err = email.AccountExists(address, ref, link)
+		var signIn, recovery email.Link
+		if signIn, err = r.origin.Link(signInPath, ""); err == nil {
+			if recovery, err = r.origin.Link(forgotPasswordPath, ""); err == nil {
+				message, err = email.AccountExists(address, ref, signIn, recovery)
+			}
 		}
 	default:
 		return receipt
@@ -305,18 +308,19 @@ func (r *CustomerRegistrations) Cleanup(ctx context.Context) (registrations, all
 	return registrations, allowances, nil
 }
 
-// RunCleanup runs Cleanup now and then every interval until ctx is done.
-// Failures are logged and retried on the next tick.
-func (r *CustomerRegistrations) RunCleanup(ctx context.Context, interval time.Duration) {
+// RunSelfServiceCleanup runs both cleanups now and then every interval
+// until ctx is done. Failures are logged and retried on the next tick.
+func RunSelfServiceCleanup(ctx context.Context, interval time.Duration, logger *slog.Logger, registrations *CustomerRegistrations, resets *PasswordResets) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
-		registrations, allowances, err := r.Cleanup(ctx)
-		switch {
+		expired, allowances, err := registrations.Cleanup(ctx)
+		resetCount, resetErr := resets.Cleanup(ctx)
+		switch err = errors.Join(err, resetErr); {
 		case err != nil && ctx.Err() == nil:
-			r.logger.Warn("registration cleanup failed", "error", err)
-		case registrations+allowances > 0:
-			r.logger.Info("registration cleanup", "expiredRegistrations", registrations, "idleEmailAllowances", allowances)
+			logger.Warn("self-service cleanup failed", "error", err)
+		case expired+allowances+resetCount > 0:
+			logger.Info("self-service cleanup", "expiredRegistrations", expired, "idleEmailAllowances", allowances, "expiredPasswordResets", resetCount)
 		}
 		select {
 		case <-ctx.Done():
@@ -341,14 +345,21 @@ func newRegistrationToken() (token, digest string, err error) {
 // registrationTokenDigest accepts only the exact token shape: 43 base64url
 // characters that decode to 32 bytes.
 func registrationTokenDigest(token string) (string, bool) {
-	if !registrationTokenPattern.MatchString(token) {
-		return "", false
-	}
-	if raw, err := base64.RawURLEncoding.Strict().DecodeString(token); err != nil || len(raw) != registrationTokenBytes {
+	if !validEmailToken(token) {
 		return "", false
 	}
 	sum := sha256.Sum256([]byte(registrationDigestPrefix + token))
 	return base64.RawURLEncoding.EncodeToString(sum[:]), true
+}
+
+// validEmailToken is the shape of every emailed token: 43 base64url
+// characters that decode to 32 bytes. Purpose comes from the digest prefix.
+func validEmailToken(token string) bool {
+	if !registrationTokenPattern.MatchString(token) {
+		return false
+	}
+	raw, err := base64.RawURLEncoding.Strict().DecodeString(token)
+	return err == nil && len(raw) == registrationTokenBytes
 }
 
 // newMessageRef correlates the application and dispatcher log lines of one

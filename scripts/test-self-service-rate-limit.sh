@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Self-registration rate-limit smoke through the public edge.
+# Self-service (registration and password recovery) rate-limit smoke through
+# the public edge.
 #
-# It exhausts this client's registration, resend and sign-in buckets, so run
-# it only against CI or another disposable environment, on a freshly created
-# edge container (fresh limiter zones). Requests carry bodies that Go rejects
-# before any password work or email (422, or 404 where self-registration is
-# not enabled), so the script creates nothing.
+# It exhausts this client's registration, email, reset-token and sign-in
+# buckets, so run it only against CI or another disposable environment, on a
+# freshly created edge container (fresh limiter zones). Requests carry bodies
+# that Go rejects before any password work or email (410 or 422, or 404 where
+# self-service is not enabled), so the script creates nothing.
 #   EDGE_ORIGIN    default http://127.0.0.1:8080 (also sent as Origin)
 #   SMOKE_EMAIL / SMOKE_PASSWORD   default: the demo account (APP_MODE=demo)
 edge_origin="${EDGE_ORIGIN:-http://127.0.0.1:8080}"
@@ -16,15 +17,17 @@ password="${SMOKE_PASSWORD:-Sweet2026!}"
 # Must match deploy/nginx/*.conf.template.
 signup_burst=5
 email_burst=3
+token_burst=6
 auth_burst=10
 registration_retry_after=20
+token_retry_after=10
 auth_retry_after=6
 
 temporary_dir="$(mktemp -d)"
 trap 'rm -rf "$temporary_dir"' EXIT
 
 fail() {
-  echo "registration rate limit: $1" >&2
+  echo "self-service rate limit: $1" >&2
   exit 1
 }
 
@@ -65,7 +68,7 @@ exhaust() {
     spoof_for "$i"
     post "$zone-$i" "$path" "${spoof[@]}"
     case "$status" in
-      404 | 422)
+      404 | 410 | 422)
         ((limited == 0)) || fail "$zone attempt $i reached Go after the limiter engaged"
         has_header "$zone-$i" X-Request-ID || fail "$zone attempt $i: HTTP $status without Go's X-Request-ID"
         ((allowed += 1))
@@ -88,11 +91,19 @@ exhaust() {
 request get-before GET /api/auth/session
 [[ "$status" == 200 ]] || fail "GET /api/auth/session: HTTP $status"
 
-# 2. Registration and resend have their own buckets.
+# 2. Registration, the email-sending requests and reset confirmation have
+#    their own buckets.
 exhaust customer_signup /api/auth/registration "$signup_burst" "$registration_retry_after" 'Too many registration requests'
-exhaust customer_email /api/auth/registration/resend "$email_burst" "$registration_retry_after" 'Too many registration requests'
+exhaust customer_email /api/auth/registration/resend "$email_burst" "$registration_retry_after" 'Too many email requests'
+# A password-reset request shares the resend bucket, so it is limited now.
+post reset-request-limited /api/auth/password-reset --header 'X-Real-IP: 192.0.2.250'
+[[ "$status" == 429 ]] || fail "password-reset request did not share the email bucket: HTTP $status"
+has_header reset-request-limited X-Request-ID && fail "password-reset request 429 came from Go"
+grep -qF 'Too many email requests' "$temporary_dir/reset-request-limited.body" || fail "password-reset request: unexpected 429 body"
+echo "customer_email: resend and password-reset requests share one bucket"
+exhaust customer_token /api/auth/password-reset/confirm "$token_burst" "$token_retry_after" 'Too many attempts'
 
-# 3. Exhausting registration and resend left sign-in alone: one wrong-password
+# 3. Exhausting those buckets left sign-in alone: one wrong-password
 #    sign-in still reaches Go.
 request signin-free POST /api/auth/session --header "Origin: $edge_origin" --header 'Content-Type: application/json' \
   --data "{\"email\":\"$email\",\"password\":\"wrong password, not the smoke secret\"}"
@@ -105,7 +116,7 @@ for ((i = 1; i <= auth_burst + 6; i++)); do
   spoof_for "$i"
   post "confirm-$i" /api/auth/registration/confirm "${spoof[@]}"
   case "$status" in
-    404 | 422) ((allowed += 1)) ;;
+    404 | 410 | 422) ((allowed += 1)) ;;
     429) has_header "confirm-$i" X-Request-ID && fail "confirm attempt $i: 429 came from Go" ;;
     *) fail "confirm attempt $i: unexpected HTTP $status" ;;
   esac
@@ -133,4 +144,9 @@ request login POST /api/auth/session --header "Origin: $edge_origin" --header 'C
 sleep "$((registration_retry_after - auth_retry_after))"
 post refill /api/auth/registration
 [[ "$status" == 404 || "$status" == 422 ]] || fail "registration after the refill: HTTP $status"
-echo "registration rate limit smoke passed for $edge_origin"
+post reset-refill /api/auth/password-reset/confirm
+[[ "$status" == 404 || "$status" == 410 ]] || fail "password-reset confirmation after the refill: HTTP $status"
+# The staff API is still not served from the shop host.
+request admin POST /api/admin/v1/auth/session --header "Origin: $edge_origin"
+[[ "$status" == 404 ]] || fail "/api/admin on the shop host: HTTP $status"
+echo "self-service rate limit smoke passed for $edge_origin"

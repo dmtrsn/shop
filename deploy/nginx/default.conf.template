@@ -27,13 +27,17 @@ limit_req_zone $auth_rate_limit_key zone=customer_auth:10m rate=10r/m;
 #   limit_req zone=staff_auth burst=3 nodelay;   (Retry-After: 12)
 limit_req_zone $auth_rate_limit_key zone=staff_auth:1m rate=5r/m;
 
-# Self-registration. Registration hashes a password and may send an email:
-# 3 per minute per client (one every 20 s), burst 5. Resend sends an email
-# without a password: 3 per minute, burst 3. Confirmation verifies a password
-# and shares the sign-in zone above. Per-address email limits live in
-# PostgreSQL; these zones bound the work one client can cause.
+# Self-service. Registration hashes a password and may send an email:
+# 3 per minute per client (one every 20 s), burst 5. Registration resend and
+# password-reset requests send an email without a password and share one
+# zone: 3 per minute, burst 3. Registration confirmation verifies a password
+# and shares the sign-in zone above. Password-reset confirmation is gated by
+# an emailed token and hashes a new password: 6 per minute (one every 10 s),
+# burst 6. Per-address email limits live in PostgreSQL; these zones bound
+# the work one client can cause.
 limit_req_zone $auth_rate_limit_key zone=customer_signup:10m rate=3r/m;
 limit_req_zone $auth_rate_limit_key zone=customer_email:10m rate=3r/m;
+limit_req_zone $auth_rate_limit_key zone=customer_token:10m rate=6r/m;
 
 server {
     listen 8080;
@@ -94,7 +98,19 @@ server {
 
     location = /api/auth/registration/resend {
         limit_req zone=customer_email burst=3 nodelay;
-        error_page 429 @registration_rate_limited;
+        error_page 429 @account_email_rate_limited;
+        proxy_pass http://app:8080;
+    }
+
+    location = /api/auth/password-reset {
+        limit_req zone=customer_email burst=3 nodelay;
+        error_page 429 @account_email_rate_limited;
+        proxy_pass http://app:8080;
+    }
+
+    location = /api/auth/password-reset/confirm {
+        limit_req zone=customer_token burst=6 nodelay;
+        error_page 429 @token_rate_limited;
         proxy_pass http://app:8080;
     }
 
@@ -108,13 +124,30 @@ server {
         return 429 "Too many sign-in attempts. Try again later.\n";
     }
 
-    # Both registration zones free a slot every 20 s (3r/m).
+    # customer_signup and customer_email free a slot every 20 s (3r/m).
     location @registration_rate_limited {
         default_type text/plain;
         add_header Retry-After 20 always;
         add_header Cache-Control no-store always;
         add_header X-Content-Type-Options nosniff always;
         return 429 "Too many registration requests. Try again later.\n";
+    }
+
+    location @account_email_rate_limited {
+        default_type text/plain;
+        add_header Retry-After 20 always;
+        add_header Cache-Control no-store always;
+        add_header X-Content-Type-Options nosniff always;
+        return 429 "Too many email requests. Try again later.\n";
+    }
+
+    # customer_token frees a slot every 10 s (6r/m).
+    location @token_rate_limited {
+        default_type text/plain;
+        add_header Retry-After 10 always;
+        add_header Cache-Control no-store always;
+        add_header X-Content-Type-Options nosniff always;
+        return 429 "Too many attempts. Try again later.\n";
     }
 
     location = /api {

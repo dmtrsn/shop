@@ -43,8 +43,10 @@ type Server struct {
 	staffOrigins    map[string]bool
 	staffCookieName string
 
-	// Self-registration; nil means its routes do not exist.
+	// Self-service registration and recovery; nil means their routes do not
+	// exist.
 	registrations *application.CustomerRegistrations
+	resets        *application.PasswordResets
 }
 
 // Option configures optional parts of the server.
@@ -547,7 +549,7 @@ type apiError struct {
 func (s *Server) writeError(w http.ResponseWriter, r *http.Request, err error) {
 	status, code, message := http.StatusInternalServerError, "internal_error", "Не удалось выполнить запрос"
 	switch {
-	case errors.Is(err, domain.ErrRegistrationLinkInvalid):
+	case errors.Is(err, domain.ErrLinkInvalid):
 		status, code, message = http.StatusGone, "link_invalid", "Ссылка недействительна или устарела"
 	case errors.Is(err, domain.ErrBusy):
 		status, code, message = http.StatusServiceUnavailable, "service_unavailable", "Сервис перегружен, повторите попытку через несколько секунд"

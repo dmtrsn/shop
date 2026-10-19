@@ -150,12 +150,13 @@ func TestLinksComeOnlyFromThePublicOrigin(t *testing.T) {
 func TestTemplatesRender(t *testing.T) {
 	o := origin(t)
 	signIn, _ := o.Link("/login", "")
+	recovery, _ := o.Link("/forgot-password", "")
 	resetLink, _ := o.Link("/reset-password", "t="+secretToken)
 	confirm, err := email.RegistrationConfirmation("ann@example.com", "pending_1", secretLink(t), 48*time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}
-	exists, err := email.AccountExists("ann@example.com", "usr_1", signIn)
+	exists, err := email.AccountExists("ann@example.com", "usr_1", signIn, recovery)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -175,8 +176,8 @@ func TestTemplatesRender(t *testing.T) {
 		doesNotContain []string
 	}{
 		{confirm, email.KindRegistrationConfirmation, "Подтвердите регистрацию в магазине «Слой»", []string{"https://shop.example.com/register/confirm#t=" + secretToken, "48 часов", "пароль, который вы указали"}, []string{"Анна"}},
-		{exists, email.KindAccountExists, "Аккаунт в магазине «Слой» уже существует", []string{"https://shop.example.com/login", "не изменён"}, []string{"#t=", "forgot-password", "reset-password"}},
-		{passwordReset, email.KindPasswordReset, "Восстановление пароля в магазине «Слой»", []string{"https://shop.example.com/reset-password#t=" + secretToken, "1 час"}, nil},
+		{exists, email.KindAccountExists, "Аккаунт в магазине «Слой» уже существует", []string{"https://shop.example.com/login", "https://shop.example.com/forgot-password", "не изменён"}, []string{"#t=", "reset-password"}},
+		{passwordReset, email.KindPasswordReset, "Восстановление пароля в магазине «Слой»", []string{"https://shop.example.com/reset-password#t=" + secretToken, "1 час", "все открытые сеансы будут завершены"}, nil},
 		{test, email.KindTest, "Тестовое письмо магазина «Слой»", []string{"тестовое письмо"}, []string{"http"}},
 	} {
 		if tc.message.Kind != tc.kind || tc.message.Subject != tc.subject {

@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { jsonResponse } from "@/test/favorites-fixtures";
 
-import { confirmRegistration, registerCustomer, resendRegistration, startBrowserSession } from "./auth-client";
+import { confirmPasswordReset, confirmRegistration, registerCustomer, requestPasswordReset, resendRegistration, startBrowserSession } from "./auth-client";
 import { BrowserRequestError } from "./browser-request";
 
 const fetcher = vi.fn<typeof fetch>();
@@ -97,5 +97,28 @@ describe("self-registration calls", () => {
     await expect(confirmRegistration({ token, password: "unit-test-only" })).rejects.toBeInstanceOf(BrowserRequestError);
     fetcher.mockResolvedValueOnce(jsonResponse({ error: { code: "link_invalid", message: "x" } }, 410, null));
     await expect(confirmRegistration({ token, password: "unit-test-only" })).rejects.toMatchObject({ status: 410, code: "link_invalid" });
+  });
+});
+
+describe("password recovery calls", () => {
+  it("requests a reset with the address only and accepts only the generic 202", async () => {
+    fetcher.mockResolvedValueOnce(jsonResponse({ status: "pending" }, 202, null));
+    await requestPasswordReset("kate@example.test");
+    expect(fetcher).toHaveBeenCalledExactlyOnceWith("/api/auth/password-reset", expect.objectContaining({ method: "POST", body: JSON.stringify({ email: "kate@example.test" }) }));
+    fetcher.mockResolvedValueOnce(jsonResponse({ status: "sent" }, 202, null));
+    await expect(requestPasswordReset("kate@example.test")).rejects.toBeInstanceOf(BrowserRequestError);
+  });
+
+  it("confirms with the token in the body and accepts only an empty 204", async () => {
+    const token = "r".repeat(43);
+    fetcher.mockResolvedValueOnce(new Response(null, { status: 204 }));
+    await expect(confirmPasswordReset({ token, password: "unit-test-only" })).resolves.toBeUndefined();
+    expect(fetcher.mock.calls[0][0]).toBe("/api/auth/password-reset/confirm");
+    expect(fetcher.mock.calls[0][1]?.body).toBe(JSON.stringify({ token, password: "unit-test-only" }));
+    expect(new Headers(fetcher.mock.calls[0][1]?.headers).get("X-Expected-Authenticated-User-ID")).toBeNull();
+    fetcher.mockResolvedValueOnce(jsonResponse(success, 200, null));
+    await expect(confirmPasswordReset({ token, password: "unit-test-only" })).rejects.toBeInstanceOf(BrowserRequestError);
+    fetcher.mockResolvedValueOnce(jsonResponse({ error: { code: "link_invalid", message: "x" } }, 410, null));
+    await expect(confirmPasswordReset({ token, password: "unit-test-only" })).rejects.toMatchObject({ status: 410, code: "link_invalid" });
   });
 });

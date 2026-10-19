@@ -99,12 +99,12 @@ jobs:
         run: EXPECT_ROOT_OWNER=next bash scripts/test-edge-routes.sh
       - name: Authenticated release flow through the edge (disposable data)
         run: node scripts/test-release-flow.mjs
-      - name: Self-registration journey with the Mailpit confirmation email (disposable data)
-        run: node scripts/test-registration-flow.mjs
-      - name: Recreate the edge so the registration limiters start from fresh zones
+      - name: Self-service journey (registration, then password recovery) with Mailpit email (disposable data)
+        run: node scripts/test-self-service-flow.mjs
+      - name: Recreate the edge so the self-service limiters start from fresh zones
         run: docker compose -p sweetshop-edge-smoke --env-file .env.example up -d --no-deps --force-recreate --wait --wait-timeout 60 edge
-      - name: Registration, resend and confirmation rate limits through the edge (exhausts this runner's buckets)
-        run: bash scripts/test-registration-rate-limit.sh
+      - name: Registration, recovery and confirmation rate limits through the edge (exhausts this runner's buckets)
+        run: bash scripts/test-self-service-rate-limit.sh
       - name: Recreate the edge so the sign-in limiter starts from a fresh zone
         run: docker compose -p sweetshop-edge-smoke --env-file .env.example up -d --no-deps --force-recreate --wait --wait-timeout 60 edge
       - name: Customer sign-in rate limit through the edge (exhausts this runner's bucket)

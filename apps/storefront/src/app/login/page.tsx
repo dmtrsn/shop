@@ -39,7 +39,8 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
           <LoginForm target={target} />
           {selfService ? (
             <p className={styles.links}>
-              Нет аккаунта? <Link href="/register">Создать аккаунт</Link>
+              <Link href="/forgot-password">Забыли пароль?</Link>
+              <span>Нет аккаунта? <Link href="/register">Создать аккаунт</Link></span>
             </p>
           ) : null}
           {/* Shown only when Go explicitly advertises its seeded demo account. */}

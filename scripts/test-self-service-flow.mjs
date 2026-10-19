@@ -1,11 +1,12 @@
 #!/usr/bin/env node
-// Self-registration journey through the public edge, driven by headless Chrome
-// over CDP (Node 22 global WebSocket; no npm dependencies). The confirmation
-// email is read from Mailpit's API.
+// Self-service journey through the public edge, driven by headless Chrome over
+// CDP (Node 22 global WebSocket; no npm dependencies): registration with email
+// confirmation, then password recovery. Emails are read from Mailpit's API.
 //
 // It creates a customer account, so run it only against a disposable
 // environment whose app sends email to Mailpit (the CI Compose project with
-// the mail profile). Never production.
+// the mail profile). Never production. It waits about a minute between the
+// two emails: the per-address allowance permits one account email a minute.
 //
 //   EDGE_ORIGIN    default http://127.0.0.1:8080 (must be PUBLIC_SHOP_ORIGIN)
 //   MAILPIT_API    default http://127.0.0.1:8025
@@ -22,6 +23,8 @@ const PORT = Number(process.env.CDP_PORT || 9224);
 const EMAIL = `smoke-${randomBytes(6).toString("hex")}@example.com`;
 const NAME = "Смоук Регистрация";
 const PASSWORD = `smoke ${randomBytes(6).toString("hex")} pass`;
+const NEW_PASSWORD = `reset ${randomBytes(6).toString("hex")} pass`;
+const FAVORITE = "p01";
 
 function findChrome() {
   if (process.env.CHROME_BIN) return process.env.CHROME_BIN;
@@ -141,17 +144,21 @@ async function typeInto(selector, value) {
   await send("Input.insertText", { text: value });
 }
 
-// The newest message to EMAIL, polled from Mailpit.
-async function confirmationMail() {
+// The newest message to EMAIL with subject, polled from Mailpit.
+async function mailWithSubject(subject) {
   const end = Date.now() + 30000;
   while (Date.now() < end) {
     const search = await (await fetch(`${MAILPIT}/api/v1/search?query=${encodeURIComponent(`to:${EMAIL}`)}`)).json();
-    if (search.messages?.length) {
-      return (await fetch(`${MAILPIT}/api/v1/message/${search.messages[0].ID}`)).json();
-    }
+    const found = (search.messages || []).find((message) => message.Subject === subject);
+    if (found) return (await fetch(`${MAILPIT}/api/v1/message/${found.ID}`)).json();
     await sleep(300);
   }
-  throw new Error("no confirmation email in Mailpit");
+  throw new Error(`no "${subject}" email in Mailpit`);
+}
+
+// A request from outside the browser with an explicit credential.
+async function edge(path, init = {}) {
+  return fetch(EDGE + path, { ...init, headers: { Origin: EDGE, "Content-Type": "application/json", ...(init.headers || {}) } });
 }
 
 async function run() {
@@ -160,10 +167,10 @@ async function run() {
   await send("Network.enable");
   await send("Network.clearBrowserCookies");
 
-  // 1. The login page offers registration because Go advertises it.
+  // 1. The login page offers registration and recovery because Go advertises them.
   await open("/login");
   await waitFor(`!!${mainLink("Создать аккаунт")}`, "Create account link");
-  check("/login shows «Создать аккаунт»", true);
+  check("/login shows «Создать аккаунт» and «Забыли пароль?»", !!(await evaluate(`!!${mainLink("Забыли пароль?")}`)));
   await evaluate(`${mainLink("Создать аккаунт")}.click()`);
   await waitFor("location.pathname === '/register' && !!document.querySelector('#register-email')", "/register form");
   check("the link opens the Next /register page", true);
@@ -184,7 +191,8 @@ async function run() {
   check("registration alone signs nobody in", cookiesAfterRegister.length === 0);
 
   // 3. The email.
-  const mail = await confirmationMail();
+  const mail = await mailWithSubject("Подтвердите регистрацию в магазине «Слой»");
+  const firstMailAt = Date.now();
   check("the confirmation email has the fixed subject", mail.Subject === "Подтвердите регистрацию в магазине «Слой»", mail.Subject);
   const link = (mail.Text.match(/https?:\/\/\S+\/register\/confirm#t=[A-Za-z0-9_-]{43}/) || [])[0];
   check("the email links to PUBLIC_SHOP_ORIGIN/register/confirm#t=…", !!link && link.startsWith(`${EDGE}/register/confirm#t=`), link ? link.replace(/#t=.*/, "#t=…") : "missing");
@@ -236,12 +244,93 @@ async function run() {
   await waitFor(pageHas(EMAIL), "account after login");
   check("the new account signs in through the normal /login", true);
 
-  const leaked = requests.filter((r) => /password|token=|csrf/i.test(decodeURIComponent(r.url)) || r.url.includes(token));
+  await recover(firstMailAt, token);
+  // Paths such as /reset-password are fine; no query string may carry a
+  // credential, and no URL a token or password.
+  const leaked = requests.filter((r) => /password|token|csrf/i.test(decodeURIComponent(new URL(r.url).search)) ||
+    [token, resetToken, PASSWORD, NEW_PASSWORD].some((secret) => secret && decodeURIComponent(r.url).includes(secret)));
   check("no secret in any request URL", leaked.length === 0, leaked.map((r) => r.url).join(" "));
-  check("nothing was logged to the console with the token or password",
-    consoleText.every((line) => !line.includes(token) && !line.includes(PASSWORD)));
+  check("nothing was logged to the console with a token or password",
+    consoleText.every((line) => !line.includes(token) && !line.includes(PASSWORD) && !line.includes(NEW_PASSWORD) && !(resetToken && line.includes(resetToken))));
   const foreign = requests.filter((r) => /^https?:/.test(r.url) && !r.url.startsWith(EDGE + "/"));
   check("every request stays on the edge origin", foreign.length === 0, foreign.map((r) => r.url).join(" "));
+}
+
+let resetToken = "";
+
+// Password recovery for the account just created, while it is signed in with
+// a cookie (this browser) and a bearer token (elsewhere).
+async function recover(firstMailAt, registrationToken) {
+  // 8. Customer state that recovery must keep, and sessions it must end.
+  const state = await evaluate(`fetch("/api/auth/session").then((r) => r.json())`);
+  const added = await evaluate(`fetch("/api/favorites/${FAVORITE}", { method: "PUT", headers: { "X-CSRF-Token": ${text(state?.csrfToken || "")} } }).then((r) => r.status)`);
+  check("the new customer adds a favorite", added === 200, String(added));
+  const cookie = (await send("Network.getCookies", { urls: [EDGE] })).cookies.find((c) => /sweetshop_session$/.test(c.name));
+  const bearer = (await (await edge("/api/auth/login", { method: "POST", body: JSON.stringify({ email: EMAIL, password: PASSWORD }) })).json()).token;
+  check("a cookie and a bearer session exist before recovery", !!cookie && !!bearer);
+
+  // 9. Request a reset; the per-address allowance needs a minute since the
+  //    confirmation email.
+  const wait = firstMailAt + 62000 - Date.now();
+  if (wait > 0) await sleep(wait);
+  await open("/forgot-password");
+  await waitFor(ready(button("Отправить ссылку")), "hydrated forgot-password form");
+  await typeInto("#forgot-email", EMAIL);
+  await evaluate(`${button("Отправить ссылку")}.click()`);
+  await waitFor(pageHas("Проверьте почту"), "generic recovery answer");
+  check("the recovery answer is generic", !!(await evaluate(pageHas("Если аккаунт с адресом"))));
+
+  // 10. The reset email and its link.
+  const mail = await mailWithSubject("Восстановление пароля в магазине «Слой»");
+  const link = (mail.Text.match(/https?:\/\/\S+\/reset-password#t=[A-Za-z0-9_-]{43}/) || [])[0];
+  check("the reset email links to PUBLIC_SHOP_ORIGIN/reset-password#t=… and states 1 hour",
+    !!link && link.startsWith(`${EDGE}/reset-password#t=`) && mail.Text.includes("1 час"), link ? link.replace(/#t=.*/, "#t=…") : "missing");
+  check("the reset email contains no password", !mail.Text.includes(PASSWORD) && !mail.Text.includes(NEW_PASSWORD));
+  resetToken = link.split("#t=")[1];
+  check("the reset token differs from the registration token", resetToken !== registrationToken);
+
+  // 11. Open it: the fragment disappears; set the new password.
+  const before = requests.length;
+  await open(link);
+  await waitFor("!!document.querySelector('#reset-password')", "reset form");
+  check("the reset token is gone from the address bar", !(await evaluate("location.href")).includes("#"));
+  const { entries } = await send("Page.getNavigationHistory");
+  check("no history entry keeps the reset token", entries.every((entry) => !entry.url.includes(resetToken)));
+  await waitFor(ready(button("Сменить пароль")), "hydrated reset form");
+  await typeInto("#reset-password", NEW_PASSWORD);
+  await evaluate(`${button("Сменить пароль")}.click()`);
+  await waitFor(pageHas("Пароль изменён"), "reset done");
+  const posts = requests.slice(before).filter((r) => r.method === "POST");
+  check("the reset token left the browser only in one confirmation POST body",
+    posts.length === 1 && posts[0].url === `${EDGE}/api/auth/password-reset/confirm` && posts[0].body.includes(resetToken) &&
+    requests.slice(before).every((r) => !r.url.includes(resetToken) && !r.referrer.includes(resetToken)));
+
+  // 12. Every earlier session is dead, and the browser is signed out.
+  const oldCookie = await (await edge("/api/auth/session", { headers: { Cookie: `${cookie.name}=${cookie.value}` } })).json();
+  const oldBearer = (await edge("/api/me", { headers: { Authorization: `Bearer ${bearer}` } })).status;
+  const browserCookies = (await send("Network.getCookies", { urls: [EDGE] })).cookies.filter((c) => /sweetshop_session$/.test(c.name));
+  check("the old cookie session is revoked", oldCookie.authenticated === false);
+  check("the old bearer session is revoked", oldBearer === 401, String(oldBearer));
+  check("recovery signed nobody in", browserCookies.length === 0);
+  const replay = (await edge("/api/auth/password-reset/confirm", { method: "POST", body: JSON.stringify({ token: resetToken, password: "another password 99" }) })).status;
+  check("the reset link cannot be replayed", replay === 410, String(replay));
+
+  // 13. Sign in: the old password fails, the new one works, the data stayed.
+  await evaluate(`${mainLink("Войти")}.click()`);
+  await waitFor("location.pathname === '/login' && !!document.querySelector('#login-email')", "/login");
+  await waitFor(ready(button("Войти")), "login form");
+  await typeInto("#login-email", EMAIL);
+  await typeInto("#login-password", PASSWORD);
+  await evaluate(`${button("Войти")}.click()`);
+  await waitFor(pageHas("Неверный email или пароль"), "old password rejected");
+  check("the old password is rejected", true);
+  await evaluate("document.querySelector('#login-password').select()");
+  await send("Input.insertText", { text: NEW_PASSWORD });
+  await evaluate(`${button("Войти")}.click()`);
+  await waitFor("location.pathname !== '/login'", "signed in with the new password");
+  const favorites = await evaluate(`fetch("/api/favorites").then((r) => r.json())`);
+  check("the new password signs in and the favorite is still there",
+    !!favorites?.items?.some((item) => item.id === FAVORITE), (favorites?.items || []).map((item) => item.id).join(","));
 }
 
 try {
@@ -252,5 +341,5 @@ try {
 } finally {
   await cleanup();
 }
-console.log(failures ? `\nregistration flow smoke FAILED (${failures})` : `\nregistration flow smoke passed for ${EDGE}`);
+console.log(failures ? `\nself-service flow smoke FAILED (${failures})` : `\nself-service flow smoke passed for ${EDGE}`);
 process.exit(failures ? 1 : 0);

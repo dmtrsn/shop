@@ -61,17 +61,17 @@ func main() {
 		logger.Error("invalid staff session configuration", "error", err)
 		os.Exit(1)
 	}
-	registrations, err := selfService(repo, service, mail, logger)
+	registrations, resets, err := selfService(repo, service, mail, logger)
 	if err != nil {
-		logger.Error("invalid self-registration configuration", "error", err)
+		logger.Error("invalid self-service configuration", "error", err)
 		os.Exit(1)
 	}
 	cleanupDone := make(chan struct{})
 	if registrations != nil {
-		options = append(options, httpapi.WithSelfService(registrations))
+		options = append(options, httpapi.WithSelfService(registrations, resets))
 		go func() {
 			defer close(cleanupDone)
-			registrations.RunCleanup(ctx, registrationCleanupInterval)
+			application.RunSelfServiceCleanup(ctx, selfServiceCleanupInterval, logger, registrations, resets)
 		}()
 	} else {
 		close(cleanupDone)
@@ -113,8 +113,8 @@ func main() {
 }
 
 const (
-	emailDrainTimeout           = 10 * time.Second
-	registrationCleanupInterval = 15 * time.Minute
+	emailDrainTimeout          = 10 * time.Second
+	selfServiceCleanupInterval = 15 * time.Minute
 )
 
 // outgoingEmail is a running dispatcher and the origin its links use.
@@ -158,27 +158,34 @@ func emailDispatcher(mode string, sessions httpapi.SessionConfig, logger *slog.L
 	return &outgoingEmail{dispatcher: dispatcher, origin: config.PublicOrigin}, nil
 }
 
-// selfService enables customer self-registration only when it can work end
-// to end: PostgreSQL keeps pending registrations and a running dispatcher
-// sends their confirmation email. Otherwise its routes do not exist and
-// GET /api/auth/session reports selfService=false; operators still create
-// accounts with shopctl.
-func selfService(repo domain.Repository, service *application.Service, mail *outgoingEmail, logger *slog.Logger) (*application.CustomerRegistrations, error) {
+// selfService enables customer self-registration and password recovery
+// only when they can work end to end: PostgreSQL keeps their state and a
+// running dispatcher sends their email. Otherwise their routes do not exist
+// and GET /api/auth/session reports selfService=false; operators still
+// create accounts and set passwords with shopctl.
+func selfService(repo domain.Repository, service *application.Service, mail *outgoingEmail, logger *slog.Logger) (*application.CustomerRegistrations, *application.PasswordResets, error) {
 	if mail == nil {
-		logger.Info("self-registration disabled: email is not configured")
-		return nil, nil
+		logger.Info("self-service disabled: email is not configured")
+		return nil, nil, nil
 	}
-	store, ok := repo.(application.RegistrationStore)
+	store, ok := repo.(interface {
+		application.RegistrationStore
+		application.PasswordResetStore
+	})
 	if !ok {
-		logger.Warn("self-registration disabled: it needs PostgreSQL storage")
-		return nil, nil
+		logger.Warn("self-service disabled: it needs PostgreSQL storage")
+		return nil, nil, nil
 	}
 	registrations, err := application.NewCustomerRegistrations(store, service, mail.dispatcher, mail.origin, logger, application.RegistrationOptions{})
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	logger.Info("self-registration enabled")
-	return registrations, nil
+	resets, err := application.NewPasswordResets(store, mail.dispatcher, mail.origin, logger, application.RegistrationOptions{})
+	if err != nil {
+		return nil, nil, err
+	}
+	logger.Info("self-service enabled: registration and password recovery")
+	return registrations, resets, nil
 }
 
 func repository(ctx context.Context, logger *slog.Logger) (domain.Repository, string, func(), error) {

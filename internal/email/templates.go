@@ -32,10 +32,10 @@ func RegistrationConfirmation(to, ref string, link Link, expiresIn time.Duration
 }
 
 // AccountExists answers a registration for an address that already has an
-// account. It carries no token and links only to sign-in; a reset link
-// belongs here once password recovery exists.
-func AccountExists(to, ref string, signIn Link) (Message, error) {
-	return render(KindAccountExists, to, ref, struct{ SignInLink string }{signIn.value}, signIn)
+// account. It carries no token: it links to sign-in and to the recovery
+// request page, where a reset link can be asked for.
+func AccountExists(to, ref string, signIn, recovery Link) (Message, error) {
+	return render(KindAccountExists, to, ref, struct{ SignInLink, RecoverLink string }{signIn.value, recovery.value}, signIn, recovery)
 }
 
 // PasswordReset carries a reset link with the token in its fragment.
