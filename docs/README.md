@@ -26,6 +26,7 @@ These documents describe the approved architectural and product direction for th
 - [ADR 015: Admin product management UI](adr/015-admin-product-ui.md).
 - [ADR 016: Staff order management](adr/016-staff-order-management.md).
 - [ADR 017: Order-time customer contact](adr/017-order-fulfillment-snapshot.md).
+- [ADR 018: Catalog dictionary management](adr/018-catalog-dictionary-management.md).
 
 The architectural recommendation is to preserve the Go application and PostgreSQL, introduce a TypeScript/React storefront with Next.js, and replace complete routes incrementally. Keep the existing frontend available until each replacement meets behavioral, accessibility, security, and performance gates. Administration becomes a separate React application using authorized Go use cases.
 

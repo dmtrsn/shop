@@ -312,4 +312,34 @@ describe("product editor", () => {
     expect(setItem).not.toHaveBeenCalled();
     expect(document.body.innerHTML).not.toContain("csrf-1");
   });
+  describe("archived dictionary entries", () => {
+    it("offers an archived entry only where the product already uses it, labelled", async () => {
+      const archivedOptions = json({
+        ...catalogOptions,
+        categories: [...catalogOptions.categories, { id: "cat-old", name: "Старое", archived: true }],
+        manufacturers: [...catalogOptions.manufacturers, { id: "m-old", name: "Ушедший", archived: true }],
+        brands: catalogOptions.brands.map((brand) => (brand.id === "b-noir" ? { ...brand, archived: true } : brand)),
+        collections: catalogOptions.collections.map((collection) => (collection.id === "col-best" ? { ...collection, archived: true } : { ...collection, id: "col-new" })),
+      });
+      mockApi({ "GET /api/admin/v1/catalog-options": archivedOptions, [`GET ${PRODUCT}`]: json(product()) });
+      renderEditor("p01");
+      const categorySelect = await screen.findByLabelText("Категория");
+      expect(within(categorySelect).queryByRole("option", { name: /Старое/ })).toBeNull();
+      expect(within(screen.getByLabelText("Производитель")).queryByRole("option", { name: /Ушедший/ })).toBeNull();
+      // The product's own archived brand and collection stay, marked as archived.
+      expect(screen.getByLabelText("Бренд")).toHaveValue("b-noir");
+      expect(within(screen.getByLabelText("Бренд")).getByRole("option", { name: "Atelier Noir (в архиве)" })).toBeInTheDocument();
+      expect(screen.getByRole("checkbox", { name: "Хиты (в архиве)" })).toBeChecked();
+      expect(screen.getByRole("checkbox", { name: "Подарки" })).not.toBeChecked();
+    });
+
+    it("never offers archived entries on a new product", async () => {
+      mockApi({
+        "GET /api/admin/v1/catalog-options": json({ ...catalogOptions, collections: [{ id: "col-best", name: "Хиты", archived: true }] }),
+      });
+      renderEditor();
+      await screen.findByLabelText("Категория");
+      expect(screen.getByText("Подборок нет.")).toBeInTheDocument();
+    });
+  });
 });

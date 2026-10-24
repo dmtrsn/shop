@@ -129,6 +129,20 @@ export class Page {
     })()`);
   }
 
+  // Chooses an option of a React-controlled select, once hydrated.
+  async select(selector, value) {
+    await this.waitFor(`${selector} to be interactive`, `(() => {
+      const select = document.querySelector(${JSON.stringify(selector)});
+      return !!select && !select.disabled && Object.keys(select).some((key) => key.startsWith("__reactProps"))
+        && [...select.options].some((option) => option.value === ${JSON.stringify(value)});
+    })()`);
+    await this.evaluate(`(() => {
+      const select = document.querySelector(${JSON.stringify(selector)});
+      Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value").set.call(select, ${JSON.stringify(value)});
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    })()`);
+  }
+
   click(selector) {
     return this.evaluate(`document.querySelector(${JSON.stringify(selector)}).click()`);
   }

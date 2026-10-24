@@ -28,7 +28,7 @@ const (
 )
 
 // staffServer is the production-shaped handler with the staff API and staff
-// product and order management enabled.
+// product, order and dictionary management enabled.
 func (d *database) staffServer(t *testing.T, logs io.Writer) http.Handler {
 	t.Helper()
 	if logs == nil {
@@ -37,7 +37,8 @@ func (d *database) staffServer(t *testing.T, logs io.Writer) http.Handler {
 	return httpapi.New(d.service, slog.New(slog.NewTextHandler(logs, nil)), "", "postgres", contract.SessionConfig(),
 		httpapi.WithStaff(application.NewStaffAuth(d.store), contract.StaffConfig()),
 		httpapi.WithProductAdmin(application.NewProductAdmin(d.store)),
-		httpapi.WithOrderAdmin(application.NewOrderAdmin(d.store)))
+		httpapi.WithOrderAdmin(application.NewOrderAdmin(d.store)),
+		httpapi.WithDictionaryAdmin(application.NewDictionaryAdmin(d.store)))
 }
 
 func (d *database) createStaff(t *testing.T) domain.StaffAccount {

@@ -5,9 +5,15 @@
 
 export type FieldError = { field: string; message: string };
 
+/** What still uses a dictionary entry that cannot be archived (ADR 018). */
+export type References = { products: number; brands: number; categories: number };
+
 export type ApiFailure =
   | { kind: "validation"; fields: FieldError[] }
-  | { kind: "stale_revision" | "invalid_transition" | "not_found" | "conflict" | "unauthorized" | "csrf" | "staff_changed" | "unavailable" }
+  | { kind: "reference_conflict"; references: References }
+  | {
+      kind: "stale_revision" | "invalid_transition" | "invalid_hierarchy" | "not_found" | "conflict" | "unauthorized" | "csrf" | "staff_changed" | "unavailable";
+    }
   | { kind: "failed"; requestId?: string };
 
 export type ApiResult<T> = { ok: true; data: T } | { ok: false; error: ApiFailure };
@@ -19,6 +25,8 @@ export const failureMessages: Record<ApiFailure["kind"], string> = {
   validation: "Проверьте выделенные поля.",
   stale_revision: "Запись была изменена другим сотрудником. Изменения не сохранены.",
   invalid_transition: "Это действие недоступно в текущем состоянии. Загрузите актуальную версию.",
+  invalid_hierarchy: "Категории образуют два уровня: родителем может быть только корневая категория, а категория с подкатегориями не может стать подкатегорией.",
+  reference_conflict: "Запись используется, поэтому её нельзя перенести в архив.",
   not_found: "Товар не найден.",
   conflict: "Действие нельзя выполнить в текущем состоянии товара. Загрузите актуальную версию.",
   unauthorized: "Сеанс завершён. Войдите снова.",
@@ -54,6 +62,13 @@ function failure(status: number, body: unknown): ApiFailure {
       return { kind: "stale_revision" };
     case "invalid_transition":
       return { kind: "invalid_transition" };
+    case "invalid_hierarchy":
+      return { kind: "invalid_hierarchy" };
+    case "reference_conflict": {
+      const counts = isRecord(error.references) ? error.references : {};
+      const count = (key: string) => (Number.isSafeInteger(counts[key]) && (counts[key] as number) >= 0 ? (counts[key] as number) : 0);
+      return { kind: "reference_conflict", references: { products: count("products"), brands: count("brands"), categories: count("categories") } };
+    }
     case "not_found":
       return { kind: "not_found" };
     case "conflict":

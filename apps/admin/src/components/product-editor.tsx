@@ -25,6 +25,7 @@ import {
   restoreProduct,
   updateProduct,
   type AdminProduct,
+  type CatalogOption,
   type CatalogOptions,
 } from "@/lib/products-api";
 import { useStaffApi } from "./use-staff-api";
@@ -171,8 +172,15 @@ export function ProductEditor({ productId, created = false }: { productId?: stri
     setNotice({ tone: "success", text: archive ? `Товар перенесён в архив. Ревизия ${result.data.revision}.` : `Товар снова в продаже. Ревизия ${result.data.revision}.` });
   }
 
-  const brands = useMemo(() => options?.brands.filter((brand) => brand.manufacturerId === form.manufacturerId) ?? [], [options, form.manufacturerId]);
-  const categories = useMemo(() => categoryTree(options?.categories ?? []), [options]);
+  // Archived dictionary entries are offered only where the loaded product
+  // already uses them: Go keeps an unchanged reference but refuses a new one.
+  const kept = useMemo(
+    () => new Set(product ? [product.category.id, product.manufacturer.id, product.brand.id, ...product.collections.map((collection) => collection.id)] : []),
+    [product],
+  );
+  const offered = useCallback(<T extends CatalogOption>(items: T[] | undefined) => (items ?? []).filter((item) => !item.archived || kept.has(item.id)), [kept]);
+  const brands = useMemo(() => offered(options?.brands).filter((brand) => brand.manufacturerId === form.manufacturerId), [offered, options, form.manufacturerId]);
+  const categories = useMemo(() => categoryTree(offered(options?.categories)), [offered, options]);
 
   if (load.status === "loading") {
     return (
@@ -336,7 +344,7 @@ export function ProductEditor({ productId, created = false }: { productId?: stri
               <option value="">Выберите категорию</option>
               {categories.map(({ category, depth }) => (
                 <option key={category.id} value={category.id}>
-                  {"— ".repeat(depth) + category.name}
+                  {"— ".repeat(depth) + optionLabel(category)}
                 </option>
               ))}
             </select>
@@ -352,15 +360,15 @@ export function ProductEditor({ productId, created = false }: { productId?: stri
                 setForm((current) => ({
                   ...current,
                   manufacturerId,
-                  brandId: options?.brands.some((brand) => brand.id === current.brandId && brand.manufacturerId === manufacturerId) ? current.brandId : "",
+                  brandId: offered(options?.brands).some((brand) => brand.id === current.brandId && brand.manufacturerId === manufacturerId) ? current.brandId : "",
                 }));
               }}
               value={form.manufacturerId}
             >
               <option value="">Выберите производителя</option>
-              {options?.manufacturers.map((manufacturer) => (
+              {offered(options?.manufacturers).map((manufacturer) => (
                 <option key={manufacturer.id} value={manufacturer.id}>
-                  {manufacturer.name}
+                  {optionLabel(manufacturer)}
                 </option>
               ))}
             </select>
@@ -377,15 +385,15 @@ export function ProductEditor({ productId, created = false }: { productId?: stri
               <option value="">{form.manufacturerId ? "Выберите бренд" : "Сначала выберите производителя"}</option>
               {brands.map((brand) => (
                 <option key={brand.id} value={brand.id}>
-                  {brand.name}
+                  {optionLabel(brand)}
                 </option>
               ))}
             </select>
           </Field>
           <fieldset aria-describedby={errors.collectionIds ? errorId("collectionIds") : undefined} className={styles.checklist}>
             <legend>{fieldLabels.collectionIds}</legend>
-            {options?.collections.length ? (
-              options.collections.map((collection) => (
+            {offered(options?.collections).length ? (
+              offered(options?.collections).map((collection) => (
                 <label key={collection.id}>
                   <input
                     checked={form.collectionIds.includes(collection.id)}
@@ -397,7 +405,7 @@ export function ProductEditor({ productId, created = false }: { productId?: stri
                     }
                     type="checkbox"
                   />
-                  {collection.name}
+                  {optionLabel(collection)}
                 </label>
               ))
             ) : (
@@ -518,6 +526,8 @@ function Media({ product }: { product: AdminProduct }) {
     </section>
   );
 }
+
+const optionLabel = (option: CatalogOption) => (option.archived ? `${option.name} (в архиве)` : option.name);
 
 function categoryTree(categories: CatalogOptions["categories"]) {
   const result: Array<{ category: CatalogOptions["categories"][number]; depth: number }> = [];

@@ -178,6 +178,14 @@ jobs:
         env:
           COMPOSE_PROJECT: sweetshop-edge-smoke
         run: bash scripts/with-admin-tls-proxy.sh node scripts/test-admin-order-flow.mjs
+      - name: Recreate the admin edge before the catalog journey
+        env:
+          COMPOSE_PROFILES: mail,admin
+        run: docker compose -p sweetshop-edge-smoke --env-file .env.example up -d --no-deps --force-recreate --wait --wait-timeout 60 admin-edge
+      - name: Staff catalog dictionary journey in headless Chrome (create, reference conflict, archive, stale conflict, restore, shop visibility, audit rows)
+        env:
+          COMPOSE_PROJECT: sweetshop-edge-smoke
+        run: bash scripts/with-admin-tls-proxy.sh node scripts/test-admin-catalog-flow.mjs
       - name: Recreate the admin edge again for the limiter burst
         env:
           COMPOSE_PROFILES: mail,admin

@@ -75,11 +75,14 @@ export type ProductPayload = {
   featured: boolean;
 };
 
+/** An archived entry may stay on a product that has it but is never offered anew (ADR 018). */
+export type CatalogOption = Reference & { archived: boolean };
+
 export type CatalogOptions = {
-  categories: Array<Reference & { parentId?: string }>;
-  manufacturers: Reference[];
-  brands: Array<Reference & { manufacturerId: string }>;
-  collections: Reference[];
+  categories: Array<CatalogOption & { parentId?: string }>;
+  manufacturers: CatalogOption[];
+  brands: Array<CatalogOption & { manufacturerId: string }>;
+  collections: CatalogOption[];
 };
 
 const PRODUCTS = "/api/admin/v1/products";
@@ -114,13 +117,15 @@ function parsePage(body: unknown): ProductPage | null {
   return numbers ? { items: items as AdminProduct[], total: body.total as number, page: body.page as number, limit: body.limit as number, totalPages: body.totalPages as number } : null;
 }
 
+const isOption = (value: unknown): value is CatalogOption => isReference(value) && typeof (value as Record<string, unknown>).archived === "boolean";
+
 function parseOptions(body: unknown): CatalogOptions | null {
   if (!isRecord(body)) return null;
   const { categories, manufacturers, brands, collections } = body;
-  if (!Array.isArray(categories) || !categories.every((c) => isReference(c) && ["undefined", "string"].includes(typeof (c as Record<string, unknown>).parentId))) return null;
-  if (!Array.isArray(manufacturers) || !manufacturers.every(isReference)) return null;
-  if (!Array.isArray(brands) || !brands.every((b) => isReference(b) && typeof (b as Record<string, unknown>).manufacturerId === "string")) return null;
-  if (!Array.isArray(collections) || !collections.every(isReference)) return null;
+  if (!Array.isArray(categories) || !categories.every((c) => isOption(c) && ["undefined", "string"].includes(typeof (c as Record<string, unknown>).parentId))) return null;
+  if (!Array.isArray(manufacturers) || !manufacturers.every(isOption)) return null;
+  if (!Array.isArray(brands) || !brands.every((b) => isOption(b) && typeof (b as Record<string, unknown>).manufacturerId === "string")) return null;
+  if (!Array.isArray(collections) || !collections.every(isOption)) return null;
   return body as unknown as CatalogOptions;
 }
 

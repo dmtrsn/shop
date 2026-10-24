@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: Sweetshop staff (admin) HTTP API
-  version: 0.5.0-b5
+  version: 0.6.0-b6
   description: >-
     Staff API under /api/admin/v1, separate from the customer contract in openapi.yaml. Staff are a separate
     principal: staff_users/staff_sessions, the HttpOnly SameSite=Strict cookie __Host-sweetshop_staff
@@ -18,7 +18,9 @@ info:
     commits together with one staff audit event whose actor is the session's staff member (ADR 012); rejected
     requests write nothing. Products are archived and restored, never deleted. Orders (ADR 016) are never
     deleted either: staff move them through processing, transit and delivered, or cancel them while processing,
-    which returns their stock in the same audited transaction.
+    which returns their stock in the same audited transaction. The catalog dictionaries (categories,
+    manufacturers, brands, collections; ADR 018) are created, edited, archived and restored, never deleted, with
+    the same revision, audit and protection rules.
 servers:
 - url: /
 paths:
@@ -410,8 +412,9 @@ paths:
       description: >-
         Read-only dictionaries for the staff product form, in storefront order: every category (with its
         parent), manufacturer, brand (with the manufacturer it belongs to) and collection, whether or not any
-        product uses it. Requires the staff session like every product read. Product writes recheck every
-        reference, so a stale list can only lead to a validation error.
+        product uses it, each with its archived flag (ADR 018). Archived entries may remain on a product that
+        already uses them but cannot be newly assigned. Requires the staff session like every product read.
+        Product writes recheck every reference, so a stale list can only lead to a validation error.
       responses:
         '200':
           description: Success
@@ -428,6 +431,882 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '409':
           $ref: '#/components/responses/StaffChanged'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/admin/v1/categories:
+    get:
+      operationId: listCategories
+      summary: listCategories
+      description: >-
+        Every category matching status (default active), in storefront order (sortOrder, name, ID), with its
+        revision, archive state and usage counts. Requires the staff session.
+      parameters:
+      - $ref: '#/components/parameters/DictionaryStatus'
+      responses:
+        '200':
+          description: Success
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestID'
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CategoryList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/StaffChanged'
+        '422':
+          $ref: '#/components/responses/DictionaryValidationError'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    post:
+      operationId: createCategory
+      summary: createCategory
+      description: >-
+        Creates an active category at revision 1 with a server-generated ID. Every member is required. The slug
+        (a–z, 0–9 and inner hyphens, up to 120 characters) may equal no other category's slug or ID, because
+        customer filters accept either; otherwise 422 on slug. The tree is two levels deep: parentId is empty for a top-level category or names an existing top-level category. A category cannot be its own parent, a parent cannot itself be a subcategory, and a category with subcategories (archived or not) cannot get a parent; these are 422 invalid_hierarchy. A missing parent, or an archived one that is not already the category's parent, is 422 validation_error on parentId. Audited as category.create.
+      parameters:
+      - $ref: '#/components/parameters/CSRFToken'
+      - $ref: '#/components/parameters/ExpectedStaffID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CategoryInput'
+      responses:
+        '201':
+          description: Created
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestID'
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminCategory'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/CSRFFailed'
+        '409':
+          $ref: '#/components/responses/StaffChanged'
+        '422':
+          $ref: '#/components/responses/DictionaryValidationError'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/admin/v1/categories/{category}:
+    parameters:
+    - $ref: '#/components/parameters/Category'
+    get:
+      operationId: getCategory
+      summary: getCategory
+      description: One category by ID, archived or not. Unknown IDs are 404.
+      responses:
+        '200':
+          description: Success
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestID'
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminCategory'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/DictionaryNotFound'
+        '409':
+          $ref: '#/components/responses/StaffChanged'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    put:
+      operationId: updateCategory
+      summary: updateCategory
+      description: >-
+        Replaces every staff-editable field (the same members as createCategory, all required). expectedRevision must
+        be the current revision, otherwise 409 stale_revision and nothing changes; success increments it by
+        exactly one. Archived rows may be edited and stay archived. The tree is two levels deep: parentId is empty for a top-level category or names an existing top-level category. A category cannot be its own parent, a parent cannot itself be a subcategory, and a category with subcategories (archived or not) cannot get a parent; these are 422 invalid_hierarchy. A missing parent, or an archived one that is not already the category's parent, is 422 validation_error on parentId. Audited as category.update.
+      parameters:
+      - $ref: '#/components/parameters/CSRFToken'
+      - $ref: '#/components/parameters/ExpectedStaffID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CategoryUpdateInput'
+      responses:
+        '200':
+          description: Updated
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestID'
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminCategory'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/CSRFFailed'
+        '404':
+          $ref: '#/components/responses/DictionaryNotFound'
+        '409':
+          $ref: '#/components/responses/DictionaryConflict'
+        '422':
+          $ref: '#/components/responses/DictionaryValidationError'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/admin/v1/categories/{category}/archive:
+    parameters:
+    - $ref: '#/components/parameters/Category'
+    post:
+      operationId: archiveCategory
+      summary: archiveCategory
+      description: >-
+        Withdraws an active category from the storefront and from new product assignments and increments its
+        revision. Nothing is deleted. Archiving is refused with 409 reference_conflict while any product (archived or not) uses the category or it has an active subcategory; error.references carries the counts. Archiving an archived category is 409 conflict. Audited as
+        category.archive.
+      parameters:
+      - $ref: '#/components/parameters/CSRFToken'
+      - $ref: '#/components/parameters/ExpectedStaffID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RevisionInput'
+      responses:
+        '200':
+          description: Archived
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestID'
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminCategory'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/CSRFFailed'
+        '404':
+          $ref: '#/components/responses/DictionaryNotFound'
+        '409':
+          $ref: '#/components/responses/DictionaryConflict'
+        '422':
+          $ref: '#/components/responses/DictionaryValidationError'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/admin/v1/categories/{category}/restore:
+    parameters:
+    - $ref: '#/components/parameters/Category'
+    post:
+      operationId: restoreCategory
+      summary: restoreCategory
+      description: >-
+        Returns an archived category to the storefront and increments its revision. A subcategory is restored only while its parent is active (422 validation_error on parentId otherwise). Restoring an
+        active category is 409 conflict. Audited as category.restore.
+      parameters:
+      - $ref: '#/components/parameters/CSRFToken'
+      - $ref: '#/components/parameters/ExpectedStaffID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RevisionInput'
+      responses:
+        '200':
+          description: Restored
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestID'
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminCategory'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/CSRFFailed'
+        '404':
+          $ref: '#/components/responses/DictionaryNotFound'
+        '409':
+          $ref: '#/components/responses/DictionaryConflict'
+        '422':
+          $ref: '#/components/responses/DictionaryValidationError'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/admin/v1/manufacturers:
+    get:
+      operationId: listManufacturers
+      summary: listManufacturers
+      description: >-
+        Every manufacturer matching status (default active), in storefront order (sortOrder, name, ID), with its
+        revision, archive state and usage counts. Requires the staff session.
+      parameters:
+      - $ref: '#/components/parameters/DictionaryStatus'
+      responses:
+        '200':
+          description: Success
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestID'
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ManufacturerList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/StaffChanged'
+        '422':
+          $ref: '#/components/responses/DictionaryValidationError'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    post:
+      operationId: createManufacturer
+      summary: createManufacturer
+      description: >-
+        Creates an active manufacturer at revision 1 with a server-generated ID. Every member is required. The slug
+        (a–z, 0–9 and inner hyphens, up to 120 characters) may equal no other manufacturer's slug or ID, because
+        customer filters accept either; otherwise 422 on slug. The logo is read-only (no media management). Audited as manufacturer.create.
+      parameters:
+      - $ref: '#/components/parameters/CSRFToken'
+      - $ref: '#/components/parameters/ExpectedStaffID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ManufacturerInput'
+      responses:
+        '201':
+          description: Created
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestID'
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminManufacturer'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/CSRFFailed'
+        '409':
+          $ref: '#/components/responses/StaffChanged'
+        '422':
+          $ref: '#/components/responses/DictionaryValidationError'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/admin/v1/manufacturers/{manufacturer}:
+    parameters:
+    - $ref: '#/components/parameters/Manufacturer'
+    get:
+      operationId: getManufacturer
+      summary: getManufacturer
+      description: One manufacturer by ID, archived or not. Unknown IDs are 404.
+      responses:
+        '200':
+          description: Success
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestID'
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminManufacturer'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/DictionaryNotFound'
+        '409':
+          $ref: '#/components/responses/StaffChanged'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    put:
+      operationId: updateManufacturer
+      summary: updateManufacturer
+      description: >-
+        Replaces every staff-editable field (the same members as createManufacturer, all required). expectedRevision must
+        be the current revision, otherwise 409 stale_revision and nothing changes; success increments it by
+        exactly one. Archived rows may be edited and stay archived. The logo is read-only (no media management). Audited as manufacturer.update.
+      parameters:
+      - $ref: '#/components/parameters/CSRFToken'
+      - $ref: '#/components/parameters/ExpectedStaffID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ManufacturerUpdateInput'
+      responses:
+        '200':
+          description: Updated
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestID'
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminManufacturer'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/CSRFFailed'
+        '404':
+          $ref: '#/components/responses/DictionaryNotFound'
+        '409':
+          $ref: '#/components/responses/DictionaryConflict'
+        '422':
+          $ref: '#/components/responses/DictionaryValidationError'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/admin/v1/manufacturers/{manufacturer}/archive:
+    parameters:
+    - $ref: '#/components/parameters/Manufacturer'
+    post:
+      operationId: archiveManufacturer
+      summary: archiveManufacturer
+      description: >-
+        Withdraws an active manufacturer from the storefront and from new product assignments and increments its
+        revision. Nothing is deleted. Archiving is refused with 409 reference_conflict while any product (archived or not) uses the manufacturer or it has an active brand; error.references carries the counts. Archiving an archived manufacturer is 409 conflict. Audited as
+        manufacturer.archive.
+      parameters:
+      - $ref: '#/components/parameters/CSRFToken'
+      - $ref: '#/components/parameters/ExpectedStaffID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RevisionInput'
+      responses:
+        '200':
+          description: Archived
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestID'
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminManufacturer'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/CSRFFailed'
+        '404':
+          $ref: '#/components/responses/DictionaryNotFound'
+        '409':
+          $ref: '#/components/responses/DictionaryConflict'
+        '422':
+          $ref: '#/components/responses/DictionaryValidationError'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/admin/v1/manufacturers/{manufacturer}/restore:
+    parameters:
+    - $ref: '#/components/parameters/Manufacturer'
+    post:
+      operationId: restoreManufacturer
+      summary: restoreManufacturer
+      description: >-
+        Returns an archived manufacturer to the storefront and increments its revision.  Restoring an
+        active manufacturer is 409 conflict. Audited as manufacturer.restore.
+      parameters:
+      - $ref: '#/components/parameters/CSRFToken'
+      - $ref: '#/components/parameters/ExpectedStaffID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RevisionInput'
+      responses:
+        '200':
+          description: Restored
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestID'
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminManufacturer'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/CSRFFailed'
+        '404':
+          $ref: '#/components/responses/DictionaryNotFound'
+        '409':
+          $ref: '#/components/responses/DictionaryConflict'
+        '422':
+          $ref: '#/components/responses/DictionaryValidationError'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/admin/v1/brands:
+    get:
+      operationId: listBrands
+      summary: listBrands
+      description: >-
+        Every brand matching status (default active), in storefront order (sortOrder, name, ID), with its
+        revision, archive state and usage counts. Requires the staff session.
+      parameters:
+      - $ref: '#/components/parameters/DictionaryStatus'
+      responses:
+        '200':
+          description: Success
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestID'
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BrandList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/StaffChanged'
+        '422':
+          $ref: '#/components/responses/DictionaryValidationError'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    post:
+      operationId: createBrand
+      summary: createBrand
+      description: >-
+        Creates an active brand at revision 1 with a server-generated ID. Every member is required. The slug
+        (a–z, 0–9 and inner hyphens, up to 120 characters) may equal no other brand's slug or ID, because
+        customer filters accept either; otherwise 422 on slug. manufacturerId must name an existing manufacturer that is active, unless it is already the brand's manufacturer. Products pair a brand with its manufacturer, so a brand used by any product cannot move to another manufacturer (409 reference_conflict). The logo is read-only. Audited as brand.create.
+      parameters:
+      - $ref: '#/components/parameters/CSRFToken'
+      - $ref: '#/components/parameters/ExpectedStaffID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BrandInput'
+      responses:
+        '201':
+          description: Created
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestID'
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminBrand'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/CSRFFailed'
+        '409':
+          $ref: '#/components/responses/StaffChanged'
+        '422':
+          $ref: '#/components/responses/DictionaryValidationError'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/admin/v1/brands/{brand}:
+    parameters:
+    - $ref: '#/components/parameters/Brand'
+    get:
+      operationId: getBrand
+      summary: getBrand
+      description: One brand by ID, archived or not. Unknown IDs are 404.
+      responses:
+        '200':
+          description: Success
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestID'
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminBrand'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/DictionaryNotFound'
+        '409':
+          $ref: '#/components/responses/StaffChanged'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    put:
+      operationId: updateBrand
+      summary: updateBrand
+      description: >-
+        Replaces every staff-editable field (the same members as createBrand, all required). expectedRevision must
+        be the current revision, otherwise 409 stale_revision and nothing changes; success increments it by
+        exactly one. Archived rows may be edited and stay archived. manufacturerId must name an existing manufacturer that is active, unless it is already the brand's manufacturer. Products pair a brand with its manufacturer, so a brand used by any product cannot move to another manufacturer (409 reference_conflict). The logo is read-only. Audited as brand.update.
+      parameters:
+      - $ref: '#/components/parameters/CSRFToken'
+      - $ref: '#/components/parameters/ExpectedStaffID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BrandUpdateInput'
+      responses:
+        '200':
+          description: Updated
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestID'
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminBrand'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/CSRFFailed'
+        '404':
+          $ref: '#/components/responses/DictionaryNotFound'
+        '409':
+          $ref: '#/components/responses/DictionaryConflict'
+        '422':
+          $ref: '#/components/responses/DictionaryValidationError'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/admin/v1/brands/{brand}/archive:
+    parameters:
+    - $ref: '#/components/parameters/Brand'
+    post:
+      operationId: archiveBrand
+      summary: archiveBrand
+      description: >-
+        Withdraws an active brand from the storefront and from new product assignments and increments its
+        revision. Nothing is deleted. Archiving is refused with 409 reference_conflict while any product (archived or not) uses the brand; error.references carries the count. Archiving an archived brand is 409 conflict. Audited as
+        brand.archive.
+      parameters:
+      - $ref: '#/components/parameters/CSRFToken'
+      - $ref: '#/components/parameters/ExpectedStaffID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RevisionInput'
+      responses:
+        '200':
+          description: Archived
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestID'
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminBrand'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/CSRFFailed'
+        '404':
+          $ref: '#/components/responses/DictionaryNotFound'
+        '409':
+          $ref: '#/components/responses/DictionaryConflict'
+        '422':
+          $ref: '#/components/responses/DictionaryValidationError'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/admin/v1/brands/{brand}/restore:
+    parameters:
+    - $ref: '#/components/parameters/Brand'
+    post:
+      operationId: restoreBrand
+      summary: restoreBrand
+      description: >-
+        Returns an archived brand to the storefront and increments its revision. A brand is restored only while its manufacturer is active (422 validation_error on manufacturerId otherwise). Restoring an
+        active brand is 409 conflict. Audited as brand.restore.
+      parameters:
+      - $ref: '#/components/parameters/CSRFToken'
+      - $ref: '#/components/parameters/ExpectedStaffID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RevisionInput'
+      responses:
+        '200':
+          description: Restored
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestID'
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminBrand'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/CSRFFailed'
+        '404':
+          $ref: '#/components/responses/DictionaryNotFound'
+        '409':
+          $ref: '#/components/responses/DictionaryConflict'
+        '422':
+          $ref: '#/components/responses/DictionaryValidationError'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/admin/v1/collections:
+    get:
+      operationId: listCollections
+      summary: listCollections
+      description: >-
+        Every collection matching status (default active), in storefront order (sortOrder, name, ID), with its
+        revision, archive state and usage counts. Requires the staff session.
+      parameters:
+      - $ref: '#/components/parameters/DictionaryStatus'
+      responses:
+        '200':
+          description: Success
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestID'
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CollectionList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/StaffChanged'
+        '422':
+          $ref: '#/components/responses/DictionaryValidationError'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    post:
+      operationId: createCollection
+      summary: createCollection
+      description: >-
+        Creates an active collection at revision 1 with a server-generated ID. Every member is required. The slug
+        (a–z, 0–9 and inner hyphens, up to 120 characters) may equal no other collection's slug or ID, because
+        customer filters accept either; otherwise 422 on slug. accent is one of lime, cocoa, coral, sky. startsAt and endsAt bound when the storefront lists the collection (null is open-ended); endsAt may not precede startsAt. The image is read-only. Audited as collection.create.
+      parameters:
+      - $ref: '#/components/parameters/CSRFToken'
+      - $ref: '#/components/parameters/ExpectedStaffID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CollectionInput'
+      responses:
+        '201':
+          description: Created
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestID'
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminCollection'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/CSRFFailed'
+        '409':
+          $ref: '#/components/responses/StaffChanged'
+        '422':
+          $ref: '#/components/responses/DictionaryValidationError'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/admin/v1/collections/{collection}:
+    parameters:
+    - $ref: '#/components/parameters/Collection'
+    get:
+      operationId: getCollection
+      summary: getCollection
+      description: One collection by ID, archived or not. Unknown IDs are 404.
+      responses:
+        '200':
+          description: Success
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestID'
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminCollection'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/DictionaryNotFound'
+        '409':
+          $ref: '#/components/responses/StaffChanged'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    put:
+      operationId: updateCollection
+      summary: updateCollection
+      description: >-
+        Replaces every staff-editable field (the same members as createCollection, all required). expectedRevision must
+        be the current revision, otherwise 409 stale_revision and nothing changes; success increments it by
+        exactly one. Archived rows may be edited and stay archived. accent is one of lime, cocoa, coral, sky. startsAt and endsAt bound when the storefront lists the collection (null is open-ended); endsAt may not precede startsAt. The image is read-only. Audited as collection.update.
+      parameters:
+      - $ref: '#/components/parameters/CSRFToken'
+      - $ref: '#/components/parameters/ExpectedStaffID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CollectionUpdateInput'
+      responses:
+        '200':
+          description: Updated
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestID'
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminCollection'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/CSRFFailed'
+        '404':
+          $ref: '#/components/responses/DictionaryNotFound'
+        '409':
+          $ref: '#/components/responses/DictionaryConflict'
+        '422':
+          $ref: '#/components/responses/DictionaryValidationError'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/admin/v1/collections/{collection}/archive:
+    parameters:
+    - $ref: '#/components/parameters/Collection'
+    post:
+      operationId: archiveCollection
+      summary: archiveCollection
+      description: >-
+        Withdraws an active collection from the storefront and from new product assignments and increments its
+        revision. Nothing is deleted. Archiving keeps every membership: the collection leaves the storefront (collection list and filter) and cannot be newly assigned to products, while products already in it keep the membership and can still be edited. Archiving an archived collection is 409 conflict. Audited as
+        collection.archive.
+      parameters:
+      - $ref: '#/components/parameters/CSRFToken'
+      - $ref: '#/components/parameters/ExpectedStaffID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RevisionInput'
+      responses:
+        '200':
+          description: Archived
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestID'
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminCollection'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/CSRFFailed'
+        '404':
+          $ref: '#/components/responses/DictionaryNotFound'
+        '409':
+          $ref: '#/components/responses/DictionaryConflict'
+        '422':
+          $ref: '#/components/responses/DictionaryValidationError'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/admin/v1/collections/{collection}/restore:
+    parameters:
+    - $ref: '#/components/parameters/Collection'
+    post:
+      operationId: restoreCollection
+      summary: restoreCollection
+      description: >-
+        Returns an archived collection to the storefront and increments its revision.  Restoring an
+        active collection is 409 conflict. Audited as collection.restore.
+      parameters:
+      - $ref: '#/components/parameters/CSRFToken'
+      - $ref: '#/components/parameters/ExpectedStaffID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RevisionInput'
+      responses:
+        '200':
+          description: Restored
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestID'
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminCollection'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/CSRFFailed'
+        '404':
+          $ref: '#/components/responses/DictionaryNotFound'
+        '409':
+          $ref: '#/components/responses/DictionaryConflict'
+        '422':
+          $ref: '#/components/responses/DictionaryValidationError'
         '500':
           $ref: '#/components/responses/InternalError'
   /api/admin/v1/orders:
@@ -634,6 +1513,45 @@ components:
       description: Order ID (for example ord-2026-10483).
       schema:
         type: string
+    Category:
+      name: category
+      in: path
+      required: true
+      description: Category ID (seeded IDs such as cat-bars, or cat_ + 32 hex digits).
+      schema:
+        type: string
+    Manufacturer:
+      name: manufacturer
+      in: path
+      required: true
+      description: Manufacturer ID (seeded IDs such as m-choco, or mfr_ + 32 hex digits).
+      schema:
+        type: string
+    Brand:
+      name: brand
+      in: path
+      required: true
+      description: Brand ID (seeded IDs such as b-atelier-noir, or brd_ + 32 hex digits).
+      schema:
+        type: string
+    Collection:
+      name: collection
+      in: path
+      required: true
+      description: Collection ID (seeded IDs such as col-gifts, or col_ + 32 hex digits).
+      schema:
+        type: string
+    DictionaryStatus:
+      name: status
+      in: query
+      required: false
+      description: active (default), archived or all.
+      schema:
+        type: string
+        enum:
+        - active
+        - archived
+        - all
     CSRFToken:
       name: X-CSRF-Token
       in: header
@@ -710,6 +1628,39 @@ components:
         stale_revision (expectedRevision is not the current revision; reload); invalid_transition (the current
         status does not allow this change, for example a delivered or already cancelled order);
         authenticated_staff_changed. Nothing changed and no audit event was written.
+      headers:
+        X-Request-ID:
+          $ref: '#/components/headers/RequestID'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    DictionaryNotFound:
+      description: not_found; no row of this dictionary has this ID.
+      headers:
+        X-Request-ID:
+          $ref: '#/components/headers/RequestID'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    DictionaryValidationError:
+      description: >-
+        validation_error (error.fields identifies invalid input, including a missing or archived reference and
+        a used slug); invalid_hierarchy (a category tree change that would not stay two levels deep). Nothing
+        changed and no audit event was written.
+      headers:
+        X-Request-ID:
+          $ref: '#/components/headers/RequestID'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    DictionaryConflict:
+      description: >-
+        stale_revision (expectedRevision is not the current revision; reload and reapply); conflict (archive of
+        an archived row or restore of an active one); reference_conflict (the row is still used; error.references
+        carries the counts); authenticated_staff_changed. Nothing changed and no audit event was written.
       headers:
         X-Request-ID:
           $ref: '#/components/headers/RequestID'
@@ -1233,6 +2184,7 @@ components:
             required:
             - id
             - name
+            - archived
             additionalProperties: false
             properties:
               id:
@@ -1242,10 +2194,12 @@ components:
               parentId:
                 type: string
                 description: Present for subcategories.
+              archived:
+                type: boolean
         manufacturers:
           type: array
           items:
-            $ref: '#/components/schemas/Reference'
+            $ref: '#/components/schemas/DictionaryOption'
         brands:
           type: array
           items:
@@ -1254,6 +2208,7 @@ components:
             - id
             - name
             - manufacturerId
+            - archived
             additionalProperties: false
             properties:
               id:
@@ -1262,10 +2217,566 @@ components:
                 type: string
               manufacturerId:
                 type: string
+              archived:
+                type: boolean
         collections:
           type: array
           items:
-            $ref: '#/components/schemas/Reference'
+            $ref: '#/components/schemas/DictionaryOption'
+    CategoryInput:
+      type: object
+      description: Staff-editable category fields; every member is required.
+      required:
+      - slug
+      - name
+      - description
+      - parentId
+      - icon
+      - sortOrder
+      additionalProperties: false
+      properties:
+        slug:
+          type: string
+          pattern: '^[a-z0-9]+(?:-[a-z0-9]+)*$'
+          maxLength: 120
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+          description: One line; surrounding whitespace is trimmed.
+        description:
+          type: string
+          maxLength: 2000
+        sortOrder:
+          type: integer
+          minimum: 0
+          maximum: 100000
+        parentId:
+          type: string
+          description: Empty for a top-level category, otherwise the ID of an active top-level category.
+        icon:
+          type: string
+          maxLength: 40
+          description: Empty, or a storefront icon token (a–z, 0–9, inner hyphens).
+    CategoryUpdateInput:
+      type: object
+      required:
+      - expectedRevision
+      - slug
+      - name
+      - description
+      - parentId
+      - icon
+      - sortOrder
+      additionalProperties: false
+      properties:
+        expectedRevision:
+          type: integer
+          format: int64
+          minimum: 1
+          description: The revision the change is based on.
+        slug:
+          type: string
+          pattern: '^[a-z0-9]+(?:-[a-z0-9]+)*$'
+          maxLength: 120
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+          description: One line; surrounding whitespace is trimmed.
+        description:
+          type: string
+          maxLength: 2000
+        sortOrder:
+          type: integer
+          minimum: 0
+          maximum: 100000
+        parentId:
+          type: string
+          description: Empty for a top-level category, otherwise the ID of an active top-level category.
+        icon:
+          type: string
+          maxLength: 40
+          description: Empty, or a storefront icon token (a–z, 0–9, inner hyphens).
+    AdminCategory:
+      type: object
+      description: Staff view of a category.
+      required:
+      - id
+      - revision
+      - archived
+      - productCount
+      - slug
+      - name
+      - description
+      - sortOrder
+      - icon
+      - childCount
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+        revision:
+          type: integer
+          format: int64
+          minimum: 1
+        archived:
+          type: boolean
+        archivedAt:
+          type: string
+          format: date-time
+          description: Present while archived.
+        productCount:
+          type: integer
+          minimum: 0
+          description: Products (archived or not) that use the row; for a collection, its memberships.
+        slug:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        sortOrder:
+          type: integer
+        parentId:
+          type: string
+          description: Present for subcategories.
+        icon:
+          type: string
+        childCount:
+          type: integer
+          minimum: 0
+          description: Subcategories, archived or not.
+    CategoryList:
+      type: object
+      required:
+      - items
+      additionalProperties: false
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminCategory'
+    ManufacturerInput:
+      type: object
+      description: Staff-editable manufacturer fields; every member is required.
+      required:
+      - slug
+      - name
+      - country
+      - description
+      - sortOrder
+      additionalProperties: false
+      properties:
+        slug:
+          type: string
+          pattern: '^[a-z0-9]+(?:-[a-z0-9]+)*$'
+          maxLength: 120
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+          description: One line; surrounding whitespace is trimmed.
+        description:
+          type: string
+          maxLength: 2000
+        sortOrder:
+          type: integer
+          minimum: 0
+          maximum: 100000
+        country:
+          type: string
+          maxLength: 60
+    ManufacturerUpdateInput:
+      type: object
+      required:
+      - expectedRevision
+      - slug
+      - name
+      - country
+      - description
+      - sortOrder
+      additionalProperties: false
+      properties:
+        expectedRevision:
+          type: integer
+          format: int64
+          minimum: 1
+          description: The revision the change is based on.
+        slug:
+          type: string
+          pattern: '^[a-z0-9]+(?:-[a-z0-9]+)*$'
+          maxLength: 120
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+          description: One line; surrounding whitespace is trimmed.
+        description:
+          type: string
+          maxLength: 2000
+        sortOrder:
+          type: integer
+          minimum: 0
+          maximum: 100000
+        country:
+          type: string
+          maxLength: 60
+    AdminManufacturer:
+      type: object
+      description: Staff view of a manufacturer.
+      required:
+      - id
+      - revision
+      - archived
+      - productCount
+      - slug
+      - name
+      - description
+      - sortOrder
+      - country
+      - logo
+      - brandCount
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+        revision:
+          type: integer
+          format: int64
+          minimum: 1
+        archived:
+          type: boolean
+        archivedAt:
+          type: string
+          format: date-time
+          description: Present while archived.
+        productCount:
+          type: integer
+          minimum: 0
+          description: Products (archived or not) that use the row; for a collection, its memberships.
+        slug:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        sortOrder:
+          type: integer
+        country:
+          type: string
+        logo:
+          type: string
+          description: Read-only.
+        brandCount:
+          type: integer
+          minimum: 0
+          description: Brands, archived or not.
+    ManufacturerList:
+      type: object
+      required:
+      - items
+      additionalProperties: false
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminManufacturer'
+    BrandInput:
+      type: object
+      description: Staff-editable brand fields; every member is required.
+      required:
+      - slug
+      - name
+      - manufacturerId
+      - description
+      - sortOrder
+      additionalProperties: false
+      properties:
+        slug:
+          type: string
+          pattern: '^[a-z0-9]+(?:-[a-z0-9]+)*$'
+          maxLength: 120
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+          description: One line; surrounding whitespace is trimmed.
+        description:
+          type: string
+          maxLength: 2000
+        sortOrder:
+          type: integer
+          minimum: 0
+          maximum: 100000
+        manufacturerId:
+          type: string
+          minLength: 1
+    BrandUpdateInput:
+      type: object
+      required:
+      - expectedRevision
+      - slug
+      - name
+      - manufacturerId
+      - description
+      - sortOrder
+      additionalProperties: false
+      properties:
+        expectedRevision:
+          type: integer
+          format: int64
+          minimum: 1
+          description: The revision the change is based on.
+        slug:
+          type: string
+          pattern: '^[a-z0-9]+(?:-[a-z0-9]+)*$'
+          maxLength: 120
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+          description: One line; surrounding whitespace is trimmed.
+        description:
+          type: string
+          maxLength: 2000
+        sortOrder:
+          type: integer
+          minimum: 0
+          maximum: 100000
+        manufacturerId:
+          type: string
+          minLength: 1
+    AdminBrand:
+      type: object
+      description: Staff view of a brand.
+      required:
+      - id
+      - revision
+      - archived
+      - productCount
+      - slug
+      - name
+      - description
+      - sortOrder
+      - manufacturer
+      - logo
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+        revision:
+          type: integer
+          format: int64
+          minimum: 1
+        archived:
+          type: boolean
+        archivedAt:
+          type: string
+          format: date-time
+          description: Present while archived.
+        productCount:
+          type: integer
+          minimum: 0
+          description: Products (archived or not) that use the row; for a collection, its memberships.
+        slug:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        sortOrder:
+          type: integer
+        manufacturer:
+          $ref: '#/components/schemas/Reference'
+        logo:
+          type: string
+          description: Read-only.
+    BrandList:
+      type: object
+      required:
+      - items
+      additionalProperties: false
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminBrand'
+    CollectionInput:
+      type: object
+      description: Staff-editable collection fields; every member is required.
+      required:
+      - slug
+      - name
+      - description
+      - accent
+      - startsAt
+      - endsAt
+      - sortOrder
+      additionalProperties: false
+      properties:
+        slug:
+          type: string
+          pattern: '^[a-z0-9]+(?:-[a-z0-9]+)*$'
+          maxLength: 120
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+          description: One line; surrounding whitespace is trimmed.
+        description:
+          type: string
+          maxLength: 2000
+        sortOrder:
+          type: integer
+          minimum: 0
+          maximum: 100000
+        accent:
+          type: string
+          enum:
+          - lime
+          - cocoa
+          - coral
+          - sky
+        startsAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: null when the collection has no start.
+        endsAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: null when the collection has no end; not before startsAt.
+    CollectionUpdateInput:
+      type: object
+      required:
+      - expectedRevision
+      - slug
+      - name
+      - description
+      - accent
+      - startsAt
+      - endsAt
+      - sortOrder
+      additionalProperties: false
+      properties:
+        expectedRevision:
+          type: integer
+          format: int64
+          minimum: 1
+          description: The revision the change is based on.
+        slug:
+          type: string
+          pattern: '^[a-z0-9]+(?:-[a-z0-9]+)*$'
+          maxLength: 120
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+          description: One line; surrounding whitespace is trimmed.
+        description:
+          type: string
+          maxLength: 2000
+        sortOrder:
+          type: integer
+          minimum: 0
+          maximum: 100000
+        accent:
+          type: string
+          enum:
+          - lime
+          - cocoa
+          - coral
+          - sky
+        startsAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: null when the collection has no start.
+        endsAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: null when the collection has no end; not before startsAt.
+    AdminCollection:
+      type: object
+      description: Staff view of a collection.
+      required:
+      - id
+      - revision
+      - archived
+      - productCount
+      - slug
+      - name
+      - description
+      - sortOrder
+      - accent
+      - image
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+        revision:
+          type: integer
+          format: int64
+          minimum: 1
+        archived:
+          type: boolean
+        archivedAt:
+          type: string
+          format: date-time
+          description: Present while archived.
+        productCount:
+          type: integer
+          minimum: 0
+          description: Products (archived or not) that use the row; for a collection, its memberships.
+        slug:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        sortOrder:
+          type: integer
+        accent:
+          type: string
+        image:
+          type: string
+          description: Read-only.
+        startsAt:
+          type: string
+          format: date-time
+          description: Absent when open-ended.
+        endsAt:
+          type: string
+          format: date-time
+          description: Absent when open-ended.
+    CollectionList:
+      type: object
+      required:
+      - items
+      additionalProperties: false
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminCollection'
+    DictionaryOption:
+      type: object
+      required:
+      - id
+      - name
+      - archived
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        archived:
+          type: boolean
+          description: Archived entries may stay on products that already use them but cannot be newly assigned.
     OrderStatus:
       type: string
       description: >-
@@ -1428,12 +2939,34 @@ components:
               - stale_revision
               - conflict
               - invalid_transition
+              - invalid_hierarchy
+              - reference_conflict
               - service_unavailable
               - internal_error
             message:
               type: string
             requestId:
               type: string
+            references:
+              type: object
+              description: Present on reference_conflict; what still uses the row.
+              required:
+              - products
+              - brands
+              - categories
+              additionalProperties: false
+              properties:
+                products:
+                  type: integer
+                  minimum: 0
+                brands:
+                  type: integer
+                  minimum: 0
+                  description: Active brands of a manufacturer.
+                categories:
+                  type: integer
+                  minimum: 0
+                  description: Active subcategories of a category.
             fields:
               type: array
               items:

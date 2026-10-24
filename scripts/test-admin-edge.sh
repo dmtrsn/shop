@@ -80,6 +80,12 @@ call order-cancel POST "$admin/api/admin/v1/orders/ord-2026-002/cancel" --header
 expect 401 "anonymous order cancel" order-cancel
 call create POST "$admin/api/admin/v1/products" --header "Origin: $admin" --header 'Content-Type: application/json' --data '{}'
 expect 401 "anonymous product create" create
+for path in categories manufacturers brands collections; do
+  call dictionary GET "$admin/api/admin/v1/$path"
+  expect 401 "anonymous $path list" dictionary
+done
+call dictionary-archive POST "$admin/api/admin/v1/collections/col-gifts/archive" --header "Origin: $admin" --header 'Content-Type: application/json' --data '{"expectedRevision":1}'
+expect 401 "anonymous collection archive" dictionary-archive
 call shop-origin POST "$admin/api/admin/v1/auth/session" --header "Origin: $shop" --header 'Content-Type: application/json' \
   --data "{\"email\":\"$email\",\"password\":\"$password\"}"
 expect 403 "staff sign-in from the shop origin" shop-origin
@@ -118,6 +124,14 @@ expect 200 "staff order list through the admin host" staff-orders
 call staff-options GET "$admin/api/admin/v1/catalog-options" --header "Cookie: $staff_cookie"
 expect 200 "staff catalog options through the admin host" staff-options
 json staff-options '"manufacturerId":"m-choco"'
+json staff-options '"archived":false'
+call staff-categories GET "$admin/api/admin/v1/categories?status=all" --header "Cookie: $staff_cookie"
+expect 200 "staff category list through the admin host" staff-categories
+json staff-categories '"id":"cat-chocolate"'
+call dictionaries-page GET "$admin/dictionaries/categories" --header "Cookie: $staff_cookie"
+expect 200 "authenticated dictionaries page" dictionaries-page
+json dictionaries-page 'Добавить категорию'
+grep -qF "$csrf" "$temporary_dir/dictionaries-page.body" && fail "the CSRF token was rendered into the dictionaries page"
 call products-page GET "$admin/products" --header "Cookie: $staff_cookie"
 expect 200 "authenticated products page" products-page
 grep -qF "$csrf" "$temporary_dir/products-page.body" && fail "the CSRF token was rendered into the products page"
@@ -145,13 +159,15 @@ call customer-options GET "$admin/api/admin/v1/catalog-options" --header "Cookie
 expect 401 "customer cookie on catalog options" customer-options
 call customer-orders GET "$admin/api/admin/v1/orders" --header "Cookie: $customer_cookie"
 expect 401 "customer cookie on staff orders" customer-orders
+call customer-brands GET "$admin/api/admin/v1/brands" --header "Cookie: $customer_cookie"
+expect 401 "customer cookie on staff brands" customer-brands
 call admin-origin-on-shop POST "$shop/api/auth/session" --header "Origin: $admin" --header 'Content-Type: application/json' \
   --data "{\"email\":\"$customer_email\",\"password\":\"$customer_password\"}"
 expect 403 "admin origin on the customer sign-in" admin-origin-on-shop
 
 # 6. The shop host still has no admin API, for any staff route or spelling.
 for method in GET POST PUT DELETE; do
-  for path in /api/admin/v1/auth/session /api/admin/v1/products /api/admin/v1/products/p01 /api/admin/v1/products/p01/archive /api/admin/v1/catalog-options /api/admin/v1/orders /api/admin/v1/orders/ord-2026-002/cancel /%61pi/admin/v1/orders //api//admin/v1/orders; do
+  for path in /api/admin/v1/auth/session /api/admin/v1/products /api/admin/v1/products/p01 /api/admin/v1/products/p01/archive /api/admin/v1/catalog-options /api/admin/v1/orders /api/admin/v1/orders/ord-2026-002/cancel /api/admin/v1/categories /api/admin/v1/categories/cat-bars /api/admin/v1/manufacturers/m-choco/archive /api/admin/v1/brands /api/admin/v1/collections/col-gifts/restore /%61pi/admin/v1/orders //api//admin/v1/categories; do
     call shop-admin "$method" "$shop$path" --header "Cookie: $staff_cookie" --header "Origin: $admin" --header 'Content-Type: application/json' --data '{}'
     expect 404 "shop host $method $path" shop-admin
     from_go shop-admin && fail "shop host $method $path reached Go"

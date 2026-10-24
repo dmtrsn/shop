@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"slices"
 	"strings"
 	"time"
 
@@ -17,7 +18,8 @@ import (
 // Staff product writes (ADR 013) run in InStaffMutation, so each commits
 // together with its audit event. Lock order: the actor's staff row (taken by
 // InStaffMutation), then the product row FOR UPDATE, then the product
-// identifier advisory lock. Checkout locks the customer row and then product
+// identifier advisory lock, then the referenced dictionary rows FOR SHARE
+// (ADR 018). Checkout locks the customer row and then product
 // rows; neither path takes the other's first lock, so no cycle can form.
 
 // productIdentifierLock serializes staff writes of slugs and SKUs, so the
@@ -244,50 +246,112 @@ func lockProductRevision(ctx context.Context, tx StaffTx, id string, expectedRev
 // keeps it from surfacing as a commit failure. Customer product lookups
 // accept an ID, a slug or a case-insensitive SKU, so none of them may equal
 // another product's identifier of any kind.
+//
+// Referenced dictionary rows are locked FOR SHARE, in the order category,
+// manufacturer, brand, collections (ID order), so a concurrent dictionary
+// archive or brand move waits for this write and then counts it (ADR 018).
+// A new or changed reference must be active; one the product already has is
+// kept even when archived.
 func checkProductWrite(ctx context.Context, tx StaffTx, id string, in domain.ProductInput) error {
 	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, productIdentifierLock); err != nil {
 		return fmt.Errorf("lock product identifiers: %w", err)
 	}
-	var category, manufacturer, brand, brandOwned, slugTaken, skuTaken bool
-	var collections int
-	err := tx.QueryRow(ctx, `
-		SELECT EXISTS(SELECT 1 FROM categories WHERE id=$1),
-			EXISTS(SELECT 1 FROM manufacturers WHERE id=$2),
-			EXISTS(SELECT 1 FROM brands WHERE id=$3),
-			EXISTS(SELECT 1 FROM brands WHERE id=$3 AND manufacturer_id=$2),
-			(SELECT count(*) FROM collections WHERE id=ANY($4)),
-			EXISTS(SELECT 1 FROM products WHERE id<>$5 AND (slug=$6 OR id=$6 OR lower(sku)=lower($6))),
-			EXISTS(SELECT 1 FROM products WHERE id<>$5 AND (lower(sku)=lower($7) OR lower(slug)=lower($7) OR lower(id)=lower($7)))`,
-		in.CategoryID, in.ManufacturerID, in.BrandID, in.CollectionIDs, id, in.Slug, in.SKU).Scan(
-		&category, &manufacturer, &brand, &brandOwned, &collections, &slugTaken, &skuTaken)
-	if err != nil {
-		return fmt.Errorf("check product references: %w", err)
+	// An update has locked the product row already; a create finds none.
+	var current struct {
+		category, manufacturer, brand string
+		collections                   []string
+	}
+	err := tx.QueryRow(ctx, `SELECT category_id,manufacturer_id,brand_id,ARRAY(SELECT collection_id FROM collection_products WHERE product_id=$1)
+		FROM products WHERE id=$1`, id).Scan(&current.category, &current.manufacturer, &current.brand, &current.collections)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return fmt.Errorf("read product references: %w", err)
 	}
 	fields := []domain.FieldError{}
-	if !category {
-		fields = append(fields, domain.FieldError{Field: "categoryId", Message: "Категория не найдена"})
+	fail := func(field, message string) {
+		fields = append(fields, domain.FieldError{Field: field, Message: message})
 	}
-	if !manufacturer {
-		fields = append(fields, domain.FieldError{Field: "manufacturerId", Message: "Производитель не найден"})
+	reference := func(table, columns, field, value, currentValue, missing, archivedMessage string, into ...any) (bool, error) {
+		exists, archived, err := lockReference(ctx, tx, table, columns, value, into...)
+		switch {
+		case err != nil:
+			return false, err
+		case !exists:
+			fail(field, missing)
+		case archived && value != currentValue:
+			fail(field, archivedMessage)
+		}
+		return exists, nil
 	}
-	if !brand {
-		fields = append(fields, domain.FieldError{Field: "brandId", Message: "Бренд не найден"})
-	} else if manufacturer && !brandOwned {
-		fields = append(fields, domain.FieldError{Field: "brandId", Message: "Бренд принадлежит другому производителю"})
+	if _, err := reference("categories", "", "categoryId", in.CategoryID, current.category, "Категория не найдена", "Категория в архиве"); err != nil {
+		return err
 	}
-	if collections != len(in.CollectionIDs) {
-		fields = append(fields, domain.FieldError{Field: "collectionIds", Message: "Подборка не найдена"})
+	manufacturer, err := reference("manufacturers", "", "manufacturerId", in.ManufacturerID, current.manufacturer, "Производитель не найден", "Производитель в архиве")
+	if err != nil {
+		return err
+	}
+	var brandManufacturer string
+	brand, err := reference("brands", ",manufacturer_id", "brandId", in.BrandID, current.brand, "Бренд не найден", "Бренд в архиве", &brandManufacturer)
+	if err != nil {
+		return err
+	}
+	if brand && manufacturer && brandManufacturer != in.ManufacturerID {
+		fail("brandId", "Бренд принадлежит другому производителю")
+	}
+	if message, err := checkProductCollections(ctx, tx, in.CollectionIDs, current.collections); err != nil {
+		return err
+	} else if message != "" {
+		fail("collectionIds", message)
+	}
+	var slugTaken, skuTaken bool
+	err = tx.QueryRow(ctx, `
+		SELECT EXISTS(SELECT 1 FROM products WHERE id<>$1 AND (slug=$2 OR id=$2 OR lower(sku)=lower($2))),
+			EXISTS(SELECT 1 FROM products WHERE id<>$1 AND (lower(sku)=lower($3) OR lower(slug)=lower($3) OR lower(id)=lower($3)))`,
+		id, in.Slug, in.SKU).Scan(&slugTaken, &skuTaken)
+	if err != nil {
+		return fmt.Errorf("check product identifiers: %w", err)
 	}
 	if slugTaken {
-		fields = append(fields, domain.FieldError{Field: "slug", Message: "Slug уже используется другим товаром"})
+		fail("slug", "Slug уже используется другим товаром")
 	}
 	if skuTaken {
-		fields = append(fields, domain.FieldError{Field: "sku", Message: "Артикул уже используется другим товаром"})
+		fail("sku", "Артикул уже используется другим товаром")
 	}
 	if len(fields) > 0 {
 		return &domain.ValidationError{Fields: fields}
 	}
 	return nil
+}
+
+// checkProductCollections locks the requested collections FOR SHARE in ID
+// order and returns a field message for a missing one or a newly added
+// archived one.
+func checkProductCollections(ctx context.Context, tx StaffTx, ids, current []string) (string, error) {
+	rows, err := tx.Query(ctx, `SELECT id,archived_at IS NOT NULL FROM collections WHERE id=ANY($1) ORDER BY id FOR SHARE`, ids)
+	if err != nil {
+		return "", fmt.Errorf("lock product collections: %w", err)
+	}
+	defer rows.Close()
+	found := 0
+	newlyArchived := false
+	for rows.Next() {
+		var id string
+		var archived bool
+		if err := rows.Scan(&id, &archived); err != nil {
+			return "", fmt.Errorf("scan product collection: %w", err)
+		}
+		found++
+		newlyArchived = newlyArchived || (archived && !slices.Contains(current, id))
+	}
+	if err := rows.Err(); err != nil {
+		return "", fmt.Errorf("iterate product collections: %w", err)
+	}
+	switch {
+	case found != len(ids):
+		return "Подборка не найдена", nil
+	case newlyArchived:
+		return "Подборка в архиве", nil
+	}
+	return "", nil
 }
 
 // productWriteError maps the constraint violations checkProductWrite rules
@@ -329,41 +393,41 @@ func setProductCollections(ctx context.Context, tx StaffTx, id string, ids []str
 // a plain read: nothing here locks, and every write rechecks its references.
 func (s *Store) AdminCatalogOptions(ctx context.Context) (domain.CatalogOptions, error) {
 	options := domain.CatalogOptions{
-		Categories: []domain.CategoryOption{}, Manufacturers: []domain.Reference{},
-		Brands: []domain.BrandOption{}, Collections: []domain.Reference{},
+		Categories: []domain.CategoryOption{}, Manufacturers: []domain.DictionaryOption{},
+		Brands: []domain.BrandOption{}, Collections: []domain.DictionaryOption{},
 	}
 	queries := []struct {
 		name string
 		sql  string
 		scan func(pgx.Rows) error
 	}{
-		{"categories", `SELECT id,name,COALESCE(parent_id,'') FROM categories ORDER BY sort_order,name,id`, func(rows pgx.Rows) error {
+		{"categories", `SELECT id,name,COALESCE(parent_id,''),archived_at IS NOT NULL FROM categories ORDER BY sort_order,name,id`, func(rows pgx.Rows) error {
 			var c domain.CategoryOption
-			if err := rows.Scan(&c.ID, &c.Name, &c.ParentID); err != nil {
+			if err := rows.Scan(&c.ID, &c.Name, &c.ParentID, &c.Archived); err != nil {
 				return err
 			}
 			options.Categories = append(options.Categories, c)
 			return nil
 		}},
-		{"manufacturers", `SELECT id,name FROM manufacturers ORDER BY sort_order,name,id`, func(rows pgx.Rows) error {
-			var m domain.Reference
-			if err := rows.Scan(&m.ID, &m.Name); err != nil {
+		{"manufacturers", `SELECT id,name,archived_at IS NOT NULL FROM manufacturers ORDER BY sort_order,name,id`, func(rows pgx.Rows) error {
+			var m domain.DictionaryOption
+			if err := rows.Scan(&m.ID, &m.Name, &m.Archived); err != nil {
 				return err
 			}
 			options.Manufacturers = append(options.Manufacturers, m)
 			return nil
 		}},
-		{"brands", `SELECT id,name,manufacturer_id FROM brands ORDER BY sort_order,name,id`, func(rows pgx.Rows) error {
+		{"brands", `SELECT id,name,manufacturer_id,archived_at IS NOT NULL FROM brands ORDER BY sort_order,name,id`, func(rows pgx.Rows) error {
 			var b domain.BrandOption
-			if err := rows.Scan(&b.ID, &b.Name, &b.ManufacturerID); err != nil {
+			if err := rows.Scan(&b.ID, &b.Name, &b.ManufacturerID, &b.Archived); err != nil {
 				return err
 			}
 			options.Brands = append(options.Brands, b)
 			return nil
 		}},
-		{"collections", `SELECT id,name FROM collections ORDER BY sort_order,name,id`, func(rows pgx.Rows) error {
-			var c domain.Reference
-			if err := rows.Scan(&c.ID, &c.Name); err != nil {
+		{"collections", `SELECT id,name,archived_at IS NOT NULL FROM collections ORDER BY sort_order,name,id`, func(rows pgx.Rows) error {
+			var c domain.DictionaryOption
+			if err := rows.Scan(&c.ID, &c.Name, &c.Archived); err != nil {
 				return err
 			}
 			options.Collections = append(options.Collections, c)

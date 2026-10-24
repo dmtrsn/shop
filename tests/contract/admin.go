@@ -29,7 +29,8 @@ func StaffConfig() httpapi.StaffConfig {
 // RunAdmin exercises every staff operation against api/admin-openapi.yaml.
 // The handler must have the staff API and product management enabled with
 // StaffConfig, a staff account with the given credentials, and the demo
-// catalog dictionaries (cat-bars, m-choco, b-atelier-noir, col-gifts).
+// catalog dictionaries (cat-bars, m-choco, b-atelier-noir, col-gifts; cat-bars
+// and b-atelier-noir in use).
 // AdminOrders names two processing orders for the order operations: one to
 // ship, one to cancel.
 type AdminOrders struct{ Ship, Cancel string }
@@ -137,13 +138,18 @@ func RunAdmin(t *testing.T, handler http.Handler, email, password string, orders
 	}
 	runAdminProducts(t, send, errorCode, cookie, csrf)
 	runAdminOrders(t, send, errorCode, cookie, csrf, orders)
+	runAdminDictionaries(t, send, errorCode, cookie, csrf)
 	send("DELETE", sessionPath, "", 204, map[string]string{"Cookie": cookie, "Origin": AdminTrustedOrigin, "X-CSRF-Token": csrf, "X-Expected-Staff-ID": id})
 	if state, _ := send("GET", sessionPath, "", 200, map[string]string{"Cookie": cookie}); state["authenticated"] != false {
 		t.Fatal("staff session survived logout")
 	}
 	for _, operation := range []string{"staffSessionState", "startStaffSession", "endStaffSession",
 		"listProducts", "createProduct", "getProduct", "updateProduct", "archiveProduct", "restoreProduct", "getCatalogOptions",
-		"listOrders", "getOrder", "changeOrderStatus", "cancelOrder"} {
+		"listOrders", "getOrder", "changeOrderStatus", "cancelOrder",
+		"listCategories", "createCategory", "getCategory", "updateCategory", "archiveCategory", "restoreCategory",
+		"listManufacturers", "createManufacturer", "getManufacturer", "updateManufacturer", "archiveManufacturer", "restoreManufacturer",
+		"listBrands", "createBrand", "getBrand", "updateBrand", "archiveBrand", "restoreBrand",
+		"listCollections", "createCollection", "getCollection", "updateCollection", "archiveCollection", "restoreCollection"} {
 		if !covered[operation] {
 			t.Errorf("operation %s not covered", operation)
 		}
@@ -258,5 +264,82 @@ func runAdminOrders(t *testing.T, send adminSend, errorCode func(map[string]any)
 	cancelled, _ := send("POST", "/api/admin/v1/orders/"+orders.Cancel+"/cancel", body("", revision(cancel)), 200, write)
 	if cancelled["status"] != "cancelled" || len(cancelled["allowedTransitions"].([]any)) != 0 {
 		t.Fatalf("cancelled order: %v", cancelled)
+	}
+}
+
+func runAdminDictionaries(t *testing.T, send adminSend, errorCode func(map[string]any) string, cookie, csrf string) {
+	t.Helper()
+	read := map[string]string{"Cookie": cookie}
+	write := map[string]string{"Cookie": cookie, "Origin": AdminTrustedOrigin, "X-CSRF-Token": csrf}
+	revision := func(row map[string]any) string { return strconv.FormatInt(int64(row["revision"].(float64)), 10) }
+	withRevision := func(body string, row map[string]any) string {
+		return `{"expectedRevision":` + revision(row) + `,` + strings.TrimPrefix(body, "{")
+	}
+
+	if result, _ := send("GET", "/api/admin/v1/categories", "", 401, nil); errorCode(result) != "unauthorized" {
+		t.Fatal("anonymous dictionary read")
+	}
+	if result, _ := send("GET", "/api/admin/v1/brands?status=deleted", "", 422, read); errorCode(result) != "validation_error" {
+		t.Fatal("unknown dictionary status")
+	}
+	if result, _ := send("POST", "/api/admin/v1/categories/cat-bars/archive", `{"expectedRevision":1}`, 409, write); errorCode(result) != "reference_conflict" ||
+		result["error"].(map[string]any)["references"].(map[string]any)["products"].(float64) == 0 {
+		t.Fatal("used category archived")
+	}
+	if result, _ := send("POST", "/api/admin/v1/categories", `{"slug":"contract-deep","name":"Глубоко","description":"","parentId":"cat-bars","icon":"","sortOrder":0}`, 422, write); errorCode(result) != "invalid_hierarchy" {
+		t.Fatal("third category level")
+	}
+	if result, _ := send("GET", "/api/admin/v1/collections/missing", "", 404, read); errorCode(result) != "not_found" {
+		t.Fatal("missing collection")
+	}
+
+	manufacturer := ""
+	for _, d := range []struct{ path, body, update string }{
+		{"categories", `{"slug":"contract-shelf","name":"Контрактная полка","description":"","parentId":"cat-candy","icon":"","sortOrder":5}`,
+			`{"slug":"contract-shelf","name":"Полка","description":"Обновлено","parentId":"","icon":"gift","sortOrder":6}`},
+		{"manufacturers", `{"slug":"contract-maker","name":"Контрактная фабрика","country":"Россия","description":"","sortOrder":5}`,
+			`{"slug":"contract-maker","name":"Фабрика","country":"Россия","description":"","sortOrder":6}`},
+		{"brands", `{"slug":"contract-brand","name":"Контрактный бренд","manufacturerId":"MANUFACTURER","description":"","sortOrder":5}`,
+			`{"slug":"contract-brand","name":"Бренд","manufacturerId":"m-choco","description":"","sortOrder":6}`},
+		{"collections", `{"slug":"contract-season","name":"Сезон","description":"","accent":"sky","startsAt":"2026-01-01T00:00:00Z","endsAt":null,"sortOrder":5}`,
+			`{"slug":"contract-season","name":"Сезон 2","description":"","accent":"coral","startsAt":null,"endsAt":null,"sortOrder":6}`},
+	} {
+		base := "/api/admin/v1/" + d.path
+		if result, _ := send("POST", base, d.body, 403, map[string]string{"Cookie": cookie, "Origin": AdminTrustedOrigin}); errorCode(result) != "csrf_failed" {
+			t.Fatalf("%s create without CSRF", d.path)
+		}
+		created, _ := send("POST", base, strings.Replace(d.body, "MANUFACTURER", manufacturer, 1), 201, write)
+		id := created["id"].(string)
+		if revision(created) != "1" || created["archived"] != false {
+			t.Fatalf("created %s: %v", d.path, created)
+		}
+		if d.path == "manufacturers" {
+			manufacturer = id
+		}
+		path := base + "/" + id
+		got, _ := send("GET", path, "", 200, read)
+		updated, _ := send("PUT", path, withRevision(d.update, got), 200, write)
+		if revision(updated) != "2" {
+			t.Fatalf("updated %s: %v", d.path, updated)
+		}
+		if result, _ := send("PUT", path, withRevision(d.update, got), 409, write); errorCode(result) != "stale_revision" {
+			t.Fatalf("%s stale update accepted", d.path)
+		}
+		if list, _ := send("GET", base+"?status=all", "", 200, read); len(list["items"].([]any)) == 0 {
+			t.Fatalf("%s list", d.path)
+		}
+		archived, _ := send("POST", path+"/archive", `{"expectedRevision":2}`, 200, write)
+		if archived["archived"] != true || archived["archivedAt"] == nil {
+			t.Fatalf("archived %s: %v", d.path, archived)
+		}
+		if result, _ := send("POST", path+"/archive", `{"expectedRevision":3}`, 409, write); errorCode(result) != "conflict" {
+			t.Fatalf("%s archived twice", d.path)
+		}
+		if restored, _ := send("POST", path+"/restore", `{"expectedRevision":3}`, 200, write); restored["archived"] != false || revision(restored) != "4" {
+			t.Fatalf("restored %s: %v", d.path, restored)
+		}
+	}
+	if options, _ := send("GET", "/api/admin/v1/catalog-options", "", 200, read); options["categories"].([]any)[0].(map[string]any)["archived"] != false {
+		t.Fatal("catalog options without archive flags")
 	}
 }

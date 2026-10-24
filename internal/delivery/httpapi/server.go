@@ -46,6 +46,8 @@ type Server struct {
 	products *application.ProductAdmin
 	// orderAdmin enables staff order management (nil: no order routes).
 	orderAdmin *application.OrderAdmin
+	// dictionaries enables staff dictionary management (nil: no dictionary routes).
+	dictionaries *application.DictionaryAdmin
 
 	// Self-service registration and recovery; nil means their routes do not
 	// exist.
@@ -543,10 +545,12 @@ func (s *Server) middleware(next http.Handler) http.Handler {
 
 type apiError struct {
 	Error struct {
-		Code      string              `json:"code"`
-		Message   string              `json:"message"`
-		Fields    []domain.FieldError `json:"fields,omitempty"`
-		RequestID string              `json:"requestId"`
+		Code    string              `json:"code"`
+		Message string              `json:"message"`
+		Fields  []domain.FieldError `json:"fields,omitempty"`
+		// References: the counts behind a reference_conflict.
+		References *domain.ReferenceConflictError `json:"references,omitempty"`
+		RequestID  string                         `json:"requestId"`
 	} `json:"error"`
 }
 
@@ -584,6 +588,10 @@ func (s *Server) writeError(w http.ResponseWriter, r *http.Request, err error) {
 		status, code, message = http.StatusConflict, "invalid_transition", "Такое изменение статуса недоступно для заказа в его текущем состоянии"
 	case errors.Is(err, errAuthenticatedStaffChanged):
 		status, code, message = http.StatusConflict, "authenticated_staff_changed", "Сессия принадлежит другому сотруднику: обновите страницу"
+	case errors.Is(err, domain.ErrInvalidHierarchy):
+		status, code, message = http.StatusUnprocessableEntity, "invalid_hierarchy", "Категории образуют два уровня: родитель должен быть корневой категорией, а категория с подкатегориями не может стать подкатегорией"
+	case errors.As(err, new(*domain.ReferenceConflictError)):
+		status, code, message = http.StatusConflict, "reference_conflict", err.Error()
 	case errors.Is(err, domain.ErrConflict):
 		status, code, message = http.StatusConflict, "conflict", "Операцию нельзя выполнить в текущем состоянии"
 	}
@@ -598,6 +606,7 @@ func (s *Server) writeError(w http.ResponseWriter, r *http.Request, err error) {
 	if errors.As(err, &validation) {
 		response.Error.Fields = validation.Fields
 	}
+	errors.As(err, &response.Error.References)
 	writeJSON(w, status, response)
 }
 

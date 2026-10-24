@@ -112,7 +112,7 @@ func (s *Store) ListCategories(ctx context.Context) ([]domain.Category, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT c.id,c.slug,c.name,c.description,COALESCE(c.parent_id,''),c.icon,
 			(SELECT count(*) FROM products p JOIN categories pc ON pc.id=p.category_id WHERE (pc.id=c.id OR pc.parent_id=c.id) AND p.archived_at IS NULL)
-		FROM categories c ORDER BY c.sort_order,c.name`)
+		FROM categories c WHERE c.archived_at IS NULL ORDER BY c.sort_order,c.name`)
 	if err != nil {
 		return nil, fmt.Errorf("list categories: %w", err)
 	}
@@ -135,7 +135,7 @@ func (s *Store) ListManufacturers(ctx context.Context) ([]domain.Manufacturer, e
 	rows, err := s.pool.Query(ctx, `
 		SELECT m.id,m.slug,m.name,m.country,m.description,m.logo,count(p.id)
 		FROM manufacturers m LEFT JOIN products p ON p.manufacturer_id=m.id AND p.archived_at IS NULL
-		GROUP BY m.id ORDER BY m.sort_order,m.name`)
+		WHERE m.archived_at IS NULL GROUP BY m.id ORDER BY m.sort_order,m.name`)
 	if err != nil {
 		return nil, fmt.Errorf("list manufacturers: %w", err)
 	}
@@ -155,7 +155,7 @@ func (s *Store) ListBrands(ctx context.Context) ([]domain.Brand, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT b.id,b.slug,b.name,b.manufacturer_id,m.name,b.description,b.logo,count(p.id)
 		FROM brands b JOIN manufacturers m ON m.id=b.manufacturer_id LEFT JOIN products p ON p.brand_id=b.id AND p.archived_at IS NULL
-		GROUP BY b.id,m.name HAVING count(p.id)>0 ORDER BY b.sort_order,b.name`)
+		WHERE b.archived_at IS NULL GROUP BY b.id,m.name HAVING count(p.id)>0 ORDER BY b.sort_order,b.name`)
 	if err != nil {
 		return nil, fmt.Errorf("list brands: %w", err)
 	}
@@ -176,7 +176,7 @@ func (s *Store) ListCollections(ctx context.Context) ([]domain.Collection, error
 		SELECT c.id,c.slug,c.name,c.description,c.accent,c.image,c.starts_at,c.ends_at,
 			COALESCE(array_agg(cp.product_id ORDER BY cp.sort_order) FILTER (WHERE cp.product_id IS NOT NULL),'{}'),count(cp.product_id)
 		FROM collections c LEFT JOIN (collection_products cp JOIN products cpp ON cpp.id=cp.product_id AND cpp.archived_at IS NULL) ON cp.collection_id=c.id
-		WHERE (c.starts_at IS NULL OR c.starts_at<=now()) AND (c.ends_at IS NULL OR c.ends_at>=now())
+		WHERE c.archived_at IS NULL AND (c.starts_at IS NULL OR c.starts_at<=now()) AND (c.ends_at IS NULL OR c.ends_at>=now())
 		GROUP BY c.id ORDER BY c.sort_order,c.name`)
 	if err != nil {
 		return nil, fmt.Errorf("list collections: %w", err)
@@ -250,7 +250,7 @@ func productWhere(filter domain.ProductFilter) (string, []any) {
 	}
 	if filter.Category != "" {
 		p := add(filter.Category)
-		conditions = append(conditions, "EXISTS(SELECT 1 FROM categories fc WHERE (fc.id="+p+" OR fc.slug="+p+") AND (p.category_id=fc.id OR c.parent_id=fc.id))")
+		conditions = append(conditions, "EXISTS(SELECT 1 FROM categories fc WHERE (fc.id="+p+" OR fc.slug="+p+") AND fc.archived_at IS NULL AND (p.category_id=fc.id OR c.parent_id=fc.id))")
 	}
 	if filter.Manufacturer != "" {
 		p := add(filter.Manufacturer)
@@ -262,7 +262,7 @@ func productWhere(filter domain.ProductFilter) (string, []any) {
 	}
 	if filter.Collection != "" {
 		p := add(filter.Collection)
-		conditions = append(conditions, "EXISTS(SELECT 1 FROM collection_products cp JOIN collections co ON co.id=cp.collection_id WHERE cp.product_id=p.id AND (co.id="+p+" OR co.slug="+p+") AND (co.starts_at IS NULL OR co.starts_at<=now()) AND (co.ends_at IS NULL OR co.ends_at>=now()))")
+		conditions = append(conditions, "EXISTS(SELECT 1 FROM collection_products cp JOIN collections co ON co.id=cp.collection_id WHERE cp.product_id=p.id AND (co.id="+p+" OR co.slug="+p+") AND co.archived_at IS NULL AND (co.starts_at IS NULL OR co.starts_at<=now()) AND (co.ends_at IS NULL OR co.ends_at>=now()))")
 	}
 	if filter.Series != "" {
 		p := add(strings.ToLower(filter.Series))
@@ -444,9 +444,9 @@ func (s *Store) Suggestions(ctx context.Context, query string, limit int) ([]dom
 		return result, nil
 	}
 	rows, err := s.pool.Query(ctx, `SELECT kind,id,slug,name,subtitle FROM (
-		SELECT 'manufacturer' kind,id,slug,name,country subtitle FROM manufacturers
-		UNION ALL SELECT 'brand',b.id,b.slug,b.name,m.name FROM brands b JOIN manufacturers m ON m.id=b.manufacturer_id
-		UNION ALL SELECT 'category',id,slug,name,'' FROM categories) x
+		SELECT 'manufacturer' kind,id,slug,name,country subtitle FROM manufacturers WHERE archived_at IS NULL
+		UNION ALL SELECT 'brand',b.id,b.slug,b.name,m.name FROM brands b JOIN manufacturers m ON m.id=b.manufacturer_id WHERE b.archived_at IS NULL
+		UNION ALL SELECT 'category',id,slug,name,'' FROM categories WHERE archived_at IS NULL) x
 		WHERE lower(name) LIKE $1 ORDER BY name LIMIT $2`, "%"+strings.ToLower(query)+"%", remaining)
 	if err != nil {
 		return nil, fmt.Errorf("search suggestions: %w", err)

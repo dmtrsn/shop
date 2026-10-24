@@ -85,6 +85,9 @@ func (s *Server) registerStaffRoutes(mux *http.ServeMux) {
 	if s.orderAdmin != nil {
 		s.registerStaffOrderRoutes(mux)
 	}
+	if s.dictionaries != nil {
+		s.registerStaffDictionaryRoutes(mux)
+	}
 }
 
 func staffCSRFToken(sessionToken string) string {

@@ -11,6 +11,7 @@ const sections = [
   { href: "/", label: "Обзор", current: (path: string) => path === "/" },
   { href: "/products", label: "Товары", current: (path: string) => path === "/products" || path.startsWith("/products/") },
   { href: "/orders", label: "Заказы", current: (path: string) => path === "/orders" || path.startsWith("/orders/") },
+  { href: "/dictionaries/categories", label: "Справочники", current: (path: string) => path === "/dictionaries" || path.startsWith("/dictionaries/") },
 ];
 
 export function AdminShell({ children }: { children: ReactNode }) {

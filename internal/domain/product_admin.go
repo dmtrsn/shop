@@ -93,25 +93,34 @@ type AdminProduct struct {
 
 // CatalogOptions are the dictionaries a staff product form chooses from: every
 // category, manufacturer, brand (with its manufacturer) and collection,
-// whether or not products use them yet. Read-only; B1 rechecks every
-// reference on write.
+// whether or not products use them yet. Archived rows are included and
+// flagged (ADR 018): a form offers them only where a product already refers
+// to them. Read-only; product writes recheck every reference.
 type CatalogOptions struct {
-	Categories    []CategoryOption `json:"categories"`
-	Manufacturers []Reference      `json:"manufacturers"`
-	Brands        []BrandOption    `json:"brands"`
-	Collections   []Reference      `json:"collections"`
+	Categories    []CategoryOption   `json:"categories"`
+	Manufacturers []DictionaryOption `json:"manufacturers"`
+	Brands        []BrandOption      `json:"brands"`
+	Collections   []DictionaryOption `json:"collections"`
+}
+
+type DictionaryOption struct {
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	Archived bool   `json:"archived"`
 }
 
 type CategoryOption struct {
 	ID       string `json:"id"`
 	Name     string `json:"name"`
 	ParentID string `json:"parentId,omitempty"`
+	Archived bool   `json:"archived"`
 }
 
 type BrandOption struct {
 	ID             string `json:"id"`
 	Name           string `json:"name"`
 	ManufacturerID string `json:"manufacturerId"`
+	Archived       bool   `json:"archived"`
 }
 
 // AdminProductStatus filters the staff product list.

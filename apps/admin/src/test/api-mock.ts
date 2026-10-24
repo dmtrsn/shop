@@ -1,5 +1,6 @@
 import { vi } from "vitest";
 
+import type { AdminBrand, AdminCategory, AdminCollection, AdminManufacturer } from "@/lib/dictionaries-api";
 import type { AdminOrder } from "@/lib/orders-api";
 import type { AdminProduct, CatalogOptions } from "@/lib/products-api";
 
@@ -53,13 +54,22 @@ export function product(overrides: Partial<AdminProduct> = {}): AdminProduct {
 }
 
 export const catalogOptions: CatalogOptions = {
-  categories: [{ id: "cat-choc", name: "Шоколад" }, { id: "cat-bars", name: "Плитки", parentId: "cat-choc" }],
-  manufacturers: [{ id: "m-choco", name: "Choco Atelier" }, { id: "m-caffarel", name: "Caffarel" }],
-  brands: [
-    { id: "b-noir", name: "Atelier Noir", manufacturerId: "m-choco" },
-    { id: "b-caffarel", name: "Caffarel", manufacturerId: "m-caffarel" },
+  categories: [
+    { id: "cat-choc", name: "Шоколад", archived: false },
+    { id: "cat-bars", name: "Плитки", parentId: "cat-choc", archived: false },
   ],
-  collections: [{ id: "col-best", name: "Хиты" }, { id: "col-gifts", name: "Подарки" }],
+  manufacturers: [
+    { id: "m-choco", name: "Choco Atelier", archived: false },
+    { id: "m-caffarel", name: "Caffarel", archived: false },
+  ],
+  brands: [
+    { id: "b-noir", name: "Atelier Noir", manufacturerId: "m-choco", archived: false },
+    { id: "b-caffarel", name: "Caffarel", manufacturerId: "m-caffarel", archived: false },
+  ],
+  collections: [
+    { id: "col-best", name: "Хиты", archived: false },
+    { id: "col-gifts", name: "Подарки", archived: false },
+  ],
 };
 
 export function order(overrides: Partial<AdminOrder> = {}): AdminOrder {
@@ -75,4 +85,22 @@ export function order(overrides: Partial<AdminOrder> = {}): AdminOrder {
     ],
     ...overrides,
   };
+}
+
+const state = { revision: 1, archived: false, productCount: 0, description: "", sortOrder: 10 };
+
+export function category(overrides: Partial<AdminCategory> = {}): AdminCategory {
+  return { ...state, id: "cat-choc", slug: "chocolate", name: "Шоколад", icon: "chocolate", childCount: 0, ...overrides };
+}
+
+export function manufacturer(overrides: Partial<AdminManufacturer> = {}): AdminManufacturer {
+  return { ...state, id: "m-choco", slug: "chocoatelier", name: "Choco Atelier", country: "Россия", logo: "", brandCount: 2, ...overrides };
+}
+
+export function brand(overrides: Partial<AdminBrand> = {}): AdminBrand {
+  return { ...state, id: "b-noir", slug: "atelier-noir", name: "Atelier Noir", manufacturer: { id: "m-choco", name: "Choco Atelier" }, logo: "", ...overrides };
+}
+
+export function collection(overrides: Partial<AdminCollection> = {}): AdminCollection {
+  return { ...state, id: "col-gifts", slug: "gifts", name: "Подарки", accent: "coral", image: "", ...overrides };
 }

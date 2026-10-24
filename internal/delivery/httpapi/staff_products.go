@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"slices"
 	"sort"
 	"strconv"
 
@@ -220,6 +221,12 @@ func (b productBody) input() domain.ProductInput {
 // not fit the target type, such as fractions or overflowing values, are
 // validation errors.
 func decodeComplete(w http.ResponseWriter, r *http.Request, target any, required []string) error {
+	return decodeCompleteNullable(w, r, target, required, nil)
+}
+
+// decodeCompleteNullable is decodeComplete where the nullable members must be
+// present but may be null.
+func decodeCompleteNullable(w http.ResponseWriter, r *http.Request, target any, required, nullable []string) error {
 	var raw map[string]json.RawMessage
 	if err := decodeJSON(w, r, &raw); err != nil {
 		return err
@@ -228,7 +235,7 @@ func decodeComplete(w http.ResponseWriter, r *http.Request, target any, required
 	allowed := make(map[string]bool, len(required))
 	for _, name := range required {
 		allowed[name] = true
-		if value, ok := raw[name]; !ok || string(bytes.TrimSpace(value)) == "null" {
+		if value, ok := raw[name]; !ok || (string(bytes.TrimSpace(value)) == "null" && !slices.Contains(nullable, name)) {
 			fields = append(fields, domain.FieldError{Field: name, Message: "Обязательное поле"})
 		}
 	}

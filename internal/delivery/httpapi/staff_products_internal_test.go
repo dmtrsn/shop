@@ -38,8 +38,8 @@ func (s *testProductStore) AdminProducts(context.Context, domain.AdminProductFil
 }
 
 func (s *testProductStore) AdminCatalogOptions(context.Context) (domain.CatalogOptions, error) {
-	return domain.CatalogOptions{Categories: []domain.CategoryOption{{ID: "cat-bars", Name: "Плитки"}}, Manufacturers: []domain.Reference{},
-		Brands: []domain.BrandOption{}, Collections: []domain.Reference{}}, s.err
+	return domain.CatalogOptions{Categories: []domain.CategoryOption{{ID: "cat-bars", Name: "Плитки"}}, Manufacturers: []domain.DictionaryOption{},
+		Brands: []domain.BrandOption{}, Collections: []domain.DictionaryOption{}}, s.err
 }
 
 func (s *testProductStore) AdminProduct(context.Context, string) (domain.AdminProduct, error) {
@@ -257,7 +257,7 @@ func TestCatalogOptionsNeedTheStaffSession(t *testing.T) {
 		}
 	}
 	rec := call(handler, "GET", "/api/admin/v1/catalog-options", "", map[string]string{"Cookie": staffCookie})
-	if rec.Code != 200 || rec.Header().Get("Cache-Control") != "no-store" || !strings.Contains(rec.Body.String(), `"categories":[{"id":"cat-bars","name":"Плитки"}]`) {
+	if rec.Code != 200 || rec.Header().Get("Cache-Control") != "no-store" || !strings.Contains(rec.Body.String(), `"categories":[{"id":"cat-bars","name":"Плитки","archived":false}]`) {
 		t.Fatalf("%d %s", rec.Code, rec.Body.String())
 	}
 	if rec := call(handler, "POST", "/api/admin/v1/catalog-options", "", map[string]string{"Cookie": staffCookie}); rec.Code != 405 && rec.Code != 404 {
