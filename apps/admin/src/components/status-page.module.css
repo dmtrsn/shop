@@ -1,0 +1,29 @@
+.page {
+  max-width: 36rem;
+  margin: 0 auto;
+  padding: 15vh var(--space-4) var(--space-6);
+}
+
+.page h1 {
+  font-size: var(--font-size-title);
+  margin-bottom: var(--space-3);
+}
+
+.page p {
+  margin: 0 0 var(--space-5);
+  color: var(--color-text-muted);
+}
+
+.action {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--control-height);
+  padding: 0 var(--space-5);
+  border: 0;
+  border-radius: var(--radius-control);
+  background: var(--color-accent);
+  color: var(--color-on-accent);
+  font-weight: 650;
+  text-decoration: none;
+  cursor: pointer;
+}

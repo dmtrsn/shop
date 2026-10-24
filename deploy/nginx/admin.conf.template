@@ -1,0 +1,91 @@
+# Admin host (ADR 014). A separate nginx from the shop edge, started only with
+# the Compose "admin" profile, on its own origin. It routes exactly two
+# things: /api/admin/* to Go and everything else to the admin Next app. It
+# never serves the customer API or storefront, and the shop edge never
+# serves /api/admin. Not ready for internet exposure: see ADR 014 (MFA).
+
+# --- Staff sign-in rate limit (ADR 008) ----------------------------------
+# Key: $binary_remote_addr, the TCP peer of this nginx. The real_ip module is
+# not enabled, so X-Forwarded-For, X-Real-IP and Forwarded never change it.
+# That is correct only while staff connect to this nginx directly; behind
+# another proxy (TLS terminator, load balancer, or Docker's userland proxy for
+# a loopback-published port) every client shares that proxy's bucket. See
+# the README before deploying such a topology.
+#
+# Only POST verifies a password. Other methods map to an empty key, which
+# limit_req does not account, so reading or ending a session is never limited.
+map $request_method $staff_auth_rate_limit_key {
+    POST    $binary_remote_addr;
+    default "";
+}
+
+# 5 per minute per client (one every 12 s), burst 3, rejected immediately.
+limit_req_zone $staff_auth_rate_limit_key zone=staff_auth:1m rate=5r/m;
+
+server {
+    listen 8080;
+    server_name _;
+
+    # Browser requests are same-origin with the admin host. No CORS.
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Forwarded-Host $host;
+
+    limit_req_status 429;
+    limit_req_log_level warn;
+
+    location = /edge/healthz {
+        default_type application/json;
+        return 200 '{"status":"ok"}\n';
+    }
+
+    # Staff sign-in verifies a password: limited before it reaches Go.
+    location = /api/admin/v1/auth/session {
+        limit_req zone=staff_auth burst=3 nodelay;
+        error_page 429 @staff_rate_limited;
+        proxy_pass http://app:8080;
+    }
+
+    # The rest of the staff API. Go authenticates and authorizes every call.
+    # The bare prefix is 404 rather than nginx's slash-appending redirect.
+    location = /api/admin {
+        return 404;
+    }
+
+    location ^~ /api/admin/ {
+        proxy_pass http://app:8080;
+    }
+
+    # The customer API (and anything else under /api) does not exist on the
+    # admin host. Matching uses the normalized URI, so encoded or doubled
+    # slashes cannot reach Go through here.
+    location = /api {
+        return 404;
+    }
+
+    location ^~ /api/ {
+        return 404;
+    }
+
+    # A slot frees every 12 s at 5r/m. The body says nothing about accounts.
+    location @staff_rate_limited {
+        default_type text/plain;
+        add_header Retry-After 12 always;
+        add_header Cache-Control no-store always;
+        add_header X-Content-Type-Options nosniff always;
+        return 429 "Too many sign-in attempts. Try again later.\n";
+    }
+
+    # The admin Next app owns / and every other path, including its 404s and
+    # its security headers (nonce CSP, no-store, noindex).
+    location ^~ /_next/ {
+        proxy_pass http://admin:${ADMIN_PORT};
+    }
+
+    location / {
+        proxy_pass http://admin:${ADMIN_PORT};
+    }
+}

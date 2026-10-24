@@ -1,0 +1,22 @@
+.overview {
+  max-width: 44rem;
+  padding: var(--space-5);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  background: var(--color-surface);
+}
+
+.overview h1 {
+  font-size: var(--font-size-title);
+  margin-bottom: var(--space-3);
+}
+
+.overview p {
+  margin: 0;
+  color: var(--color-text-muted);
+}
+
+.loading {
+  margin: 0;
+  color: var(--color-text-muted);
+}

@@ -24,6 +24,25 @@ jobs:
       - run: npm test
       - run: npm run build
 
+  admin:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: apps/admin
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: apps/admin/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm test
+      - run: npm run build
+
   check:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -88,6 +107,9 @@ jobs:
       SMTP_TLS: none
       SMTP_FROM: shop@example.com
       PUBLIC_SHOP_ORIGIN: http://127.0.0.1:8080
+      # Disposable staff account for the admin host steps; CI only.
+      ADMIN_SMOKE_EMAIL: smoke-admin@example.com
+      ADMIN_SMOKE_PASSWORD: smoke admin password 1
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -115,13 +137,48 @@ jobs:
         run: EXPECT_ROOT_OWNER=legacy bash scripts/test-edge-routes.sh
       - name: Customer sign-in rate limit on the rollback map (recreated edge, fresh zone)
         run: bash scripts/test-auth-rate-limit.sh
-      - name: Staff sign-in limiter in an isolated nginx (no admin host exists yet)
+      - name: Staff sign-in limiter of the admin edge template in an isolated nginx
+        run: bash scripts/test-staff-auth-limit.sh
+      - name: Start the admin host (admin profile) with production cookies, staff origin and the default shop map
+        env:
+          COMPOSE_PROFILES: mail,admin
+          EDGE_ROUTE_MAP: default
+          SESSION_COOKIE_SECURE: 'true'
+          STAFF_TRUSTED_ORIGINS: http://localhost:8081,https://localhost:8443
+        run: docker compose -p sweetshop-edge-smoke --env-file .env.example up --build -d --wait --wait-timeout 240 app edge admin admin-edge
+      - name: Provision the disposable staff account with shopctl
+        env:
+          COMPOSE_PROFILES: mail,admin
+          SESSION_COOKIE_SECURE: 'true'
+          STAFF_TRUSTED_ORIGINS: http://localhost:8081,https://localhost:8443
         run: |
-          bash scripts/test-staff-auth-limit.sh
-          EDGE_TEMPLATE=deploy/nginx/legacy-root.conf.template bash scripts/test-staff-auth-limit.sh
+          printf '%s\n' "$ADMIN_SMOKE_PASSWORD" | docker compose -p sweetshop-edge-smoke --env-file .env.example run --rm --no-deps -T \
+            --entrypoint /app/shopctl app staff create --email "$ADMIN_SMOKE_EMAIL" --name 'Smoke Operator' --password-stdin
+      - name: Admin host routing, staff cookie, origins and principal isolation; shop host still 404 for /api/admin
+        run: |
+          bash scripts/test-admin-edge.sh
+          EXPECT_ROOT_OWNER=next bash scripts/test-edge-routes.sh
+      - name: Recreate the admin edge so the staff limiter starts from a fresh zone
+        env:
+          COMPOSE_PROFILES: mail,admin
+        run: docker compose -p sweetshop-edge-smoke --env-file .env.example up -d --no-deps --force-recreate --wait --wait-timeout 60 admin-edge
+      - name: Staff sign-in journey in headless Chrome over a throwaway TLS terminator (admin host and shop host)
+        env:
+          COMPOSE_PROJECT: sweetshop-edge-smoke
+        run: bash scripts/with-admin-tls-proxy.sh node scripts/test-admin-browser-flow.mjs
+      - name: Recreate the admin edge again for the limiter burst
+        env:
+          COMPOSE_PROFILES: mail,admin
+        run: docker compose -p sweetshop-edge-smoke --env-file .env.example up -d --no-deps --force-recreate --wait --wait-timeout 60 admin-edge
+      - name: Staff sign-in rate limit through the admin edge (exhausts this runner's bucket)
+        run: bash scripts/test-admin-auth-rate-limit.sh
       - name: Show service logs on failure
         if: failure()
+        env:
+          COMPOSE_PROFILES: mail,admin
         run: docker compose -p sweetshop-edge-smoke --env-file .env.example logs --no-color
       - name: Remove disposable smoke-test services
         if: always()
+        env:
+          COMPOSE_PROFILES: mail,admin
         run: docker compose -p sweetshop-edge-smoke --env-file .env.example down --volumes --remove-orphans

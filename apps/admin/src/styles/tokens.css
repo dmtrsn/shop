@@ -1,0 +1,52 @@
+/*
+ * Admin tokens: the storefront palette and type stack
+ * (apps/storefront/src/styles/tokens.css), with denser spacing for staff
+ * work. Hex values live only in this file.
+ */
+:root {
+  color-scheme: light;
+
+  --color-canvas: #f4f2ed;
+  --color-surface: #fffefa;
+  --color-surface-subtle: #ebe9e2;
+  --color-surface-inverse: #18231e;
+  --color-text: #18201c;
+  --color-text-muted: #5f655c;
+  --color-border: #dcdad3;
+  /* Form-control boundaries keep 3:1 non-text contrast. */
+  --color-border-control: #827f75;
+  --color-accent: #18231e;
+  --color-accent-hover: #26342d;
+  --color-on-accent: #ffffff;
+  --color-on-inverse: #ffffff;
+  --color-on-inverse-muted: rgb(255 255 255 / 75%);
+  --color-brand: #d9ff70;
+  --color-focus: #315c91;
+  --color-focus-on-inverse: var(--color-brand);
+  --color-warning: #8a5b16;
+  --color-warning-surface: #fff0dc;
+  --color-error: #9a3f38;
+  --color-error-surface: #fff5f4;
+
+  --font-sans: Inter, "SF Pro Display", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-size-xs: 0.75rem;
+  --font-size-sm: 0.875rem;
+  --font-size-body: 0.9375rem;
+  --font-size-control: 1rem;
+  --font-size-title: clamp(1.5rem, 1.3rem + 0.8vw, 2rem);
+  --line-height-tight: 1.12;
+  --line-height-body: 1.45;
+  --tracking-heading: -0.03em;
+
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2rem;
+
+  --radius-control: 0.625rem;
+  --radius-card: 1rem;
+  --control-height: 2.75rem;
+  --shell-width: 80rem;
+}

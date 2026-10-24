@@ -131,6 +131,7 @@ apps/storefront/
   src/lib/api/             server-side конфигурация, transport и проверка DTO
   src/styles/              семантические tokens и небольшой global foundation
   src/test/                общая настройка компонентных тестов
+apps/admin/                отдельное Next-приложение для сотрудников (ADR 014): вход, оболочка, выход
 ```
 
 Токены охватывают тёплые нейтральные цвета, типографику, интервалы, радиусы, границы,
@@ -669,9 +670,13 @@ unset PASSWORD
 - staff API регистрируется только при непустом `STAFF_TRUSTED_ORIGINS` и PostgreSQL; иначе
   `/api/admin/*` отвечает 404. Origin-ы — точные, https в production и не пересекаются с
   `TRUSTED_ORIGINS` (иначе сервер не стартует);
-- магазинный edge сам отвечает 404 на `/api/admin` и `/api/admin/*` при любой настройке Go:
-  админке нужен отдельный origin (ADR 006), он появится в следующих этапах. Ролей и MFA
-  пока нет;
+- магазинный edge сам отвечает 404 на `/api/admin` и `/api/admin/*` при любой настройке Go.
+  Админка — отдельное Next-приложение `apps/admin` на отдельном origin со своим edge
+  (`admin-edge`, Compose-профиль `admin`, по умолчанию только `127.0.0.1:8081`): вход
+  сотрудника, оболочка и выход, без экранов управления. Включение:
+  `COMPOSE_PROFILES=admin STAFF_TRUSTED_ORIGINS=http://localhost:8081 docker compose up -d --build`,
+  затем `http://localhost:8081`. Публиковать admin-origin в интернет нельзя, пока не решён вопрос
+  MFA — подробности в [ADR 014](docs/adr/014-admin-frontend-and-edge.md). Ролей и MFA пока нет;
 - audit-журнал (`staff_audit_events`, миграция `012_staff_audit`): каждое изменение сотрудником
   и его audit-запись фиксируются в одной транзакции или не фиксируются вовсе, строки только
   добавляются. HTTP API для чтения нет, автоматической очистки нет. Вход сотрудников и команды
@@ -930,7 +935,17 @@ make check-js    # синтаксис legacy JavaScript
 make build       # статический бинарник bin/sweetshop
 make docker-build
 make compose-config
+(cd apps/storefront && npm run typecheck && npm run lint && npm test && npm run build)
+(cd apps/admin && npm run typecheck && npm run lint && npm test && npm run build)
+bash scripts/test-staff-auth-limit.sh   # шаблон admin-edge в изолированном nginx
 ```
+
+Проверки admin-хоста на запущенном стеке (профиль `admin`, `SESSION_COOKIE_SECURE=true`,
+`STAFF_TRUSTED_ORIGINS=http://localhost:8081`, сотрудник из `shopctl staff create`):
+`scripts/test-admin-edge.sh`, `scripts/with-admin-tls-proxy.sh node scripts/test-admin-browser-flow.mjs`
+(headless Chrome через временный TLS-терминатор: браузеры принимают cookie `__Host-` только по https;
+в `STAFF_TRUSTED_ORIGINS` добавьте `https://localhost:8443`) и `scripts/test-admin-auth-rate-limit.sh` —
+только на одноразовом окружении.
 
 Тесты покрывают вход и сессии, поиск/сортировку, ограничения корзины, повтор заказа, HTTP-контракты и защиту SQL-сортировки. Для smoke-проверки запущенного стека используйте `/api/health`, затем логин и защищённый `/api/cart`.
 
@@ -1081,8 +1096,9 @@ Edge ограничивает проверку паролей до того, к�
 `customer_auth` со входом. Оговорка пункта 3 относится и к ним.
 `scripts/test-self-service-rate-limit.sh` исчерпывает эти лимиты — только для CI и одноразовых окружений.
 
-Вход сотрудников должен быть ограничен (зона `staff_auth`: 5 в минуту, burst 3, `Retry-After:
-12`) до того, как появится admin-origin; на магазинном хосте `/api/admin/*` по-прежнему 404.
+Вход сотрудников ограничен на отдельном admin-edge (зона `staff_auth`: 5 в минуту, burst 3,
+`Retry-After: 12`, `deploy/nginx/admin.conf.template`); на магазинном хосте `/api/admin/*`
+по-прежнему 404. `scripts/test-admin-auth-rate-limit.sh` исчерпывает этот лимит — только для CI.
 `scripts/test-auth-rate-limit.sh` намеренно исчерпывает лимит своего клиента и выполняет вход
 тестовой учётной записью — запускайте его только в CI или на одноразовом окружении.
 
@@ -1096,7 +1112,9 @@ Edge ограничивает проверку паролей до того, к�
 - публичный https-origin магазина (`TRUSTED_ORIGINS`, `PUBLIC_SHOP_ORIGIN`) и TLS-терминация;
 - передача реального IP клиента через прокси перед edge: пока она не настроена и не проверена,
   все лимиты edge (вход, регистрация, восстановление) делят одну корзину на всех клиентов
-  (см. «Ограничение частоты входа», пункт 3).
+  (см. «Ограничение частоты входа», пункт 3);
+- решение по MFA для сотрудников и закрытый сетевой доступ к admin-origin: без них admin-edge
+  нельзя публиковать в интернет (ADR 007, ADR 014).
 
 `APP_MODE=production` закрывает только опасный fallback без базы. Миграция `002` по-прежнему добавляет демоаккаунт даже в production; этот этап не делает приложение готовым к публичным продажам. Если отслеживаемый ранее `.env` использовался в развёртывании, соответствующие учётные данные необходимо ротировать. Удаление из индекса не удаляет секреты из истории Git.
 

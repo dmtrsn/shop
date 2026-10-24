@@ -38,7 +38,7 @@ Until that is done and verified, the proxy-fronted deployment is not rate-limit-
 
 ## Staff
 
-The `staff_auth` zone is defined in the shop templates (zones are http-level) but attached nowhere there; the shop host returns 404 for `/api/admin` before any limiter. `scripts/test-staff-auth-limit.sh` attaches it in an isolated nginx exactly as the admin host must:
+The shop templates define the `staff_auth` zone (zones are http-level) but attach it nowhere; the shop host returns 404 for `/api/admin` before any limiter. Since B2 the separate admin edge (`deploy/nginx/admin.conf.template`, [ADR 014](014-admin-frontend-and-edge.md)) defines the same zone and attaches it. `scripts/test-staff-auth-limit.sh` checks that template in an isolated nginx and `scripts/test-admin-auth-rate-limit.sh` through the real admin edge:
 
 ```nginx
 location = /api/admin/v1/auth/session {
