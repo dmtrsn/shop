@@ -324,3 +324,67 @@ func setProductCollections(ctx context.Context, tx StaffTx, id string, ids []str
 	}
 	return nil
 }
+
+// AdminCatalogOptions reads the dictionaries in their storefront order. It is
+// a plain read: nothing here locks, and every write rechecks its references.
+func (s *Store) AdminCatalogOptions(ctx context.Context) (domain.CatalogOptions, error) {
+	options := domain.CatalogOptions{
+		Categories: []domain.CategoryOption{}, Manufacturers: []domain.Reference{},
+		Brands: []domain.BrandOption{}, Collections: []domain.Reference{},
+	}
+	queries := []struct {
+		name string
+		sql  string
+		scan func(pgx.Rows) error
+	}{
+		{"categories", `SELECT id,name,COALESCE(parent_id,'') FROM categories ORDER BY sort_order,name,id`, func(rows pgx.Rows) error {
+			var c domain.CategoryOption
+			if err := rows.Scan(&c.ID, &c.Name, &c.ParentID); err != nil {
+				return err
+			}
+			options.Categories = append(options.Categories, c)
+			return nil
+		}},
+		{"manufacturers", `SELECT id,name FROM manufacturers ORDER BY sort_order,name,id`, func(rows pgx.Rows) error {
+			var m domain.Reference
+			if err := rows.Scan(&m.ID, &m.Name); err != nil {
+				return err
+			}
+			options.Manufacturers = append(options.Manufacturers, m)
+			return nil
+		}},
+		{"brands", `SELECT id,name,manufacturer_id FROM brands ORDER BY sort_order,name,id`, func(rows pgx.Rows) error {
+			var b domain.BrandOption
+			if err := rows.Scan(&b.ID, &b.Name, &b.ManufacturerID); err != nil {
+				return err
+			}
+			options.Brands = append(options.Brands, b)
+			return nil
+		}},
+		{"collections", `SELECT id,name FROM collections ORDER BY sort_order,name,id`, func(rows pgx.Rows) error {
+			var c domain.Reference
+			if err := rows.Scan(&c.ID, &c.Name); err != nil {
+				return err
+			}
+			options.Collections = append(options.Collections, c)
+			return nil
+		}},
+	}
+	for _, query := range queries {
+		rows, err := s.pool.Query(ctx, query.sql)
+		if err != nil {
+			return domain.CatalogOptions{}, fmt.Errorf("list %s: %w", query.name, err)
+		}
+		for rows.Next() {
+			if err := query.scan(rows); err != nil {
+				rows.Close()
+				return domain.CatalogOptions{}, fmt.Errorf("scan %s: %w", query.name, err)
+			}
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return domain.CatalogOptions{}, fmt.Errorf("iterate %s: %w", query.name, err)
+		}
+	}
+	return options, nil
+}

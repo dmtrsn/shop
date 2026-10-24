@@ -118,7 +118,7 @@ expect_body api-health '"status":"ok"'
 # The staff (admin) API never answers on the shop host, whatever Go's
 # STAFF_TRUSTED_ORIGINS is: the edge itself returns 404 (ADR 006).
 for method in GET POST DELETE; do
-  for path in /api/admin /api/admin/v1/auth/session /%61pi/admin/v1/auth/session //api//admin/v1/auth/session /api/admin/v1/products /api/admin/v1/products/p01/archive; do
+  for path in /api/admin /api/admin/v1/auth/session /%61pi/admin/v1/auth/session //api//admin/v1/auth/session /api/admin/v1/products /api/admin/v1/products/p01/archive /api/admin/v1/catalog-options; do
     status="$(curl --silent --show-error --path-as-is --max-time 15 --request "$method" \
       --header 'Origin: https://admin.invalid' --header 'Content-Type: application/json' --data '{}' \
       --dump-header "$temporary_dir/admin.headers" --output "$temporary_dir/admin.body" \

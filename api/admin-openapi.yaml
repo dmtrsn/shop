@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: Sweetshop staff (admin) HTTP API
-  version: 0.2.0-b1
+  version: 0.3.0-b3
   description: >-
     Staff API under /api/admin/v1, separate from the customer contract in openapi.yaml. Staff are a separate
     principal: staff_users/staff_sessions, the HttpOnly SameSite=Strict cookie __Host-sweetshop_staff
@@ -399,6 +399,33 @@ paths:
           $ref: '#/components/responses/RevisionConflict'
         '422':
           $ref: '#/components/responses/ValidationError'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/admin/v1/catalog-options:
+    get:
+      operationId: getCatalogOptions
+      summary: getCatalogOptions
+      description: >-
+        Read-only dictionaries for the staff product form, in storefront order: every category (with its
+        parent), manufacturer, brand (with the manufacturer it belongs to) and collection, whether or not any
+        product uses it. Requires the staff session like every product read. Product writes recheck every
+        reference, so a stale list can only lead to a validation error.
+      responses:
+        '200':
+          description: Success
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestID'
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CatalogOptions'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/StaffChanged'
         '500':
           $ref: '#/components/responses/InternalError'
 components:
@@ -991,6 +1018,55 @@ components:
           format: int64
           minimum: 1
           description: The revision the change is based on.
+    CatalogOptions:
+      type: object
+      required:
+      - categories
+      - manufacturers
+      - brands
+      - collections
+      additionalProperties: false
+      properties:
+        categories:
+          type: array
+          items:
+            type: object
+            required:
+            - id
+            - name
+            additionalProperties: false
+            properties:
+              id:
+                type: string
+              name:
+                type: string
+              parentId:
+                type: string
+                description: Present for subcategories.
+        manufacturers:
+          type: array
+          items:
+            $ref: '#/components/schemas/Reference'
+        brands:
+          type: array
+          items:
+            type: object
+            required:
+            - id
+            - name
+            - manufacturerId
+            additionalProperties: false
+            properties:
+              id:
+                type: string
+              name:
+                type: string
+              manufacturerId:
+                type: string
+        collections:
+          type: array
+          items:
+            $ref: '#/components/schemas/Reference'
     Error:
       type: object
       required:

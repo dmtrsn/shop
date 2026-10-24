@@ -137,7 +137,7 @@ func RunAdmin(t *testing.T, handler http.Handler, email, password string) {
 		t.Fatal("staff session survived logout")
 	}
 	for _, operation := range []string{"staffSessionState", "startStaffSession", "endStaffSession",
-		"listProducts", "createProduct", "getProduct", "updateProduct", "archiveProduct", "restoreProduct"} {
+		"listProducts", "createProduct", "getProduct", "updateProduct", "archiveProduct", "restoreProduct", "getCatalogOptions"} {
 		if !covered[operation] {
 			t.Errorf("operation %s not covered", operation)
 		}
@@ -166,6 +166,12 @@ func runAdminProducts(t *testing.T, send adminSend, errorCode func(map[string]an
 	write := map[string]string{"Cookie": cookie, "Origin": AdminTrustedOrigin, "X-CSRF-Token": csrf}
 	revision := func(product map[string]any) int64 { return int64(product["revision"].(float64)) }
 
+	if options, _ := send("GET", "/api/admin/v1/catalog-options", "", 200, read); len(options["brands"].([]any)) == 0 || len(options["collections"].([]any)) == 0 {
+		t.Fatal("catalog options")
+	}
+	if result, _ := send("GET", "/api/admin/v1/catalog-options", "", 401, nil); errorCode(result) != "unauthorized" {
+		t.Fatal("anonymous catalog options")
+	}
 	if page, _ := send("GET", "/api/admin/v1/products?status=all&limit=5", "", 200, read); len(page["items"].([]any)) != 5 {
 		t.Fatal("admin product page")
 	}

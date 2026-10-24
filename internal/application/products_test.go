@@ -22,6 +22,10 @@ func (f *fakeProductStore) AdminProducts(_ context.Context, filter domain.AdminP
 	return domain.AdminProductPage{}, nil
 }
 
+func (f *fakeProductStore) AdminCatalogOptions(context.Context) (domain.CatalogOptions, error) {
+	return domain.CatalogOptions{}, nil
+}
+
 func (f *fakeProductStore) AdminProduct(context.Context, string) (domain.AdminProduct, error) {
 	return domain.AdminProduct{}, domain.ErrNotFound
 }

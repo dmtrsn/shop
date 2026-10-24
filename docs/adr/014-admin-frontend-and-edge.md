@@ -15,7 +15,7 @@ B2 ships only:
 - a truthful overview page (`/`) with no metrics;
 - error, not-found and loading states.
 
-Navigation names the sections later slices add (products, orders) without linking them. B3 adds product management, starting from the B1 API.
+Navigation names the sections later slices add (products, orders) without linking them. B3 adds product management, starting from the B1 API ([ADR 015](015-admin-product-ui.md)).
 
 ### A separate origin and edge
 

@@ -37,6 +37,7 @@ Checkout bumps the revision because stock is staff-editable. If a sale didn't ch
 | `POST /products` | create, `201`, audited as `product.create` |
 | `PUT /products/{product}` | full replacement plus `expectedRevision`, audited as `product.update` |
 | `POST /products/{product}/archive` / `/restore` | `{expectedRevision}`, audited as `product.archive` / `product.restore` |
+| `GET /catalog-options` | read-only dictionaries for the product form (added in B3, [ADR 015](015-admin-product-ui.md)) |
 
 - **Protection.** Every route sits behind `staffAuth`: staff cookie only, staff Origin and CSRF on unsafe methods, optional `X-Expected-Staff-ID`. Reads go through `StaffAuth.Authorize(staff, "product.read")`. Mutations go through `staffMutation`, so the actor always comes from the session.
 - **Bodies.** Every member is required and must be non-null. An omitted `stock` can never silently become 0.

@@ -30,6 +30,7 @@ func (s *Server) registerStaffProductRoutes(mux *http.ServeMux) {
 	mux.Handle("PUT /api/admin/v1/products/{product}", s.staffAuth(http.HandlerFunc(s.staffUpdateProduct)))
 	mux.Handle("POST /api/admin/v1/products/{product}/archive", s.staffAuth(http.HandlerFunc(s.staffArchiveProduct)))
 	mux.Handle("POST /api/admin/v1/products/{product}/restore", s.staffAuth(http.HandlerFunc(s.staffRestoreProduct)))
+	mux.Handle("GET /api/admin/v1/catalog-options", s.staffAuth(http.HandlerFunc(s.staffCatalogOptions)))
 }
 
 // authorizeStaffRead is the read counterpart of staffMutation.
@@ -72,6 +73,21 @@ func (s *Server) staffListProducts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, page)
+}
+
+// staffCatalogOptions serves the dictionaries of the product form. Reading
+// them is part of reading products, so it needs the same authorization.
+func (s *Server) staffCatalogOptions(w http.ResponseWriter, r *http.Request) {
+	if err := s.authorizeStaffRead(r, application.ProductRead); err != nil {
+		s.writeError(w, r, err)
+		return
+	}
+	options, err := s.products.CatalogOptions(r.Context())
+	if err != nil {
+		s.writeError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, options)
 }
 
 func (s *Server) staffProduct(w http.ResponseWriter, r *http.Request) {

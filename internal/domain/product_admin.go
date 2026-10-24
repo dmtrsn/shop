@@ -91,6 +91,29 @@ type AdminProduct struct {
 	UpdatedAt       time.Time   `json:"updatedAt"`
 }
 
+// CatalogOptions are the dictionaries a staff product form chooses from: every
+// category, manufacturer, brand (with its manufacturer) and collection,
+// whether or not products use them yet. Read-only; B1 rechecks every
+// reference on write.
+type CatalogOptions struct {
+	Categories    []CategoryOption `json:"categories"`
+	Manufacturers []Reference      `json:"manufacturers"`
+	Brands        []BrandOption    `json:"brands"`
+	Collections   []Reference      `json:"collections"`
+}
+
+type CategoryOption struct {
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	ParentID string `json:"parentId,omitempty"`
+}
+
+type BrandOption struct {
+	ID             string `json:"id"`
+	Name           string `json:"name"`
+	ManufacturerID string `json:"manufacturerId"`
+}
+
 // AdminProductStatus filters the staff product list.
 type AdminProductStatus string
 

@@ -600,3 +600,52 @@ func TestPreviousBinaryToleratesProductRevisionSchema(t *testing.T) {
 	}
 	d.signedInStaff(t, handler)
 }
+
+// The product form's dictionaries: every reference, readable only by an
+// active staff session.
+func TestCatalogOptionsForStaffOnly(t *testing.T) {
+	d := newDatabase(t, true)
+	handler := d.staffServer(t, nil)
+	customerCookie := cookieLogin(t, handler, "demo@sugar.ru", "Sweet2026!")
+	for _, headers := range []map[string]string{nil, {"Cookie": shopCookie + "=" + customerCookie}, {"Authorization": "Bearer " + customerCookie}} {
+		if ex := serve(handler, "GET", "/api/admin/v1/catalog-options", "", headers); ex.Code != 401 {
+			t.Fatalf("non-staff read: %d", ex.Code)
+		}
+	}
+	login := d.signedInStaff(t, handler)
+	ex := adminRequest(handler, login, "GET", "/api/admin/v1/catalog-options", "")
+	if ex.Code != 200 {
+		t.Fatalf("staff read: %d", ex.Code)
+	}
+	var options domain.CatalogOptions
+	if err := json.Unmarshal(ex.Body.Bytes(), &options); err != nil {
+		t.Fatal(err)
+	}
+	counts := map[string]int64{"categories": int64(len(options.Categories)), "manufacturers": int64(len(options.Manufacturers)), "brands": int64(len(options.Brands)), "collections": int64(len(options.Collections))}
+	for table, got := range counts {
+		if want := d.number(t, "SELECT count(*) FROM "+table); got != want {
+			t.Errorf("%s: %d of %d", table, got, want)
+		}
+	}
+	owner := map[string]string{}
+	for _, brand := range options.Brands {
+		owner[brand.ID] = brand.ManufacturerID
+	}
+	parents := map[string]string{}
+	for _, category := range options.Categories {
+		parents[category.ID] = category.ParentID
+	}
+	// Brands without products (hidden from the customer list) are offered too.
+	if owner["b-atelier-noir"] != "m-choco" || owner["brand-unbranded"] != "m-choco" || parents["cat-bars"] != "cat-chocolate" || parents["cat-chocolate"] != "" {
+		t.Fatalf("relationships: %v %v", owner, parents)
+	}
+	if _, err := d.store.SetStaffDisabled(d.ctx, staffEmail, true); err != nil {
+		t.Fatal(err)
+	}
+	if ex := adminRequest(handler, login, "GET", "/api/admin/v1/catalog-options", ""); ex.Code != 401 {
+		t.Fatalf("disabled staff read: %d", ex.Code)
+	}
+	if len(d.auditTrail(t)) != 0 {
+		t.Fatal("a read wrote an audit event")
+	}
+}

@@ -166,6 +166,10 @@ jobs:
         env:
           COMPOSE_PROJECT: sweetshop-edge-smoke
         run: bash scripts/with-admin-tls-proxy.sh node scripts/test-admin-browser-flow.mjs
+      - name: Staff product journey in headless Chrome (edit, stale conflict, archive, restore, shop availability, audit rows)
+        env:
+          COMPOSE_PROJECT: sweetshop-edge-smoke
+        run: bash scripts/with-admin-tls-proxy.sh node scripts/test-admin-product-flow.mjs
       - name: Recreate the admin edge again for the limiter burst
         env:
           COMPOSE_PROFILES: mail,admin

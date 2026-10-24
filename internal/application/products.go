@@ -47,6 +47,7 @@ type ProductAdminStore interface {
 	// active one) ErrConflict, changing nothing.
 	UpdateProduct(ctx context.Context, mutation domain.StaffMutation, id string, expectedRevision int64, input domain.ProductInput) (domain.AdminProduct, error)
 	SetProductArchived(ctx context.Context, mutation domain.StaffMutation, id string, expectedRevision int64, archived bool) (domain.AdminProduct, error)
+	AdminCatalogOptions(ctx context.Context) (domain.CatalogOptions, error)
 }
 
 // ProductAdmin is the staff product use case.
@@ -87,6 +88,11 @@ func (a *ProductAdmin) List(ctx context.Context, filter domain.AdminProductFilte
 		return domain.AdminProductPage{}, &domain.ValidationError{Fields: fields}
 	}
 	return a.store.AdminProducts(ctx, filter)
+}
+
+// CatalogOptions lists the references a product may use.
+func (a *ProductAdmin) CatalogOptions(ctx context.Context) (domain.CatalogOptions, error) {
+	return a.store.AdminCatalogOptions(ctx)
 }
 
 func (a *ProductAdmin) Get(ctx context.Context, id string) (domain.AdminProduct, error) {

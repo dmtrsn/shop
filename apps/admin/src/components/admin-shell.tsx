@@ -7,8 +7,12 @@ import { useRef, useState, type ReactNode } from "react";
 import { useStaffSession } from "./staff-session";
 import styles from "./admin-shell.module.css";
 
+const sections = [
+  { href: "/", label: "Обзор", current: (path: string) => path === "/" },
+  { href: "/products", label: "Товары", current: (path: string) => path === "/products" || path.startsWith("/products/") },
+];
 // Sections that later slices add. They are named, not linked: no route exists yet.
-const upcoming = ["Товары", "Заказы"];
+const upcoming = ["Заказы"];
 
 export function AdminShell({ children }: { children: ReactNode }) {
   const { staff, signOut } = useStaffSession();
@@ -39,11 +43,13 @@ export function AdminShell({ children }: { children: ReactNode }) {
         </p>
         <nav aria-label="Разделы" className={styles.nav}>
           <ul>
-            <li>
-              <Link aria-current={pathname === "/" ? "page" : undefined} href="/">
-                Обзор
-              </Link>
-            </li>
+            {sections.map((section) => (
+              <li key={section.href}>
+                <Link aria-current={section.current(pathname) ? "page" : undefined} href={section.href}>
+                  {section.label}
+                </Link>
+              </li>
+            ))}
             {upcoming.map((name) => (
               <li key={name}>
                 <span aria-disabled="true" className={styles.upcoming}>

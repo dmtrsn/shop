@@ -37,6 +37,11 @@ func (s *testProductStore) AdminProducts(context.Context, domain.AdminProductFil
 	return domain.AdminProductPage{Items: []domain.AdminProduct{}, Page: 1, Limit: 50}, s.err
 }
 
+func (s *testProductStore) AdminCatalogOptions(context.Context) (domain.CatalogOptions, error) {
+	return domain.CatalogOptions{Categories: []domain.CategoryOption{{ID: "cat-bars", Name: "Плитки"}}, Manufacturers: []domain.Reference{},
+		Brands: []domain.BrandOption{}, Collections: []domain.Reference{}}, s.err
+}
+
 func (s *testProductStore) AdminProduct(context.Context, string) (domain.AdminProduct, error) {
 	return domain.AdminProduct{}, domain.ErrNotFound
 }
@@ -234,5 +239,28 @@ func TestProductErrorMapping(t *testing.T) {
 		if rec := call(handler, "GET", "/api/admin/v1/products"+query, "", map[string]string{"Cookie": staffCookie}); rec.Code != 422 {
 			t.Errorf("%s: %d", query, rec.Code)
 		}
+	}
+}
+
+func TestCatalogOptionsNeedTheStaffSession(t *testing.T) {
+	handler, _ := productHandler(t, &testProductStore{})
+	staffCookie, _ := staffLogin(t, handler, true)
+	customer := call(handler, "POST", "/api/auth/session", `{"email":"demo@sugar.ru","password":"Sweet2026!"}`, map[string]string{"Origin": shopOrigin})
+	customerCookie := "__Host-sweetshop_session=" + cookieNamed(customer, "__Host-sweetshop_session").Value
+	for name, headers := range map[string]map[string]string{
+		"anonymous": nil,
+		"customer":  {"Cookie": customerCookie},
+		"bearer":    {"Cookie": staffCookie, "Authorization": "Bearer x"},
+	} {
+		if rec := call(handler, "GET", "/api/admin/v1/catalog-options", "", headers); rec.Code != 401 {
+			t.Errorf("%s: %d", name, rec.Code)
+		}
+	}
+	rec := call(handler, "GET", "/api/admin/v1/catalog-options", "", map[string]string{"Cookie": staffCookie})
+	if rec.Code != 200 || rec.Header().Get("Cache-Control") != "no-store" || !strings.Contains(rec.Body.String(), `"categories":[{"id":"cat-bars","name":"Плитки"}]`) {
+		t.Fatalf("%d %s", rec.Code, rec.Body.String())
+	}
+	if rec := call(handler, "POST", "/api/admin/v1/catalog-options", "", map[string]string{"Cookie": staffCookie}); rec.Code != 405 && rec.Code != 404 {
+		t.Fatalf("catalog options accepted a write: %d", rec.Code)
 	}
 }

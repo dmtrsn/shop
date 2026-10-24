@@ -5,12 +5,14 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState, t
 
 import { getStaffSession, logoutStaff, type Staff } from "@/lib/staff-api";
 
-type CsrfResult = { status: "ready"; csrfToken: string } | { status: "ended" | "changed" | "unavailable" };
+export type CsrfResult = { status: "ready"; csrfToken: string } | { status: "ended" | "changed" | "unavailable" };
 
 type StaffSessionValue = {
   staff: Staff;
   /** The staff CSRF token for unsafe requests, fetched from Go when missing. */
   csrfToken: () => Promise<CsrfResult>;
+  /** Fetches a fresh token from Go, for the single retry after a CSRF rejection. */
+  refreshCsrfToken: () => Promise<CsrfResult>;
   /** Ends the session; resolves to a message to show, or null after leaving. */
   signOut: () => Promise<string | null>;
   /** The session ended (expired or revoked): drop state and show the sign-in page. */
@@ -94,7 +96,15 @@ export function StaffSessionProvider({ staff, children }: { staff: Staff; childr
     }
   }, [csrfToken, load, sessionEnded, staff.id]);
 
-  const value = useMemo(() => ({ staff, csrfToken, signOut, sessionEnded }), [staff, csrfToken, signOut, sessionEnded]);
+  const refreshCsrfToken = useCallback(() => {
+    setCsrf(null);
+    return load();
+  }, [load]);
+
+  const value = useMemo(
+    () => ({ staff, csrfToken, refreshCsrfToken, signOut, sessionEnded }),
+    [staff, csrfToken, refreshCsrfToken, signOut, sessionEnded],
+  );
   return <StaffSessionContext.Provider value={value}>{children}</StaffSessionContext.Provider>;
 }
 
