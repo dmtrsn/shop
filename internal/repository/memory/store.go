@@ -676,7 +676,11 @@ func (s *Store) CreateOrder(_ context.Context, userID string, input domain.Check
 	}
 	now := time.Now().UTC()
 	seq := len(s.orders[userID]) + 10483
-	order := domain.Order{ID: fmt.Sprintf("ord-%d-%03d", now.Year(), seq), Number: fmt.Sprintf("#%d", seq), UserID: userID, Status: "processing", StatusLabel: "Собираем заказ", Items: items, ItemCount: itemCount(items), TotalMinor: subtotal + domain.DeliveryMinor(subtotal), DeliveryAddress: input.DeliveryAddress, Comment: input.Comment, CreatedAt: now}
+	// The order keeps the contact the account has now, under the same lock
+	// (ADR 017); the seeded orders keep none.
+	user := s.usersByID[userID]
+	order := domain.Order{ID: fmt.Sprintf("ord-%d-%03d", now.Year(), seq), Number: fmt.Sprintf("#%d", seq), UserID: userID, Status: "processing", StatusLabel: "Собираем заказ", Items: items, ItemCount: itemCount(items), TotalMinor: subtotal + domain.DeliveryMinor(subtotal), DeliveryAddress: input.DeliveryAddress, Comment: input.Comment, CreatedAt: now,
+		Contact: &domain.OrderContact{Name: user.Name, Email: user.Email, Phone: user.Phone}}
 	for _, item := range items {
 		p := s.products[item.ProductID]
 		p.Stock -= item.Quantity
@@ -954,5 +958,9 @@ func cloneCollections(items []domain.Collection) []domain.Collection {
 }
 func cloneOrder(order domain.Order) domain.Order {
 	order.Items = append([]domain.OrderItem(nil), order.Items...)
+	if order.Contact != nil {
+		contact := *order.Contact
+		order.Contact = &contact
+	}
 	return order
 }

@@ -6,7 +6,7 @@ const router = { replace: vi.fn(), refresh: vi.fn(), push: vi.fn() };
 vi.mock("next/navigation", () => ({ useRouter: () => router, usePathname: () => "/orders/ord-2026-10483" }));
 
 import { apiError, json, mockApi, order, testStaff } from "@/test/api-mock";
-import { cancelExplanation, invalidTransitionMessage, OrderDetail, orderConflictMessage } from "./order-detail";
+import { cancelExplanation, currentAccountCaption, invalidTransitionMessage, missingContactMessage, OrderDetail, orderConflictMessage } from "./order-detail";
 import { StaffSessionProvider } from "./staff-session";
 
 const ORDER = "/api/admin/v1/orders/ord-2026-10483";
@@ -148,5 +148,40 @@ describe("order detail", () => {
     mockApi({ [`GET ${ORDER}`]: apiError(404, "not_found") });
     renderDetail();
     expect(await screen.findByRole("heading", { name: "Заказ не найден" })).toBeInTheDocument();
+  });
+
+  it("shows the order's own recipient and never today's account beside it", async () => {
+    mockApi({ [`GET ${ORDER}`]: json(order()) });
+    renderDetail();
+    const recipient = await screen.findByRole("region", { name: "Получатель" });
+    expect(recipient).toHaveTextContent("Алексей Демо");
+    expect(recipient).toHaveTextContent("+7 900 000-00-00");
+    expect(recipient).toHaveTextContent("Как при оформлении заказа.");
+    expect(screen.queryByText(missingContactMessage)).toBeNull();
+    expect(screen.queryByRole("region", { name: "Текущие данные аккаунта" })).toBeNull();
+  });
+
+  it("is honest about older orders: no recorded contact, today's account set apart", async () => {
+    mockApi({
+      [`GET ${ORDER}`]: json(order({ contact: undefined, currentAccount: { name: "Борис Сейчас", email: "now@example.com", phone: "" } })),
+    });
+    renderDetail();
+    const recipient = await screen.findByRole("region", { name: "Получатель" });
+    expect(recipient).toHaveTextContent(missingContactMessage);
+    const current = within(recipient).getByRole("region", { name: "Текущие данные аккаунта" });
+    expect(current).toHaveTextContent(currentAccountCaption);
+    expect(current).toHaveTextContent("Борис Сейчас");
+    expect(current).toHaveTextContent("now@example.com");
+    // Today's account is not offered as the order's contact: no mail link, no order wording.
+    expect(within(recipient).queryByRole("link")).toBeNull();
+    expect(recipient).not.toHaveTextContent("Как при оформлении заказа.");
+  });
+
+  it("shows only the notice when neither is available", async () => {
+    mockApi({ [`GET ${ORDER}`]: json(order({ contact: undefined })) });
+    renderDetail();
+    const recipient = await screen.findByRole("region", { name: "Получатель" });
+    expect(recipient).toHaveTextContent(missingContactMessage);
+    expect(screen.queryByRole("region", { name: "Текущие данные аккаунта" })).toBeNull();
   });
 });

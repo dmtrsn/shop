@@ -679,7 +679,10 @@ unset PASSWORD
   [ADR 015](docs/adr/015-admin-product-ui.md)) и раздел «Заказы» (`/orders`: поиск, просмотр
   снимка заказа, «Собираем заказ» → «В пути» → «Доставлен», отмена ещё не отправленного заказа с
   возвратом товара на склад в той же транзакции; без возврата денег и уведомлений;
-  [ADR 016](docs/adr/016-staff-order-management.md)). Включение:
+  [ADR 016](docs/adr/016-staff-order-management.md)). Имя, email и телефон покупателя
+  сохраняются в заказе при оформлении и потом не меняются; у заказов, оформленных до этого,
+  их нет — админка так и пишет и показывает текущие данные аккаунта отдельно
+  ([ADR 017](docs/adr/017-order-fulfillment-snapshot.md)). Включение:
   `COMPOSE_PROFILES=admin STAFF_TRUSTED_ORIGINS=http://localhost:8081 docker compose up -d --build`,
   затем `http://localhost:8081`. Публиковать admin-origin в интернет нельзя, пока не решён вопрос
   MFA — подробности в [ADR 014](docs/adr/014-admin-frontend-and-edge.md). Ролей и MFA пока нет;

@@ -153,8 +153,17 @@ function Results({ state, query, onRetry }: { state: State; query: OrderQuery; o
                 </td>
                 <td>{formatDateTime(order.createdAt)}</td>
                 <td className={styles.secondary}>
-                  {order.customer.name}
-                  <span className={styles.meta}>{order.customer.email}</span>
+                  {order.contact ? (
+                    <>
+                      {order.contact.name}
+                      <span className={styles.meta}>{order.contact.email}</span>
+                    </>
+                  ) : (
+                    <span className={styles.meta}>
+                      Данные заказа не сохранены
+                      {order.currentAccount ? ` · аккаунт сейчас: ${order.currentAccount.name}` : ""}
+                    </span>
+                  )}
                 </td>
                 <td>
                   <OrderStatusBadge order={order} />

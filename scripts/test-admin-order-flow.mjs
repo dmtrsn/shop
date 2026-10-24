@@ -25,6 +25,14 @@ const staffPassword = process.env.ADMIN_SMOKE_PASSWORD;
 const customerEmail = process.env.SMOKE_EMAIL ?? "demo@sugar.ru";
 const customerPassword = process.env.SMOKE_PASSWORD ?? "Sweet2026!";
 const project = process.env.COMPOSE_PROJECT ?? "sweetshop-edge-smoke";
+// Order-time contact (ADR 017): the application cannot change a customer's
+// name, email or phone, so this disposable run changes the account with SQL,
+// the way a future profile feature would, and restores it at the end.
+const CONTACT_A = { name: "Анна Сквозная", email: "anna.e2e@example.com", phone: "+7 900 555-00-01" };
+const CONTACT_B = { name: "Борис Сквозной", email: "boris.e2e@example.com", phone: "+7 900 555-00-02" };
+const quote = (value) => `'${value.replaceAll("'", "''")}'`;
+const setAccount = (c) => sql(`UPDATE users SET name=${quote(c.name)},email=${quote(c.email)},phone=${quote(c.phone)} WHERE lower(email)=lower(${quote(currentEmail)}) RETURNING id`);
+let currentEmail = customerEmail;
 // Products the other journeys do not touch: one to ship, one to cancel (quantity > 1).
 const SHIPPED = { product: "p07", quantity: 1 };
 const CANCELLED = { product: "p06", quantity: 3 };
@@ -98,12 +106,19 @@ async function main() {
   const staffId = sql(`SELECT id FROM staff_users WHERE lower(email)=lower('${staffEmail.replaceAll("'", "''")}')`);
   if (!/^stf_[0-9a-f]{32}$/.test(staffId)) fail("the smoke staff account does not exist");
 
-  // 1. The customer orders; checkout takes the stock.
+  // 1. The customer orders as A; checkout takes the stock. Then the account
+  //    becomes B and a third order is placed.
   await signInCustomer();
+  const [originalName, originalEmail, originalPhone] = sql(`SELECT name,email,phone FROM users WHERE lower(email)=lower(${quote(customerEmail)})`).split("|");
+  setAccount(CONTACT_A);
+  currentEmail = CONTACT_A.email;
   const before = await stock(CANCELLED.product);
   const shipped = await placeOrder(SHIPPED);
   const cancelled = await placeOrder(CANCELLED);
   if ((await stock(CANCELLED.product)) !== before - CANCELLED.quantity) fail("checkout did not take the ordered stock");
+  setAccount(CONTACT_B);
+  currentEmail = CONTACT_B.email;
+  const later = await placeOrder({ product: SHIPPED.product, quantity: 1 });
 
   const chrome = await launchChrome();
   try {
@@ -140,6 +155,16 @@ async function main() {
     await b.waitFor("the reloaded order", `${revisionIs(3)} && ${hasText("Заказ доставлен — дальнейших действий нет.")}`);
     b.close();
 
+    // 4b. The orders keep whom they were placed for; the older seeded order says
+    //     it has no recorded contact and sets today's account apart.
+    const recipient = `document.querySelector("#order-recipient")?.closest("section")?.innerText ?? ""`;
+    const shows = (text) => `(${recipient}).includes(${JSON.stringify(text)})`;
+    await a.waitFor("A on the delivered order", `${shows(CONTACT_A.name)} && ${shows(CONTACT_A.email)} && ${shows(CONTACT_A.phone)} && !${shows(CONTACT_B.name)} && !${shows("Текущие данные аккаунта")}`);
+    await openOrder(a, later);
+    await a.waitFor("B on the later order", `${shows(CONTACT_B.name)} && ${shows(CONTACT_B.email)} && !${shows(CONTACT_A.name)}`);
+    await openOrder(a, { id: "ord-2026-002", number: "#10482" });
+    await a.waitFor("the honest pre-snapshot order", `${shows("Контактные данные на момент заказа не сохранены")} && ${shows("Текущие данные аккаунта")} && ${shows("Могут отличаться от данных на момент заказа.")} && ${shows(CONTACT_B.name)}`);
+
     // 5. Cancel the second order after confirming; its stock comes back exactly.
     await openOrder(a, cancelled);
     await clickButton(a, "Отменить заказ…");
@@ -153,6 +178,15 @@ async function main() {
     const shown = Object.fromEntries(history.items.map((order) => [order.id, order]));
     if (shown[shipped.id]?.statusLabel !== "Доставлен" || shown[cancelled.id]?.statusLabel !== "Отменён") fail("customer history statuses");
     if (shown[cancelled.id].totalMinor !== cancelled.totalMinor || shown[cancelled.id].items[0].quantity !== CANCELLED.quantity) fail("customer history changed the snapshot");
+
+    // The delivered and cancelled orders still carry contact A.
+    for (const order of [shipped, cancelled]) {
+      if (sql(`SELECT customer_name||'|'||customer_email||'|'||customer_phone FROM orders WHERE id=${quote(order.id)}`) !== `${CONTACT_A.name}|${CONTACT_A.email}|${CONTACT_A.phone}`) {
+        fail(`${order.number} lost its order-time contact`);
+      }
+    }
+    setAccount({ name: originalName, email: originalEmail, phone: originalPhone });
+    currentEmail = originalEmail;
 
     // 7. Sign out.
     await clickButton(a, "Выйти");
@@ -172,6 +206,8 @@ async function main() {
     `${cancelled.id}|order.cancel|${staffId}|t`,
   ];
   if (JSON.stringify(rows) !== JSON.stringify(expected)) fail(`audit rows:\n${rows.join("\n")}`);
+  const leaked = sql(`SELECT count(*) FROM staff_audit_events e WHERE row_to_json(e)::text LIKE ${quote(`%${CONTACT_A.email}%`)}`);
+  if (leaked !== "0") fail("an audit row carries order contact data");
   console.log(`admin order flow passed for ${admin}: ${shipped.number} shipped and delivered, ${cancelled.number} cancelled with ${CANCELLED.quantity} units restocked, stale delivery refused, ${rows.length} audit events`);
 }
 

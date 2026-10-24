@@ -19,19 +19,32 @@ import (
 // commits lock the order FOR SHARE before products too, and checkout never
 // locks an existing order, so no path takes a product before an order.
 
+// The order-time contact comes from the order row itself (ADR 017). The
+// account is joined only to find orders and, for orders placed before
+// contacts were recorded, to show the current account clearly as such.
 const adminOrderColumns = `o.id,o.number,o.revision,o.status,o.status_label,o.created_at,o.delivered_at,
-	u.id,u.name,u.email,u.phone,o.delivery_address,o.comment,o.item_count,o.total_minor`
+	o.user_id,o.customer_name,o.customer_email,o.customer_phone,u.name,u.email,u.phone,
+	o.delivery_address,o.comment,o.item_count,o.total_minor`
 
-const adminOrderJoins = ` FROM orders o JOIN users u ON u.id=o.user_id `
+const adminOrderJoins = ` FROM orders o LEFT JOIN users u ON u.id=o.user_id `
 
 func scanAdminOrder(row scanner) (domain.AdminOrder, error) {
 	var o domain.AdminOrder
 	var delivered *time.Time
 	var status string
+	var contactName, contactEmail, contactPhone, accountName, accountEmail, accountPhone *string
 	err := row.Scan(&o.ID, &o.Number, &o.Revision, &status, &o.StatusLabel, &o.CreatedAt, &delivered,
-		&o.Customer.ID, &o.Customer.Name, &o.Customer.Email, &o.Customer.Phone, &o.DeliveryAddress, &o.Comment, &o.ItemCount, &o.TotalMinor)
+		&o.CustomerID, &contactName, &contactEmail, &contactPhone, &accountName, &accountEmail, &accountPhone,
+		&o.DeliveryAddress, &o.Comment, &o.ItemCount, &o.TotalMinor)
 	if err != nil {
 		return domain.AdminOrder{}, err
+	}
+	switch {
+	case contactEmail != nil:
+		o.Contact = &domain.OrderContact{Name: *contactName, Email: *contactEmail, Phone: *contactPhone}
+	case accountEmail != nil:
+		// Never presented as the order's contact: it is the account today.
+		o.CurrentAccount = &domain.OrderContact{Name: *accountName, Email: *accountEmail, Phone: *accountPhone}
 	}
 	o.Status = domain.OrderStatus(status)
 	o.AllowedTransitions = domain.NextOrderStatuses(o.Status)
@@ -88,7 +101,8 @@ func (s *Store) AdminOrders(ctx context.Context, filter domain.AdminOrderFilter)
 	if filter.Query != "" {
 		args = append(args, filter.Query, "#"+strings.TrimPrefix(filter.Query, "#"), "%"+escapeLike(strings.ToLower(filter.Query))+"%")
 		n := len(args)
-		conditions = append(conditions, fmt.Sprintf("(o.id=$%d OR o.number=$%d OR lower(u.email) LIKE $%d OR lower(u.name) LIKE $%d)", n-2, n-1, n, n))
+		conditions = append(conditions, fmt.Sprintf(`(o.id=$%d OR o.number=$%d OR lower(o.customer_email) LIKE $%d OR lower(o.customer_name) LIKE $%d
+			OR lower(u.email) LIKE $%d OR lower(u.name) LIKE $%d)`, n-2, n-1, n, n, n, n))
 	}
 	where := ""
 	if len(conditions) > 0 {

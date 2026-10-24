@@ -98,7 +98,7 @@ func TestStaffReadsOrdersAndCustomersCannot(t *testing.T) {
 	if err := json.Unmarshal(ex.Body.Bytes(), &detail); err != nil || ex.Code != 200 {
 		t.Fatalf("detail: %d", ex.Code)
 	}
-	if detail.Revision != 1 || detail.Status != domain.OrderProcessing || detail.Customer.Email != "demo@sugar.ru" || !reflect.DeepEqual(detail.AllowedTransitions, []domain.OrderStatus{domain.OrderTransit, domain.OrderCancelled}) ||
+	if detail.Revision != 1 || detail.Status != domain.OrderProcessing || detail.Contact == nil || detail.Contact.Email != "demo@sugar.ru" || detail.CurrentAccount != nil || detail.CustomerID != "usr-demo" || !reflect.DeepEqual(detail.AllowedTransitions, []domain.OrderStatus{domain.OrderTransit, domain.OrderCancelled}) ||
 		len(detail.Items) != 2 || detail.TotalMinor != order.TotalMinor || detail.DeliveryAddress != order.DeliveryAddress {
 		t.Fatalf("detail: %+v", detail)
 	}

@@ -163,15 +163,7 @@ export function OrderDetail({ orderId }: { orderId: string }) {
       ) : null}
 
       <div className={styles.columns}>
-        <section aria-labelledby="order-customer" className={styles.card}>
-          <h2 id="order-customer">Покупатель</h2>
-          <p className={styles.wrap}>{order.customer.name}</p>
-          <p className={styles.wrap}>
-            <a href={`mailto:${order.customer.email}`}>{order.customer.email}</a>
-          </p>
-          {order.customer.phone ? <p>{order.customer.phone}</p> : null}
-          <p className={styles.hint}>Текущие данные учётной записи покупателя.</p>
-        </section>
+        <Recipient order={order} />
         <section aria-labelledby="order-delivery" className={styles.card}>
           <h2 id="order-delivery">Доставка</h2>
           <p className={styles.wrap}>{order.deliveryAddress}</p>
@@ -320,6 +312,44 @@ export function OrderDetail({ orderId }: { orderId: string }) {
           )
         ) : null}
       </section>
+    </section>
+  );
+}
+
+export const missingContactMessage = "Контактные данные на момент заказа не сохранены: заказ оформлен до того, как их стали записывать.";
+// Under the "Текущие данные аккаунта" heading.
+export const currentAccountCaption = "Могут отличаться от данных на момент заказа.";
+
+// The recipient is the contact the order recorded at checkout. An older order
+// without one says so, and the account's present data, if shown at all, is
+// set apart and named as such: it is never presented as the order's contact.
+function Recipient({ order }: { order: AdminOrder }) {
+  if (order.contact) {
+    return (
+      <section aria-labelledby="order-recipient" className={styles.card}>
+        <h2 id="order-recipient">Получатель</h2>
+        <p className={styles.wrap}>{order.contact.name}</p>
+        <p className={styles.wrap}>
+          <a href={`mailto:${order.contact.email}`}>{order.contact.email}</a>
+        </p>
+        <p>{order.contact.phone || <span className={styles.muted}>Телефон не указан</span>}</p>
+        <p className={styles.hint}>Как при оформлении заказа.</p>
+      </section>
+    );
+  }
+  return (
+    <section aria-labelledby="order-recipient" className={styles.card}>
+      <h2 id="order-recipient">Получатель</h2>
+      <p className={styles.archivedNote}>{missingContactMessage}</p>
+      {order.currentAccount ? (
+        <section aria-labelledby="order-current-account" className={styles.currentAccount}>
+          <h3 id="order-current-account">Текущие данные аккаунта</h3>
+          <p className={styles.hint}>{currentAccountCaption}</p>
+          <p className={styles.wrap}>{order.currentAccount.name}</p>
+          <p className={styles.wrap}>{order.currentAccount.email}</p>
+          {order.currentAccount.phone ? <p>{order.currentAccount.phone}</p> : null}
+        </section>
+      ) : null}
     </section>
   );
 }

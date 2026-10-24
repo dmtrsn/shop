@@ -62,13 +62,6 @@ func OrderTransitionAllowed(from, to OrderStatus) bool {
 	return false
 }
 
-type OrderCustomer struct {
-	ID    string `json:"id"`
-	Name  string `json:"name"`
-	Email string `json:"email"`
-	Phone string `json:"phone"`
-}
-
 type AdminOrderLine struct {
 	Position       int    `json:"position"`
 	ProductID      string `json:"productId"`
@@ -80,9 +73,11 @@ type AdminOrderLine struct {
 	LineTotalMinor int64  `json:"lineTotalMinor"`
 }
 
-// AdminOrder is the staff view of an order. Lines, totals, address and
-// comment are the snapshot checkout stored; Customer is the account as it is
-// now (orders store no contact snapshot). Items is nil in list results.
+// AdminOrder is the staff view of an order. Lines, totals, delivery address,
+// comment and Contact are what checkout stored and never change. Orders placed
+// before contacts were recorded have no Contact; for them only, CurrentAccount
+// carries the account as it is now, which may differ from the order's time
+// and must be shown as such. Items is nil in list results.
 type AdminOrder struct {
 	ID                 string           `json:"id"`
 	Number             string           `json:"number"`
@@ -92,7 +87,9 @@ type AdminOrder struct {
 	AllowedTransitions []OrderStatus    `json:"allowedTransitions"`
 	CreatedAt          time.Time        `json:"createdAt"`
 	DeliveredAt        *time.Time       `json:"deliveredAt,omitempty"`
-	Customer           OrderCustomer    `json:"customer"`
+	CustomerID         string           `json:"customerId"`
+	Contact            *OrderContact    `json:"contact,omitempty"`
+	CurrentAccount     *OrderContact    `json:"currentAccount,omitempty"`
 	DeliveryAddress    string           `json:"deliveryAddress"`
 	Comment            string           `json:"comment"`
 	ItemCount          int              `json:"itemCount"`
@@ -104,7 +101,8 @@ type AdminOrderFilter struct {
 	// Status is one OrderStatus or "" for all.
 	Status OrderStatus
 	// Query matches the order ID or number exactly, or a substring of the
-	// customer's email or name, case-insensitively.
+	// order-time contact's or the current account's email or name,
+	// case-insensitively.
 	Query string
 	Page  int
 	Limit int

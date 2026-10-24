@@ -13,7 +13,7 @@ import (
 )
 
 func (s *Store) ListOrders(ctx context.Context, userID string) ([]domain.Order, error) {
-	rows, err := s.pool.Query(ctx, `SELECT id,number,user_id,status,status_label,item_count,total_minor,delivery_address,comment,created_at,delivered_at FROM orders WHERE user_id=$1 ORDER BY created_at DESC`, userID)
+	rows, err := s.pool.Query(ctx, `SELECT id,number,user_id,status,status_label,item_count,total_minor,delivery_address,comment,created_at,delivered_at,customer_name,customer_email,customer_phone FROM orders WHERE user_id=$1 ORDER BY created_at DESC`, userID)
 	if err != nil {
 		return nil, fmt.Errorf("list orders: %w", err)
 	}
@@ -44,7 +44,7 @@ func (s *Store) ListOrders(ctx context.Context, userID string) ([]domain.Order, 
 }
 
 func (s *Store) Order(ctx context.Context, userID, orderID string) (domain.Order, error) {
-	row := s.pool.QueryRow(ctx, `SELECT id,number,user_id,status,status_label,item_count,total_minor,delivery_address,comment,created_at,delivered_at FROM orders WHERE user_id=$1 AND (id=$2 OR number=$2)`, userID, orderID)
+	row := s.pool.QueryRow(ctx, `SELECT id,number,user_id,status,status_label,item_count,total_minor,delivery_address,comment,created_at,delivered_at,customer_name,customer_email,customer_phone FROM orders WHERE user_id=$1 AND (id=$2 OR number=$2)`, userID, orderID)
 	order, err := scanOrder(row)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.Order{}, domain.ErrNotFound
@@ -62,9 +62,14 @@ func (s *Store) Order(ctx context.Context, userID, orderID string) (domain.Order
 func scanOrder(row scanner) (domain.Order, error) {
 	var order domain.Order
 	var delivered *time.Time
-	err := row.Scan(&order.ID, &order.Number, &order.UserID, &order.Status, &order.StatusLabel, &order.ItemCount, &order.TotalMinor, &order.DeliveryAddress, &order.Comment, &order.CreatedAt, &delivered)
+	var name, email, phone *string
+	err := row.Scan(&order.ID, &order.Number, &order.UserID, &order.Status, &order.StatusLabel, &order.ItemCount, &order.TotalMinor, &order.DeliveryAddress, &order.Comment, &order.CreatedAt, &delivered, &name, &email, &phone)
 	if delivered != nil {
 		order.DeliveredAt = *delivered
+	}
+	// The order-time contact (ADR 017), when one was recorded.
+	if email != nil && name != nil && phone != nil {
+		order.Contact = &domain.OrderContact{Name: *name, Email: *email, Phone: *phone}
 	}
 	return order, err
 }
@@ -179,6 +184,13 @@ func (s *Store) createOrder(ctx context.Context, userID string, input domain.Che
 		product  domain.Product
 		quantity int
 	}
+	// The order keeps the customer's contact as it is now (ADR 017). The users
+	// row is already locked FOR NO KEY UPDATE by beginCartMutation, so no
+	// account change can interleave: the three values are one coherent view.
+	var contact domain.OrderContact
+	if err := tx.QueryRow(ctx, `SELECT name,email,phone FROM users WHERE id=$1`, userID).Scan(&contact.Name, &contact.Email, &contact.Phone); err != nil {
+		return domain.Order{}, fmt.Errorf("read order contact: %w", err)
+	}
 	// The user lock stabilizes Cart membership through commit. Lock all selected
 	// products first, then read the COMPLETE selected Cart for the exact guard.
 	// Never filter that guard through an earlier captured list of product IDs.
@@ -245,12 +257,12 @@ func (s *Store) createOrder(ctx context.Context, userID string, input domain.Che
 	}
 	// PostgreSQL stores microseconds; return exactly the committed instant.
 	now := time.Now().UTC().Truncate(time.Microsecond)
-	order := domain.Order{ID: fmt.Sprintf("ord-%d-%d", now.Year(), sequence), Number: fmt.Sprintf("#%d", sequence), UserID: userID, Status: "processing", StatusLabel: "Собираем заказ", DeliveryAddress: input.DeliveryAddress, Comment: input.Comment, CreatedAt: now, Items: items, ItemCount: itemCount, TotalMinor: total}
+	order := domain.Order{ID: fmt.Sprintf("ord-%d-%d", now.Year(), sequence), Number: fmt.Sprintf("#%d", sequence), UserID: userID, Status: "processing", StatusLabel: "Собираем заказ", DeliveryAddress: input.DeliveryAddress, Comment: input.Comment, CreatedAt: now, Items: items, ItemCount: itemCount, TotalMinor: total, Contact: &contact}
 	var requestDigest *string
 	if input.IdempotencyKey != nil {
 		requestDigest = &input.RequestDigest
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO orders(id,number,user_id,status,status_label,item_count,total_minor,delivery_address,comment,created_at,idempotency_key,request_digest) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`, order.ID, order.Number, userID, order.Status, order.StatusLabel, order.ItemCount, order.TotalMinor, order.DeliveryAddress, order.Comment, now, input.IdempotencyKey, requestDigest)
+	_, err = tx.Exec(ctx, `INSERT INTO orders(id,number,user_id,status,status_label,item_count,total_minor,delivery_address,comment,created_at,idempotency_key,request_digest,customer_name,customer_email,customer_phone) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`, order.ID, order.Number, userID, order.Status, order.StatusLabel, order.ItemCount, order.TotalMinor, order.DeliveryAddress, order.Comment, now, input.IdempotencyKey, requestDigest, contact.Name, contact.Email, contact.Phone)
 	if err != nil {
 		return domain.Order{}, fmt.Errorf("insert order: %w", err)
 	}

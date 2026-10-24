@@ -40,7 +40,7 @@ One column: `revision bigint NOT NULL DEFAULT 1 CHECK (revision > 0)`. Existing 
 | Route | Action |
 | --- | --- |
 | `GET /orders?status=&q=&page=&limit=` | newest first; `q` is the order ID or number (with or without `#`), or a substring of the customer's email or name |
-| `GET /orders/{order}` | snapshot lines and totals, current customer account data, `allowedTransitions` |
+| `GET /orders/{order}` | snapshot lines and totals, the order-time contact (since B5, [ADR 017](017-order-fulfillment-snapshot.md); B4 showed the current account here), `allowedTransitions` |
 | `POST /orders/{order}/status {status, expectedRevision}` | `transit` or `delivered` only; audited as `order.status_change` |
 | `POST /orders/{order}/cancel {expectedRevision}` | audited as `order.cancel` |
 

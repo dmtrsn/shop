@@ -41,7 +41,10 @@ describe("order API client", () => {
   it("rejects malformed orders and unknown transitions", () => {
     expect(parseOrder(order())).not.toBeNull();
     expect(parseOrder(order({ allowedTransitions: ["refunded" as never] }))).toBeNull();
-    expect(parseOrder({ ...order(), customer: { name: "x" } })).toBeNull();
+    expect(parseOrder({ ...order(), contact: { name: "x" } })).toBeNull();
+    // An order never carries both its own contact and today's account.
+    expect(parseOrder({ ...order(), currentAccount: { name: "x", email: "y", phone: "" } })).toBeNull();
+    expect(parseOrder({ ...order(), contact: undefined, currentAccount: { name: "x", email: "y", phone: "" } })).not.toBeNull();
     expect(parseOrder({ ...order(), totalMinor: 1.5 })).toBeNull();
   });
 

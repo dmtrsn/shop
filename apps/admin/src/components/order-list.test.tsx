@@ -26,7 +26,7 @@ describe("order list", () => {
   afterEach(() => vi.unstubAllGlobals());
 
   it("shows orders with their stored status labels and links", async () => {
-    const api = mockApi({ "GET /api/admin/v1/orders": page([order({ items: undefined }), order({ id: "ord-2026-002", number: "#10482", status: "delivered", statusLabel: "Доставлен", allowedTransitions: [], items: undefined })]) });
+    const api = mockApi({ "GET /api/admin/v1/orders": page([order({ items: undefined }), order({ id: "ord-2026-002", number: "#10482", status: "delivered", statusLabel: "Доставлен", allowedTransitions: [], items: undefined, contact: undefined, currentAccount: { name: "Сегодняшнее имя", email: "today@example.com", phone: "" } })]) });
     renderList();
     expect(screen.getByRole("status")).toHaveTextContent("Загрузка заказов");
     const table = await screen.findByRole("table");
@@ -37,6 +37,8 @@ describe("order list", () => {
     expect(rows[1]).toHaveTextContent("2 470,00 ₽");
     expect(rows[1]).toHaveTextContent("demo@sugar.ru");
     expect(rows[2]).toHaveTextContent("Доставлен");
+    expect(rows[2]).toHaveTextContent("Данные заказа не сохранены · аккаунт сейчас: Сегодняшнее имя");
+    expect(rows[2]).not.toHaveTextContent("demo@sugar.ru");
     expect(api.called("GET /api/admin/v1/orders")[0].url).toBe("/api/admin/v1/orders?page=1&limit=50");
   });
 

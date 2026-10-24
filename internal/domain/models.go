@@ -271,6 +271,15 @@ type OrderItem struct {
 	ReplacementProductID string `json:"-"`
 }
 
+// OrderContact is the customer's name, email and phone as they were when the
+// order was placed, copied by checkout from the account it held locked (ADR
+// 017). It is a fixed record of that moment: nothing changes it later.
+type OrderContact struct {
+	Name  string `json:"name"`
+	Email string `json:"email"`
+	Phone string `json:"phone"`
+}
+
 type Order struct {
 	ID              string      `json:"id"`
 	Number          string      `json:"number"`
@@ -284,6 +293,9 @@ type Order struct {
 	Comment         string      `json:"comment,omitempty"`
 	CreatedAt       time.Time   `json:"createdAt"`
 	DeliveredAt     time.Time   `json:"deliveredAt,omitempty"`
+	// Contact is set on orders this checkout creates; the customer API does
+	// not expose it (the customer knows their own details).
+	Contact *OrderContact `json:"-"`
 }
 
 type RepeatItem struct {

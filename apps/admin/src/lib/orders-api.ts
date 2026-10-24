@@ -27,6 +27,9 @@ export type OrderLine = {
   lineTotalMinor: number;
 };
 
+/** Name, email and phone as they were when the order was placed (ADR 017). */
+export type OrderContact = { name: string; email: string; phone: string };
+
 export type AdminOrder = {
   id: string;
   number: string;
@@ -36,7 +39,11 @@ export type AdminOrder = {
   allowedTransitions: OrderStatus[];
   createdAt: string;
   deliveredAt?: string;
-  customer: { id: string; name: string; email: string; phone: string };
+  customerId: string;
+  /** The order's own contact; absent on orders placed before it was recorded. */
+  contact?: OrderContact;
+  /** Only when contact is absent: the account as it is NOW, never the order's contact. */
+  currentAccount?: OrderContact;
   deliveryAddress: string;
   comment: string;
   itemCount: number;
@@ -62,8 +69,10 @@ export function parseOrder(body: unknown): AdminOrder | null {
   const numbers = ["revision", "itemCount", "totalMinor"];
   if (!texts.every((key) => typeof body[key] === "string") || !numbers.every((key) => Number.isSafeInteger(body[key]))) return null;
   if (!Array.isArray(body.allowedTransitions) || !body.allowedTransitions.every((status) => orderStatuses.includes(status as OrderStatus))) return null;
-  const customer = body.customer;
-  if (!isRecord(customer) || !["id", "name", "email", "phone"].every((key) => typeof customer[key] === "string")) return null;
+  if (typeof body.customerId !== "string") return null;
+  const isContact = (value: unknown) => isRecord(value) && ["name", "email", "phone"].every((key) => typeof value[key] === "string");
+  if (body.contact !== undefined && !isContact(body.contact)) return null;
+  if (body.currentAccount !== undefined && (!isContact(body.currentAccount) || body.contact !== undefined)) return null;
   if (body.deliveredAt !== undefined && typeof body.deliveredAt !== "string") return null;
   if (body.items !== undefined && (!Array.isArray(body.items) || !body.items.every(isLine))) return null;
   return body as unknown as AdminOrder;

@@ -236,3 +236,32 @@ func TestCheckoutRevalidatesQuantityRules(t *testing.T) {
 		t.Fatalf("valid quantity: %v", err)
 	}
 }
+
+// Checkout records the account's contact on the new order, as PostgreSQL
+// does; seeded orders have none, and returned copies cannot change it.
+func TestCheckoutRecordsTheOrderContact(t *testing.T) {
+	ctx := context.Background()
+	store := NewDemo()
+	if _, err := store.ClearCart(ctx, domain.DemoUserID, false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.SetCartItem(ctx, domain.DemoUserID, "p01", 1, true); err != nil {
+		t.Fatal(err)
+	}
+	order, _, err := store.CreateOrder(ctx, domain.DemoUserID, domain.CheckoutInput{DeliveryAddress: "Address"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	user := store.usersByID[domain.DemoUserID]
+	if order.Contact == nil || *order.Contact != (domain.OrderContact{Name: user.Name, Email: user.Email, Phone: user.Phone}) {
+		t.Fatalf("contact: %+v", order.Contact)
+	}
+	order.Contact.Name = "changed by a caller"
+	stored, err := store.Order(ctx, domain.DemoUserID, order.ID)
+	if err != nil || stored.Contact == nil || stored.Contact.Name != user.Name {
+		t.Fatalf("stored contact: %+v %v", stored.Contact, err)
+	}
+	if seeded, _ := store.Order(ctx, domain.DemoUserID, "ord-2026-002"); seeded.Contact != nil {
+		t.Fatal("seeded order gained a contact")
+	}
+}

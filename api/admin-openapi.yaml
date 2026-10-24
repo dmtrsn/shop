@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: Sweetshop staff (admin) HTTP API
-  version: 0.4.0-b4
+  version: 0.5.0-b5
   description: >-
     Staff API under /api/admin/v1, separate from the customer contract in openapi.yaml. Staff are a separate
     principal: staff_users/staff_sessions, the HttpOnly SameSite=Strict cookie __Host-sweetshop_staff
@@ -438,7 +438,7 @@ paths:
         Staff order list, newest first (then by ID). status filters one status (processing, transit,
         delivered or cancelled); omitted means all. q (up to 100 characters, one line) matches the order ID or
         number exactly ("10483" and "#10483" both match #10483) or a case-insensitive substring of the
-        customer's email or name. page starts at 1 (at most 10000); limit is 1-100, default 50. List items carry
+        order-time contact's or the current account's email or name. page starts at 1 (at most 10000); limit is 1-100, default 50. List items carry
         no lines.
       parameters:
       - name: status
@@ -493,8 +493,9 @@ paths:
       operationId: getOrder
       summary: getOrder
       description: >-
-        One order with its lines. Lines, prices, totals, delivery address and comment are the snapshot checkout
-        stored and never change; customer is the account as it is now (orders store no contact snapshot).
+        One order with its lines. Lines, prices, totals, delivery address, comment and contact are what checkout
+        stored at the time of the order and never change, whatever later happens to the account. An order without
+        contact predates its recording; it carries currentAccount instead, explicitly the account as it is now.
         allowedTransitions lists the statuses staff may move the order to; empty means no further change.
       responses:
         '200':
@@ -1291,6 +1292,22 @@ components:
           type: integer
           format: int64
           minimum: 1
+    OrderContact:
+      type: object
+      description: >-
+        The customer's name, email and phone as they were when the order was placed, recorded by checkout and never
+        changed afterwards (ADR 017). Absent on orders placed before they were recorded; such orders are never
+        backfilled from the current account.
+      required: [name, email, phone]
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+        email:
+          type: string
+        phone:
+          type: string
+          description: Empty when the customer gave none.
     AdminOrderLine:
       type: object
       required: [position, productId, sku, name, manufacturer, quantity, unitPriceMinor, lineTotalMinor]
@@ -1317,7 +1334,7 @@ components:
     AdminOrder:
       type: object
       description: Staff view of an order. items is present on getOrder and the mutations, absent in list items.
-      required: [id, number, revision, status, statusLabel, allowedTransitions, createdAt, customer, deliveryAddress, comment, itemCount, totalMinor]
+      required: [id, number, revision, status, statusLabel, allowedTransitions, createdAt, customerId, deliveryAddress, comment, itemCount, totalMinor]
       additionalProperties: false
       properties:
         id:
@@ -1344,19 +1361,18 @@ components:
         deliveredAt:
           type: string
           format: date-time
-        customer:
-          type: object
-          required: [id, name, email, phone]
-          additionalProperties: false
-          properties:
-            id:
-              type: string
-            name:
-              type: string
-            email:
-              type: string
-            phone:
-              type: string
+        customerId:
+          type: string
+          description: The customer account the order belongs to.
+        contact:
+          $ref: '#/components/schemas/OrderContact'
+        currentAccount:
+          allOf:
+          - $ref: '#/components/schemas/OrderContact'
+          description: >-
+            Only for orders without a recorded contact (placed before ADR 017, or by an older application
+            version during a rolling deploy): the account's name, email and phone as they are NOW, which may differ
+            from the order's time. Never the order's contact; absent whenever contact is present.
         deliveryAddress:
           type: string
         comment:
