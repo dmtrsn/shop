@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: Sweetshop staff (admin) HTTP API
-  version: 0.3.0-b3
+  version: 0.4.0-b4
   description: >-
     Staff API under /api/admin/v1, separate from the customer contract in openapi.yaml. Staff are a separate
     principal: staff_users/staff_sessions, the HttpOnly SameSite=Strict cookie __Host-sweetshop_staff
@@ -16,7 +16,9 @@ info:
     STAFF_TRUSTED_ORIGINS and the staff X-CSRF-Token (403 csrf_failed). X-Expected-Staff-ID, when sent, must
     name the authenticated staff member (409 authenticated_staff_changed). Each successful product mutation
     commits together with one staff audit event whose actor is the session's staff member (ADR 012); rejected
-    requests write nothing. Products are archived and restored, never deleted.
+    requests write nothing. Products are archived and restored, never deleted. Orders (ADR 016) are never
+    deleted either: staff move them through processing, transit and delivered, or cancel them while processing,
+    which returns their stock in the same audited transaction.
 servers:
 - url: /
 paths:
@@ -428,6 +430,183 @@ paths:
           $ref: '#/components/responses/StaffChanged'
         '500':
           $ref: '#/components/responses/InternalError'
+  /api/admin/v1/orders:
+    get:
+      operationId: listOrders
+      summary: listOrders
+      description: >-
+        Staff order list, newest first (then by ID). status filters one status (processing, transit,
+        delivered or cancelled); omitted means all. q (up to 100 characters, one line) matches the order ID or
+        number exactly ("10483" and "#10483" both match #10483) or a case-insensitive substring of the
+        customer's email or name. page starts at 1 (at most 10000); limit is 1-100, default 50. List items carry
+        no lines.
+      parameters:
+      - name: status
+        in: query
+        required: false
+        schema:
+          $ref: '#/components/schemas/OrderStatus'
+      - name: q
+        in: query
+        required: false
+        schema:
+          type: string
+          maxLength: 100
+      - name: page
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 10000
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+      responses:
+        '200':
+          description: Success
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestID'
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminOrderPage'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/StaffChanged'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/admin/v1/orders/{order}:
+    parameters:
+    - $ref: '#/components/parameters/Order'
+    get:
+      operationId: getOrder
+      summary: getOrder
+      description: >-
+        One order with its lines. Lines, prices, totals, delivery address and comment are the snapshot checkout
+        stored and never change; customer is the account as it is now (orders store no contact snapshot).
+        allowedTransitions lists the statuses staff may move the order to; empty means no further change.
+      responses:
+        '200':
+          description: Success
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestID'
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminOrder'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/StaffChanged'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/admin/v1/orders/{order}/status:
+    parameters:
+    - $ref: '#/components/parameters/Order'
+    post:
+      operationId: changeOrderStatus
+      summary: changeOrderStatus
+      description: >-
+        Moves an order forward: processing to transit, or transit to delivered (which also sets deliveredAt).
+        status must be transit or delivered (422 otherwise; cancellation is cancelOrder). expectedRevision must be
+        the current revision (409 stale_revision); a transition the current status does not allow is 409
+        invalid_transition. Success increments the revision by one. Audited as order.status_change. No customer
+        notification is sent.
+      parameters:
+      - $ref: '#/components/parameters/CSRFToken'
+      - $ref: '#/components/parameters/ExpectedStaffID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OrderStatusChangeInput'
+      responses:
+        '200':
+          description: Changed
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestID'
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminOrder'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/CSRFFailed'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/OrderConflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/admin/v1/orders/{order}/cancel:
+    parameters:
+    - $ref: '#/components/parameters/Order'
+    post:
+      operationId: cancelOrder
+      summary: cancelOrder
+      description: >-
+        Cancels an order that is still processing and, in the same transaction, returns every ordered quantity
+        to its product's stock (archived products included; they stay archived; a product row that no longer
+        exists gets nothing back). Each restocked product gets a new revision. An order reaches cancelled only
+        from processing, so its stock returns at most once; cancelling again is 409 invalid_transition, a stale
+        expectedRevision is 409 stale_revision. Audited as order.cancel. Nothing is refunded and no customer
+        notification is sent.
+      parameters:
+      - $ref: '#/components/parameters/CSRFToken'
+      - $ref: '#/components/parameters/ExpectedStaffID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RevisionInput'
+      responses:
+        '200':
+          description: Cancelled
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestID'
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminOrder'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/CSRFFailed'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/OrderConflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '500':
+          $ref: '#/components/responses/InternalError'
 components:
   headers:
     RequestID:
@@ -445,6 +624,13 @@ components:
       in: path
       required: true
       description: Product ID (legacy IDs such as p01, or prd_ + 32 hex digits).
+      schema:
+        type: string
+    Order:
+      name: order
+      in: path
+      required: true
+      description: Order ID (for example ord-2026-10483).
       schema:
         type: string
     CSRFToken:
@@ -511,6 +697,18 @@ components:
         stale_revision (expectedRevision is not the current revision; reload and reapply); conflict (archive of
         an archived product or restore of an active one); authenticated_staff_changed. Nothing changed and no
         audit event was written.
+      headers:
+        X-Request-ID:
+          $ref: '#/components/headers/RequestID'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    OrderConflict:
+      description: >-
+        stale_revision (expectedRevision is not the current revision; reload); invalid_transition (the current
+        status does not allow this change, for example a delivered or already cancelled order);
+        authenticated_staff_changed. Nothing changed and no audit event was written.
       headers:
         X-Request-ID:
           $ref: '#/components/headers/RequestID'
@@ -1067,6 +1265,128 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/Reference'
+    OrderStatus:
+      type: string
+      description: >-
+        processing (checkout), transit, delivered, cancelled. Staff lifecycle: processing to transit or
+        cancelled, transit to delivered; delivered and cancelled are terminal.
+      enum:
+      - processing
+      - transit
+      - delivered
+      - cancelled
+    OrderStatusChangeInput:
+      type: object
+      required:
+      - status
+      - expectedRevision
+      additionalProperties: false
+      properties:
+        status:
+          type: string
+          enum:
+          - transit
+          - delivered
+        expectedRevision:
+          type: integer
+          format: int64
+          minimum: 1
+    AdminOrderLine:
+      type: object
+      required: [position, productId, sku, name, manufacturer, quantity, unitPriceMinor, lineTotalMinor]
+      additionalProperties: false
+      properties:
+        position:
+          type: integer
+        productId:
+          type: string
+        sku:
+          type: string
+        name:
+          type: string
+        manufacturer:
+          type: string
+        quantity:
+          type: integer
+        unitPriceMinor:
+          type: integer
+          format: int64
+        lineTotalMinor:
+          type: integer
+          format: int64
+    AdminOrder:
+      type: object
+      description: Staff view of an order. items is present on getOrder and the mutations, absent in list items.
+      required: [id, number, revision, status, statusLabel, allowedTransitions, createdAt, customer, deliveryAddress, comment, itemCount, totalMinor]
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+        number:
+          type: string
+        revision:
+          type: integer
+          format: int64
+          minimum: 1
+        status:
+          type: string
+          description: One of OrderStatus; an older status outside it is shown as stored and allows no transition.
+        statusLabel:
+          type: string
+          description: The customer-facing label stored with the status.
+        allowedTransitions:
+          type: array
+          items:
+            $ref: '#/components/schemas/OrderStatus'
+        createdAt:
+          type: string
+          format: date-time
+        deliveredAt:
+          type: string
+          format: date-time
+        customer:
+          type: object
+          required: [id, name, email, phone]
+          additionalProperties: false
+          properties:
+            id:
+              type: string
+            name:
+              type: string
+            email:
+              type: string
+            phone:
+              type: string
+        deliveryAddress:
+          type: string
+        comment:
+          type: string
+        itemCount:
+          type: integer
+        totalMinor:
+          type: integer
+          format: int64
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminOrderLine'
+    AdminOrderPage:
+      type: object
+      required: [items, total, page, limit, totalPages]
+      additionalProperties: false
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminOrder'
+        total:
+          type: integer
+        page:
+          type: integer
+        limit:
+          type: integer
+        totalPages:
+          type: integer
     Error:
       type: object
       required:
@@ -1091,6 +1411,7 @@ components:
               - not_found
               - stale_revision
               - conflict
+              - invalid_transition
               - service_unavailable
               - internal_error
             message:

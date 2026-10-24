@@ -1,5 +1,6 @@
 import { vi } from "vitest";
 
+import type { AdminOrder } from "@/lib/orders-api";
 import type { AdminProduct, CatalogOptions } from "@/lib/products-api";
 
 export const testStaff = { id: "stf_" + "a".repeat(32), email: "ops@example.com", displayName: "Оператор" };
@@ -60,3 +61,17 @@ export const catalogOptions: CatalogOptions = {
   ],
   collections: [{ id: "col-best", name: "Хиты" }, { id: "col-gifts", name: "Подарки" }],
 };
+
+export function order(overrides: Partial<AdminOrder> = {}): AdminOrder {
+  return {
+    id: "ord-2026-10483", number: "#10483", revision: 1, status: "processing", statusLabel: "Собираем заказ",
+    allowedTransitions: ["transit", "cancelled"], createdAt: "2026-10-24T09:30:00Z",
+    customer: { id: "usr-demo", name: "Алексей Демо", email: "demo@sugar.ru", phone: "+7 900 000-00-00" },
+    deliveryAddress: "Москва, ул. Большая Дмитровка, 12, кв. 4", comment: "Позвонить за час", itemCount: 5, totalMinor: 247000,
+    items: [
+      { position: 1, productId: "p03", sku: "SWE-204", name: "Розовый шоколад с малиной", manufacturer: "Sweetzerland", quantity: 2, unitPriceMinor: 71900, lineTotalMinor: 143800 },
+      { position: 2, productId: "p05", sku: "LEO-505", name: "Ассорти пралине", manufacturer: "Leonidas", quantity: 3, unitPriceMinor: 24400, lineTotalMinor: 73200 },
+    ],
+    ...overrides,
+  };
+}

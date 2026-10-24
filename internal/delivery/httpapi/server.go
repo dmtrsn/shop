@@ -44,6 +44,8 @@ type Server struct {
 	staffCookieName string
 	// products enables staff product management (nil: no product routes).
 	products *application.ProductAdmin
+	// orderAdmin enables staff order management (nil: no order routes).
+	orderAdmin *application.OrderAdmin
 
 	// Self-service registration and recovery; nil means their routes do not
 	// exist.
@@ -577,7 +579,9 @@ func (s *Server) writeError(w http.ResponseWriter, r *http.Request, err error) {
 	case errors.Is(err, errAuthenticatedUserChanged):
 		status, code, message = http.StatusConflict, "authenticated_user_changed", "Сессия принадлежит другому пользователю: обновите страницу"
 	case errors.Is(err, domain.ErrStaleRevision):
-		status, code, message = http.StatusConflict, "stale_revision", "Товар уже изменён: загрузите актуальную версию и повторите"
+		status, code, message = http.StatusConflict, "stale_revision", "Запись уже изменена: загрузите актуальную версию и повторите"
+	case errors.Is(err, domain.ErrInvalidTransition):
+		status, code, message = http.StatusConflict, "invalid_transition", "Такое изменение статуса недоступно для заказа в его текущем состоянии"
 	case errors.Is(err, errAuthenticatedStaffChanged):
 		status, code, message = http.StatusConflict, "authenticated_staff_changed", "Сессия принадлежит другому сотруднику: обновите страницу"
 	case errors.Is(err, domain.ErrConflict):

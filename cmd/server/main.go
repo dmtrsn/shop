@@ -368,6 +368,9 @@ func staffOptions(repo domain.Repository, origins []string) ([]httpapi.Option, e
 	if products, ok := repo.(application.ProductAdminStore); ok {
 		options = append(options, httpapi.WithProductAdmin(application.NewProductAdmin(products)))
 	}
+	if orders, ok := repo.(application.OrderAdminStore); ok {
+		options = append(options, httpapi.WithOrderAdmin(application.NewOrderAdmin(orders)))
+	}
 	return options, nil
 }
 

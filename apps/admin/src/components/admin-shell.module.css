@@ -53,8 +53,7 @@
   list-style: none;
 }
 
-.nav a,
-.upcoming {
+.nav a {
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
@@ -71,15 +70,6 @@
 .nav a[aria-current="page"] {
   background: var(--color-brand);
   color: var(--color-text);
-}
-
-.upcoming {
-  color: var(--color-on-inverse-muted);
-  cursor: default;
-}
-
-.upcoming small {
-  font-size: var(--font-size-xs);
 }
 
 .identity {

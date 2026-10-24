@@ -3655,6 +3655,8 @@ components:
           type: string
         status:
           type: string
+          description: processing after checkout; staff may later set transit, delivered or cancelled (ADR 016).
+            Show statusLabel; treat an unfamiliar status as neutral.
         statusLabel:
           type: string
         items:

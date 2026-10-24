@@ -676,7 +676,10 @@ unset PASSWORD
   сотрудника, оболочка, выход и раздел «Товары» (`/products`: поиск, создание, редактирование,
   архивирование и восстановление через API B1; конфликт ревизий показывается, а не
   перезаписывается; справочники для формы — `GET /api/admin/v1/catalog-options`, только чтение;
-  [ADR 015](docs/adr/015-admin-product-ui.md)). Включение:
+  [ADR 015](docs/adr/015-admin-product-ui.md)) и раздел «Заказы» (`/orders`: поиск, просмотр
+  снимка заказа, «Собираем заказ» → «В пути» → «Доставлен», отмена ещё не отправленного заказа с
+  возвратом товара на склад в той же транзакции; без возврата денег и уведомлений;
+  [ADR 016](docs/adr/016-staff-order-management.md)). Включение:
   `COMPOSE_PROFILES=admin STAFF_TRUSTED_ORIGINS=http://localhost:8081 docker compose up -d --build`,
   затем `http://localhost:8081`. Публиковать admin-origin в интернет нельзя, пока не решён вопрос
   MFA — подробности в [ADR 014](docs/adr/014-admin-frontend-and-edge.md). Ролей и MFA пока нет;
@@ -946,7 +949,8 @@ bash scripts/test-staff-auth-limit.sh   # шаблон admin-edge в изоли�
 Проверки admin-хоста на запущенном стеке (профиль `admin`, `SESSION_COOKIE_SECURE=true`,
 `STAFF_TRUSTED_ORIGINS=http://localhost:8081`, сотрудник из `shopctl staff create`):
 `scripts/test-admin-edge.sh`, `scripts/with-admin-tls-proxy.sh node scripts/test-admin-browser-flow.mjs`,
-`scripts/with-admin-tls-proxy.sh node scripts/test-admin-product-flow.mjs` (меняет товар p01 — только одноразовая база)
+`scripts/with-admin-tls-proxy.sh node scripts/test-admin-product-flow.mjs` (меняет товар p01 — только одноразовая база),
+`scripts/with-admin-tls-proxy.sh node scripts/test-admin-order-flow.mjs` (оформляет и меняет заказы демо-покупателя — только одноразовая база)
 (headless Chrome через временный TLS-терминатор: браузеры принимают cookie `__Host-` только по https;
 в `STAFF_TRUSTED_ORIGINS` добавьте `https://localhost:8443`) и `scripts/test-admin-auth-rate-limit.sh` —
 только на одноразовом окружении.

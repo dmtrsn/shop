@@ -29,7 +29,7 @@ import {
 } from "@/lib/products-api";
 import { useStaffApi } from "./use-staff-api";
 import { useUnsavedChanges } from "./use-unsaved-changes";
-import styles from "./products.module.css";
+import styles from "./admin-pages.module.css";
 
 type Load = { status: "loading" } | { status: "ready" } | { status: "error"; failure: ApiFailure };
 type Notice = { tone: "success" | "error"; text: string } | null;

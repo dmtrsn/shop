@@ -9,9 +9,9 @@ import (
 // Staff product management (ADR 013). Products are archived, never deleted,
 // and every staff change names the revision it was based on.
 
-// ErrStaleRevision: the product changed after the client read it. Nothing
-// was written.
-var ErrStaleRevision = errors.New("product revision is stale")
+// ErrStaleRevision: the product or order changed after the client read it.
+// Nothing was written.
+var ErrStaleRevision = errors.New("revision is stale")
 
 // ProductInput is every field staff set on create and replace on update.
 // Rating, reviews, currency and media are not staff-editable here.

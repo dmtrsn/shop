@@ -30,7 +30,11 @@ func StaffConfig() httpapi.StaffConfig {
 // The handler must have the staff API and product management enabled with
 // StaffConfig, a staff account with the given credentials, and the demo
 // catalog dictionaries (cat-bars, m-choco, b-atelier-noir, col-gifts).
-func RunAdmin(t *testing.T, handler http.Handler, email, password string) {
+// AdminOrders names two processing orders for the order operations: one to
+// ship, one to cancel.
+type AdminOrders struct{ Ship, Cancel string }
+
+func RunAdmin(t *testing.T, handler http.Handler, email, password string, orders AdminOrders) {
 	t.Helper()
 	doc := AdminDocument(t)
 	router, err := legacy.NewRouter(doc)
@@ -132,12 +136,14 @@ func RunAdmin(t *testing.T, handler http.Handler, email, password string) {
 		t.Fatal("expected staff precondition")
 	}
 	runAdminProducts(t, send, errorCode, cookie, csrf)
+	runAdminOrders(t, send, errorCode, cookie, csrf, orders)
 	send("DELETE", sessionPath, "", 204, map[string]string{"Cookie": cookie, "Origin": AdminTrustedOrigin, "X-CSRF-Token": csrf, "X-Expected-Staff-ID": id})
 	if state, _ := send("GET", sessionPath, "", 200, map[string]string{"Cookie": cookie}); state["authenticated"] != false {
 		t.Fatal("staff session survived logout")
 	}
 	for _, operation := range []string{"staffSessionState", "startStaffSession", "endStaffSession",
-		"listProducts", "createProduct", "getProduct", "updateProduct", "archiveProduct", "restoreProduct", "getCatalogOptions"} {
+		"listProducts", "createProduct", "getProduct", "updateProduct", "archiveProduct", "restoreProduct", "getCatalogOptions",
+		"listOrders", "getOrder", "changeOrderStatus", "cancelOrder"} {
 		if !covered[operation] {
 			t.Errorf("operation %s not covered", operation)
 		}
@@ -209,5 +215,48 @@ func runAdminProducts(t *testing.T, send adminSend, errorCode func(map[string]an
 	}
 	if restored, _ := send("POST", path+"/restore", `{"expectedRevision":3}`, 200, write); revision(restored) != 4 || restored["archived"] != false {
 		t.Fatalf("restored product: %v", restored)
+	}
+}
+
+func runAdminOrders(t *testing.T, send adminSend, errorCode func(map[string]any) string, cookie, csrf string, orders AdminOrders) {
+	t.Helper()
+	read := map[string]string{"Cookie": cookie}
+	write := map[string]string{"Cookie": cookie, "Origin": AdminTrustedOrigin, "X-CSRF-Token": csrf}
+	revision := func(order map[string]any) int64 { return int64(order["revision"].(float64)) }
+	body := func(status string, revision int64) string {
+		if status == "" {
+			return `{"expectedRevision":` + strconv.FormatInt(revision, 10) + `}`
+		}
+		return `{"status":"` + status + `","expectedRevision":` + strconv.FormatInt(revision, 10) + `}`
+	}
+
+	if page, _ := send("GET", "/api/admin/v1/orders?status=processing&limit=5", "", 200, read); len(page["items"].([]any)) < 2 {
+		t.Fatal("processing orders")
+	}
+	if result, _ := send("GET", "/api/admin/v1/orders/missing", "", 404, read); errorCode(result) != "not_found" {
+		t.Fatal("missing order")
+	}
+	if result, _ := send("GET", "/api/admin/v1/orders", "", 401, nil); errorCode(result) != "unauthorized" {
+		t.Fatal("anonymous orders")
+	}
+	ship, _ := send("GET", "/api/admin/v1/orders/"+orders.Ship, "", 200, read)
+	path := "/api/admin/v1/orders/" + orders.Ship
+	if result, _ := send("POST", path+"/status", body("cancelled", revision(ship)), 422, write); errorCode(result) != "validation_error" {
+		t.Fatal("cancel through the status route")
+	}
+	shipped, _ := send("POST", path+"/status", body("transit", revision(ship)), 200, write)
+	if shipped["status"] != "transit" || revision(shipped) != revision(ship)+1 {
+		t.Fatalf("shipped order: %v", shipped)
+	}
+	if result, _ := send("POST", path+"/status", body("transit", revision(ship)), 409, write); errorCode(result) != "stale_revision" {
+		t.Fatal("stale status change accepted")
+	}
+	if result, _ := send("POST", path+"/cancel", body("", revision(shipped)), 409, write); errorCode(result) != "invalid_transition" {
+		t.Fatal("shipped order cancelled")
+	}
+	cancel, _ := send("GET", "/api/admin/v1/orders/"+orders.Cancel, "", 200, read)
+	cancelled, _ := send("POST", "/api/admin/v1/orders/"+orders.Cancel+"/cancel", body("", revision(cancel)), 200, write)
+	if cancelled["status"] != "cancelled" || len(cancelled["allowedTransitions"].([]any)) != 0 {
+		t.Fatalf("cancelled order: %v", cancelled)
 	}
 }

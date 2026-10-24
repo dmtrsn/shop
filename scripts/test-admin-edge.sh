@@ -74,6 +74,10 @@ call products GET "$admin/api/admin/v1/products"
 expect 401 "anonymous product list" products
 call options GET "$admin/api/admin/v1/catalog-options"
 expect 401 "anonymous catalog options" options
+call orders GET "$admin/api/admin/v1/orders"
+expect 401 "anonymous order list" orders
+call order-cancel POST "$admin/api/admin/v1/orders/ord-2026-002/cancel" --header "Origin: $admin" --header 'Content-Type: application/json' --data '{"expectedRevision":1}'
+expect 401 "anonymous order cancel" order-cancel
 call create POST "$admin/api/admin/v1/products" --header "Origin: $admin" --header 'Content-Type: application/json' --data '{}'
 expect 401 "anonymous product create" create
 call shop-origin POST "$admin/api/admin/v1/auth/session" --header "Origin: $shop" --header 'Content-Type: application/json' \
@@ -109,6 +113,8 @@ call me GET "$admin/api/admin/v1/auth/session" --header "Cookie: $staff_cookie"
 json me '"authenticated":true'
 call list GET "$admin/api/admin/v1/products?limit=1" --header "Cookie: $staff_cookie"
 expect 200 "staff product list through the admin host" list
+call staff-orders GET "$admin/api/admin/v1/orders?status=delivered" --header "Cookie: $staff_cookie"
+expect 200 "staff order list through the admin host" staff-orders
 call staff-options GET "$admin/api/admin/v1/catalog-options" --header "Cookie: $staff_cookie"
 expect 200 "staff catalog options through the admin host" staff-options
 json staff-options '"manufacturerId":"m-choco"'
@@ -137,13 +143,15 @@ call customer-products GET "$admin/api/admin/v1/products" --header "Cookie: $cus
 expect 401 "customer cookie on staff products" customer-products
 call customer-options GET "$admin/api/admin/v1/catalog-options" --header "Cookie: $customer_cookie"
 expect 401 "customer cookie on catalog options" customer-options
+call customer-orders GET "$admin/api/admin/v1/orders" --header "Cookie: $customer_cookie"
+expect 401 "customer cookie on staff orders" customer-orders
 call admin-origin-on-shop POST "$shop/api/auth/session" --header "Origin: $admin" --header 'Content-Type: application/json' \
   --data "{\"email\":\"$customer_email\",\"password\":\"$customer_password\"}"
 expect 403 "admin origin on the customer sign-in" admin-origin-on-shop
 
 # 6. The shop host still has no admin API, for any staff route or spelling.
 for method in GET POST PUT DELETE; do
-  for path in /api/admin/v1/auth/session /api/admin/v1/products /api/admin/v1/products/p01 /api/admin/v1/products/p01/archive /api/admin/v1/catalog-options /%61pi/admin/v1/products //api//admin/v1/products; do
+  for path in /api/admin/v1/auth/session /api/admin/v1/products /api/admin/v1/products/p01 /api/admin/v1/products/p01/archive /api/admin/v1/catalog-options /api/admin/v1/orders /api/admin/v1/orders/ord-2026-002/cancel /%61pi/admin/v1/orders //api//admin/v1/orders; do
     call shop-admin "$method" "$shop$path" --header "Cookie: $staff_cookie" --header "Origin: $admin" --header 'Content-Type: application/json' --data '{}'
     expect 404 "shop host $method $path" shop-admin
     from_go shop-admin && fail "shop host $method $path reached Go"

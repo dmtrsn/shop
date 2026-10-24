@@ -28,7 +28,7 @@ const (
 )
 
 // staffServer is the production-shaped handler with the staff API and staff
-// product management enabled.
+// product and order management enabled.
 func (d *database) staffServer(t *testing.T, logs io.Writer) http.Handler {
 	t.Helper()
 	if logs == nil {
@@ -36,7 +36,8 @@ func (d *database) staffServer(t *testing.T, logs io.Writer) http.Handler {
 	}
 	return httpapi.New(d.service, slog.New(slog.NewTextHandler(logs, nil)), "", "postgres", contract.SessionConfig(),
 		httpapi.WithStaff(application.NewStaffAuth(d.store), contract.StaffConfig()),
-		httpapi.WithProductAdmin(application.NewProductAdmin(d.store)))
+		httpapi.WithProductAdmin(application.NewProductAdmin(d.store)),
+		httpapi.WithOrderAdmin(application.NewOrderAdmin(d.store)))
 }
 
 func (d *database) createStaff(t *testing.T) domain.StaffAccount {
@@ -109,7 +110,9 @@ func TestAdminContractOnPostgreSQL(t *testing.T) {
 	handler := d.staffServer(t, nil)
 	// The customer contract is unchanged with the staff API enabled.
 	contract.Run(t, handler)
-	contract.RunAdmin(t, handler, staffEmail, staffPassword)
+	ship := d.placeOrder(t, "usr-demo", line{"p03", 1})
+	cancel := d.placeOrder(t, "usr-demo", line{"p05", 1})
+	contract.RunAdmin(t, handler, staffEmail, staffPassword, contract.AdminOrders{Ship: ship.ID, Cancel: cancel.ID})
 }
 
 func TestStaffRoutesAbsentWithoutConfiguration(t *testing.T) {

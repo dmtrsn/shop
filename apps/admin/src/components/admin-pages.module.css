@@ -404,3 +404,40 @@
     display: none;
   }
 }
+
+.columns {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
+  gap: var(--space-4);
+}
+
+.card {
+  display: grid;
+  align-content: start;
+  gap: var(--space-1);
+  padding: var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  background: var(--color-surface);
+}
+
+.card h2,
+.sectionTitle {
+  font-size: var(--font-size-body);
+  margin-bottom: var(--space-2);
+}
+
+.card p {
+  margin: 0;
+}
+
+.wrap {
+  overflow-wrap: anywhere;
+}
+
+.table tfoot th,
+.table tfoot td {
+  border-bottom: 0;
+  border-top: 1px solid var(--color-border);
+  text-align: right;
+}

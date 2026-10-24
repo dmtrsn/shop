@@ -7,7 +7,7 @@ export type FieldError = { field: string; message: string };
 
 export type ApiFailure =
   | { kind: "validation"; fields: FieldError[] }
-  | { kind: "stale_revision" | "not_found" | "conflict" | "unauthorized" | "csrf" | "staff_changed" | "unavailable" }
+  | { kind: "stale_revision" | "invalid_transition" | "not_found" | "conflict" | "unauthorized" | "csrf" | "staff_changed" | "unavailable" }
   | { kind: "failed"; requestId?: string };
 
 export type ApiResult<T> = { ok: true; data: T } | { ok: false; error: ApiFailure };
@@ -17,7 +17,8 @@ export type MutationAuth = { csrfToken: string; staffId: string };
 
 export const failureMessages: Record<ApiFailure["kind"], string> = {
   validation: "Проверьте выделенные поля.",
-  stale_revision: "Товар был изменён другим сотрудником. Ваши изменения не сохранены.",
+  stale_revision: "Запись была изменена другим сотрудником. Изменения не сохранены.",
+  invalid_transition: "Это действие недоступно в текущем состоянии. Загрузите актуальную версию.",
   not_found: "Товар не найден.",
   conflict: "Действие нельзя выполнить в текущем состоянии товара. Загрузите актуальную версию.",
   unauthorized: "Сеанс завершён. Войдите снова.",
@@ -51,6 +52,8 @@ function failure(status: number, body: unknown): ApiFailure {
       return { kind: "validation", fields: fields.map(({ field, message }) => ({ field, message })) };
     case "stale_revision":
       return { kind: "stale_revision" };
+    case "invalid_transition":
+      return { kind: "invalid_transition" };
     case "not_found":
       return { kind: "not_found" };
     case "conflict":

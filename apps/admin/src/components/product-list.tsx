@@ -9,7 +9,7 @@ import { formatRoubles } from "@/lib/money";
 import { listProducts, type ProductPage, type ProductQuery, type ProductStatus } from "@/lib/products-api";
 import { pageSizes, productListHref } from "@/lib/product-query";
 import { useStaffApi } from "./use-staff-api";
-import styles from "./products.module.css";
+import styles from "./admin-pages.module.css";
 
 type State = { status: "loading" } | { status: "ready"; page: ProductPage } | { status: "error"; message: string };
 

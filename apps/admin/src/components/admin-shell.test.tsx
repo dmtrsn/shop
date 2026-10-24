@@ -46,10 +46,11 @@ describe("authenticated admin shell", () => {
     expect(screen.getByText("Ольга Оператор")).toBeInTheDocument();
     expect(screen.getByText("ops@example.com")).toBeInTheDocument();
     const nav = screen.getByRole("navigation", { name: "Разделы" });
-    expect(within(nav).getAllByRole("link")).toHaveLength(2);
+    expect(within(nav).getAllByRole("link")).toHaveLength(3);
     expect(within(nav).getByRole("link", { name: "Обзор" })).toHaveAttribute("aria-current", "page");
     expect(within(nav).getByRole("link", { name: "Товары" })).toHaveAttribute("href", "/products");
-    expect(within(nav).getByText("Заказы").closest("[aria-disabled]")).not.toBeNull();
+    expect(within(nav).getByRole("link", { name: "Заказы" })).toHaveAttribute("href", "/orders");
+    expect(nav.querySelector("[aria-disabled]")).toBeNull();
     expect(screen.getByRole("main")).toHaveTextContent("Содержимое");
     await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(1));
     expect(method(fetcher, 0)).toBe("GET");
