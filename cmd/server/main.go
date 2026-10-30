@@ -20,6 +20,7 @@ import (
 	"sweetshop/internal/delivery/httpapi"
 	"sweetshop/internal/domain"
 	"sweetshop/internal/email"
+	"sweetshop/internal/media"
 	"sweetshop/internal/repository/memory"
 	postgresrepo "sweetshop/internal/repository/postgres"
 )
@@ -60,6 +61,14 @@ func main() {
 	if err != nil {
 		logger.Error("invalid staff session configuration", "error", err)
 		os.Exit(1)
+	}
+	mediaLibrary, err := managedMedia(repo, logger)
+	if err != nil {
+		logger.Error("invalid media configuration", "error", err)
+		os.Exit(1)
+	}
+	if mediaLibrary != nil {
+		options = append(options, httpapi.WithMedia(mediaLibrary))
 	}
 	registrations, resets, err := selfService(repo, service, mail, logger)
 	if err != nil {
@@ -375,6 +384,28 @@ func staffOptions(repo domain.Repository, origins []string) ([]httpapi.Option, e
 		options = append(options, httpapi.WithDictionaryAdmin(application.NewDictionaryAdmin(dictionaries)))
 	}
 	return options, nil
+}
+
+// managedMedia enables managed product media when MEDIA_ROOT is set (ADR
+// 019). The root must be an existing directory this process owns and can
+// write, and media needs PostgreSQL; either problem stops startup rather
+// than silently storing uploads somewhere ephemeral. Empty MEDIA_ROOT means
+// no managed media: /media is 404 and the staff media routes do not exist.
+func managedMedia(repo domain.Repository, logger *slog.Logger) (*application.Media, error) {
+	root := strings.TrimSpace(os.Getenv("MEDIA_ROOT"))
+	if root == "" {
+		return nil, nil
+	}
+	store, ok := repo.(application.MediaStore)
+	if !ok {
+		return nil, errors.New("MEDIA_ROOT requires PostgreSQL storage")
+	}
+	files, err := media.OpenFileStore(root)
+	if err != nil {
+		return nil, err
+	}
+	logger.Info("managed media enabled", "root", root)
+	return application.NewMedia(store, files, logger), nil
 }
 
 func env(key, fallback string) string {

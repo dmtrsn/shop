@@ -9,6 +9,8 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -17,6 +19,7 @@ import (
 	"sweetshop/internal/application"
 	"sweetshop/internal/delivery/httpapi"
 	"sweetshop/internal/domain"
+	"sweetshop/internal/media"
 	"sweetshop/tests/contract"
 )
 
@@ -27,8 +30,8 @@ const (
 	shopCookie    = "__Host-sweetshop_session"
 )
 
-// staffServer is the production-shaped handler with the staff API and staff
-// product, order and dictionary management enabled.
+// staffServer is the production-shaped handler with the staff API, staff
+// product, order and dictionary management, and managed media enabled.
 func (d *database) staffServer(t *testing.T, logs io.Writer) http.Handler {
 	t.Helper()
 	if logs == nil {
@@ -38,7 +41,25 @@ func (d *database) staffServer(t *testing.T, logs io.Writer) http.Handler {
 		httpapi.WithStaff(application.NewStaffAuth(d.store), contract.StaffConfig()),
 		httpapi.WithProductAdmin(application.NewProductAdmin(d.store)),
 		httpapi.WithOrderAdmin(application.NewOrderAdmin(d.store)),
-		httpapi.WithDictionaryAdmin(application.NewDictionaryAdmin(d.store)))
+		httpapi.WithDictionaryAdmin(application.NewDictionaryAdmin(d.store)),
+		httpapi.WithMedia(d.mediaLibrary(t)))
+}
+
+// mediaLibrary is the database's managed media over a temporary root.
+func (d *database) mediaLibrary(t *testing.T) *application.Media {
+	t.Helper()
+	if d.media == nil {
+		d.mediaRoot = filepath.Join(t.TempDir(), "media")
+		if err := os.Mkdir(d.mediaRoot, 0o750); err != nil {
+			t.Fatal(err)
+		}
+		files, err := media.OpenFileStore(d.mediaRoot)
+		if err != nil {
+			t.Fatal(err)
+		}
+		d.media = application.NewMedia(d.store, files, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	}
+	return d.media
 }
 
 func (d *database) createStaff(t *testing.T) domain.StaffAccount {

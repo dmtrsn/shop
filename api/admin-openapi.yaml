@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: Sweetshop staff (admin) HTTP API
-  version: 0.6.0-b6
+  version: 0.7.0-c1
   description: >-
     Staff API under /api/admin/v1, separate from the customer contract in openapi.yaml. Staff are a separate
     principal: staff_users/staff_sessions, the HttpOnly SameSite=Strict cookie __Host-sweetshop_staff
@@ -20,7 +20,9 @@ info:
     deleted either: staff move them through processing, transit and delivered, or cancel them while processing,
     which returns their stock in the same audited transaction. The catalog dictionaries (categories,
     manufacturers, brands, collections; ADR 018) are created, edited, archived and restored, never deleted, with
-    the same revision, audit and protection rules.
+    the same revision, audit and protection rules. Managed product media (ADR 019) is uploaded, listed and
+    deleted here; its public delivery path /media/{id} is a resource of the shop and admin hosts, not an
+    operation of this API.
 servers:
 - url: /
 paths:
@@ -1309,6 +1311,157 @@ paths:
           $ref: '#/components/responses/DictionaryValidationError'
         '500':
           $ref: '#/components/responses/InternalError'
+  /api/admin/v1/media:
+    get:
+      operationId: listMedia
+      summary: listMedia
+      description: >-
+        Live managed media assets, newest first (deleted assets are never listed). page starts at 1 (at most
+        10000); limit is 1-100, default 50. Each item carries productCount, the number of products that
+        reference it. Requires the staff session.
+      parameters:
+      - name: page
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+      responses:
+        '200':
+          description: Success
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestID'
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MediaPage'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/StaffChanged'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    post:
+      operationId: uploadMedia
+      summary: uploadMedia
+      description: >-
+        Uploads one product image as multipart/form-data with exactly one part named "file" (ADR 019). The
+        part's file name and declared type are ignored: the bytes must be a still JPEG, PNG or WebP image (no
+        SVG, GIF or animation) of at most 10485760 bytes, at most 8192 pixels per side and 16777216 pixels in
+        total. The image is decoded and re-encoded (JPEG when opaque, PNG when it has transparency), which
+        drops EXIF and any other metadata; a JPEG's EXIF orientation is applied to the pixels. Content type,
+        size, dimensions and SHA-256 describe the stored bytes, which never change: the asset ID is new for
+        every upload and never reused. The stored file is written before its metadata and audit event
+        (media.upload) commit together; a failed commit removes it again. Errors: 413 media_too_large, 415
+        unsupported_media_type, 422 validation_error (field file: corrupt, truncated or too many pixels; or a
+        malformed multipart body), 503 storage_unavailable.
+      parameters:
+      - $ref: '#/components/parameters/CSRFToken'
+      - $ref: '#/components/parameters/ExpectedStaffID'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/MediaUpload'
+      responses:
+        '201':
+          description: Uploaded
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestID'
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MediaAsset'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/CSRFFailed'
+        '409':
+          $ref: '#/components/responses/StaffChanged'
+        '413':
+          $ref: '#/components/responses/MediaTooLarge'
+        '415':
+          $ref: '#/components/responses/UnsupportedMedia'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/StorageUnavailable'
+  /api/admin/v1/media/{media}:
+    parameters:
+    - $ref: '#/components/parameters/Media'
+    get:
+      operationId: getMedia
+      summary: getMedia
+      description: One live asset. Unknown and deleted assets are 404.
+      responses:
+        '200':
+          description: Success
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestID'
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MediaAsset'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/MediaNotFound'
+        '409':
+          $ref: '#/components/responses/StaffChanged'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    delete:
+      operationId: deleteMedia
+      summary: deleteMedia
+      description: >-
+        Deletes an unreferenced asset: the row is tombstoned (its ID is never reused) together with the audit
+        event media.delete, /media/{id} answers 404 from then on, and the file is removed after the commit. If
+        that removal fails the deletion still stands and `shopctl media verify --apply` removes the leftover
+        later. An asset any product references is 409 reference_conflict with error.references.products, and
+        nothing changes; detach it first. Copies already held by browsers or proxies are not purged. There is no
+        request body and no replacement of an asset's bytes.
+      parameters:
+      - $ref: '#/components/parameters/CSRFToken'
+      - $ref: '#/components/parameters/ExpectedStaffID'
+      responses:
+        '204':
+          description: Deleted
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestID'
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/CSRFFailed'
+        '404':
+          $ref: '#/components/responses/MediaNotFound'
+        '409':
+          $ref: '#/components/responses/MediaConflict'
+        '500':
+          $ref: '#/components/responses/InternalError'
   /api/admin/v1/orders:
     get:
       operationId: listOrders
@@ -1552,6 +1705,13 @@ components:
         - active
         - archived
         - all
+    Media:
+      name: media
+      in: path
+      required: true
+      description: Media ID, med_ + 32 hex digits.
+      schema:
+        type: string
     CSRFToken:
       name: X-CSRF-Token
       in: header
@@ -1661,6 +1821,53 @@ components:
         stale_revision (expectedRevision is not the current revision; reload and reapply); conflict (archive of
         an archived row or restore of an active one); reference_conflict (the row is still used; error.references
         carries the counts); authenticated_staff_changed. Nothing changed and no audit event was written.
+      headers:
+        X-Request-ID:
+          $ref: '#/components/headers/RequestID'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    MediaNotFound:
+      description: not_found; no live media asset has this ID.
+      headers:
+        X-Request-ID:
+          $ref: '#/components/headers/RequestID'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    MediaTooLarge:
+      description: media_too_large; the request or the file exceeds the upload limit. Nothing was stored.
+      headers:
+        X-Request-ID:
+          $ref: '#/components/headers/RequestID'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    UnsupportedMedia:
+      description: unsupported_media_type; the bytes are not a still JPEG, PNG or WebP image. Nothing was stored.
+      headers:
+        X-Request-ID:
+          $ref: '#/components/headers/RequestID'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    StorageUnavailable:
+      description: storage_unavailable; the media store failed. Nothing was registered; retry later (Retry-After).
+      headers:
+        X-Request-ID:
+          $ref: '#/components/headers/RequestID'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    MediaConflict:
+      description: >-
+        reference_conflict (products reference the asset; error.references.products counts them);
+        authenticated_staff_changed. Nothing changed and no audit event was written.
       headers:
         X-Request-ID:
           $ref: '#/components/headers/RequestID'
@@ -2777,6 +2984,85 @@ components:
         archived:
           type: boolean
           description: Archived entries may stay on products that already use them but cannot be newly assigned.
+    MediaUpload:
+      type: object
+      required:
+      - file
+      properties:
+        file:
+          type: string
+          format: binary
+          description: The image bytes. The part's file name and Content-Type are ignored.
+    MediaAsset:
+      type: object
+      description: >-
+        Staff view of a live managed asset. Every field is derived from the stored, normalized bytes; the
+        original file name is not kept.
+      required:
+      - id
+      - contentType
+      - sizeBytes
+      - width
+      - height
+      - sha256
+      - createdAt
+      - url
+      - productCount
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          pattern: '^med_[0-9a-f]{32}$'
+        contentType:
+          type: string
+          enum:
+          - image/jpeg
+          - image/png
+        sizeBytes:
+          type: integer
+          format: int64
+          minimum: 1
+        width:
+          type: integer
+          minimum: 1
+        height:
+          type: integer
+          minimum: 1
+        sha256:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+          description: Digest of the stored bytes; /media/{id} uses it as the ETag.
+        createdAt:
+          type: string
+          format: date-time
+        url:
+          type: string
+          description: Public delivery path, /media/{id}, served by the shop and admin hosts.
+        productCount:
+          type: integer
+          minimum: 0
+    MediaPage:
+      type: object
+      required:
+      - items
+      - total
+      - page
+      - limit
+      - totalPages
+      additionalProperties: false
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/MediaAsset'
+        total:
+          type: integer
+        page:
+          type: integer
+        limit:
+          type: integer
+        totalPages:
+          type: integer
     OrderStatus:
       type: string
       description: >-
@@ -2941,6 +3227,9 @@ components:
               - invalid_transition
               - invalid_hierarchy
               - reference_conflict
+              - media_too_large
+              - unsupported_media_type
+              - storage_unavailable
               - service_unavailable
               - internal_error
             message:
@@ -2949,7 +3238,7 @@ components:
               type: string
             references:
               type: object
-              description: Present on reference_conflict; what still uses the row.
+              description: Present on reference_conflict; what still uses the row or asset.
               required:
               - products
               - brands

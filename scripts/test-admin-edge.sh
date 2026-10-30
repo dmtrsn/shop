@@ -86,6 +86,21 @@ for path in categories manufacturers brands collections; do
 done
 call dictionary-archive POST "$admin/api/admin/v1/collections/col-gifts/archive" --header "Origin: $admin" --header 'Content-Type: application/json' --data '{"expectedRevision":1}'
 expect 401 "anonymous collection archive" dictionary-archive
+call media-list GET "$admin/api/admin/v1/media"
+expect 401 "anonymous media list" media-list
+# Upload bodies: the admin edge admits up to 11 MiB on the upload route only,
+# Go caps the file at 10 MiB, and every other admin route keeps nginx's 1 MiB.
+head -c $((12 * 1024 * 1024)) /dev/zero > "$temporary_dir/huge.bin"
+call media-huge POST "$admin/api/admin/v1/media" --header "Origin: $admin" --header 'Content-Type: multipart/form-data; boundary=x' --data-binary "@$temporary_dir/huge.bin"
+expect 413 "12 MiB upload at the admin edge" media-huge
+from_go media-huge && fail "a 12 MiB upload reached Go"
+head -c $((2 * 1024 * 1024)) /dev/zero > "$temporary_dir/two.bin"
+call products-big POST "$admin/api/admin/v1/products" --header "Origin: $admin" --header 'Content-Type: application/json' --data-binary "@$temporary_dir/two.bin"
+expect 413 "2 MiB body on a non-upload admin route" products-big
+from_go products-big && fail "a 2 MiB product body reached Go"
+call media-missing GET "$admin/media/med_00000000000000000000000000000000"
+expect 404 "unknown media on the admin host" media-missing
+from_go media-missing || fail "admin-host media did not come from Go"
 call shop-origin POST "$admin/api/admin/v1/auth/session" --header "Origin: $shop" --header 'Content-Type: application/json' \
   --data "{\"email\":\"$email\",\"password\":\"$password\"}"
 expect 403 "staff sign-in from the shop origin" shop-origin
@@ -125,6 +140,9 @@ call staff-options GET "$admin/api/admin/v1/catalog-options" --header "Cookie: $
 expect 200 "staff catalog options through the admin host" staff-options
 json staff-options '"manufacturerId":"m-choco"'
 json staff-options '"archived":false'
+call staff-media GET "$admin/api/admin/v1/media" --header "Cookie: $staff_cookie"
+expect 200 "staff media list through the admin host" staff-media
+json staff-media '"items":'
 call staff-categories GET "$admin/api/admin/v1/categories?status=all" --header "Cookie: $staff_cookie"
 expect 200 "staff category list through the admin host" staff-categories
 json staff-categories '"id":"cat-chocolate"'
@@ -161,13 +179,15 @@ call customer-orders GET "$admin/api/admin/v1/orders" --header "Cookie: $custome
 expect 401 "customer cookie on staff orders" customer-orders
 call customer-brands GET "$admin/api/admin/v1/brands" --header "Cookie: $customer_cookie"
 expect 401 "customer cookie on staff brands" customer-brands
+call customer-media GET "$admin/api/admin/v1/media" --header "Cookie: $customer_cookie"
+expect 401 "customer cookie on staff media" customer-media
 call admin-origin-on-shop POST "$shop/api/auth/session" --header "Origin: $admin" --header 'Content-Type: application/json' \
   --data "{\"email\":\"$customer_email\",\"password\":\"$customer_password\"}"
 expect 403 "admin origin on the customer sign-in" admin-origin-on-shop
 
 # 6. The shop host still has no admin API, for any staff route or spelling.
 for method in GET POST PUT DELETE; do
-  for path in /api/admin/v1/auth/session /api/admin/v1/products /api/admin/v1/products/p01 /api/admin/v1/products/p01/archive /api/admin/v1/catalog-options /api/admin/v1/orders /api/admin/v1/orders/ord-2026-002/cancel /api/admin/v1/categories /api/admin/v1/categories/cat-bars /api/admin/v1/manufacturers/m-choco/archive /api/admin/v1/brands /api/admin/v1/collections/col-gifts/restore /%61pi/admin/v1/orders //api//admin/v1/categories; do
+  for path in /api/admin/v1/auth/session /api/admin/v1/products /api/admin/v1/products/p01 /api/admin/v1/products/p01/archive /api/admin/v1/catalog-options /api/admin/v1/orders /api/admin/v1/orders/ord-2026-002/cancel /api/admin/v1/categories /api/admin/v1/categories/cat-bars /api/admin/v1/manufacturers/m-choco/archive /api/admin/v1/brands /api/admin/v1/collections/col-gifts/restore /api/admin/v1/media /api/admin/v1/media/med_00000000000000000000000000000000 /%61pi/admin/v1/orders //api//admin/v1/categories; do
     call shop-admin "$method" "$shop$path" --header "Cookie: $staff_cookie" --header "Origin: $admin" --header 'Content-Type: application/json' --data '{}'
     expect 404 "shop host $method $path" shop-admin
     from_go shop-admin && fail "shop host $method $path reached Go"

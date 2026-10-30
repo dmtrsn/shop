@@ -158,6 +158,19 @@ server {
         proxy_pass http://app:8080;
     }
 
+    # Managed product media (ADR 019): public, read-only, served by Go from
+    # its media volume. Not an API: only GET and HEAD reach Go.
+    location = /media {
+        return 404;
+    }
+
+    location ^~ /media/ {
+        limit_except GET {
+            deny all;
+        }
+        proxy_pass http://app:8080;
+    }
+
     # Legacy web assets remain owned by Go during the migration.
     location = /assets {
         proxy_pass http://app:8080;

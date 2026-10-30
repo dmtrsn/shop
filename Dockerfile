@@ -31,7 +31,13 @@ FROM alpine:3.21 AS runtime
 
 RUN apk add --no-cache ca-certificates tzdata \
     && addgroup -S -g 10001 sweetshop \
-    && adduser -S -D -H -u 10001 -G sweetshop sweetshop
+    && adduser -S -D -H -u 10001 -G sweetshop sweetshop \
+    && install -d -o sweetshop -g sweetshop -m 0750 /var/lib/sweetshop/media
+
+# Mount point of the managed media volume (ADR 019). Docker initializes an
+# empty named volume with this ownership, so the server can write it. MEDIA_ROOT
+# is deliberately unset here: without a mounted volume media stays disabled
+# instead of writing into the container layer.
 
 WORKDIR /app
 

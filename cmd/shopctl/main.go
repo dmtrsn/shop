@@ -7,6 +7,7 @@
 //	shopctl customer create|set-password|disable|enable ...
 //	shopctl staff create|set-password|disable|enable ...
 //	shopctl email test --to ADDRESS
+//	shopctl media verify [--grace=24h] [--apply]
 //
 // Configuration follows the server: DATABASE_URL (required), MIGRATIONS_DIR
 // (default "migrations") and APP_MODE (production, development or demo).
@@ -54,15 +55,17 @@ const usage = `Usage:
   shopctl staff create --email E --name DISPLAY_NAME --password-stdin
   shopctl staff set-password|disable|enable --email E [--password-stdin]
   shopctl email test --to ADDRESS [--timeout=30s]       send one SMTP test message
+  shopctl media verify [--grace=24h] [--apply]           compare MEDIA_ROOT with media rows
 
 Environment: DATABASE_URL (required), MIGRATIONS_DIR (default migrations),
-APP_MODE (production, development or demo; default production). APP_MODE
+APP_MODE (production, development or demo; default production), MEDIA_ROOT
+(media verify only). APP_MODE
 alone sets the demo-fixture policy: production records 002_demo_seed as
 skipped without running it; development and demo apply it.
 
 Exit codes: 0 success or current, 1 failure or inconsistent schema,
-2 usage, configuration or validation error, 3 --status found pending work
-or the account email is taken / unknown.
+2 usage, configuration or validation error, 3 --status found pending work,
+the account email is taken / unknown, or media verify found problems.
 `
 
 func main() {
@@ -83,6 +86,8 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return staff(args[1:], stdin, stdout, stderr)
 	case "email":
 		return emailCommand(args[1:], stdout, stderr)
+	case "media":
+		return mediaCommand(args[1:], stdout, stderr)
 	case "help", "-h", "--help":
 		fmt.Fprint(stdout, usage)
 		return exitOK

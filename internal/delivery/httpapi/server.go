@@ -48,6 +48,9 @@ type Server struct {
 	orderAdmin *application.OrderAdmin
 	// dictionaries enables staff dictionary management (nil: no dictionary routes).
 	dictionaries *application.DictionaryAdmin
+	// media enables managed media: public /media delivery and, with the staff
+	// API, the staff media library (nil: /media is 404).
+	media *application.Media
 
 	// Self-service registration and recovery; nil means their routes do not
 	// exist.
@@ -97,6 +100,7 @@ func New(service *application.Service, logger *slog.Logger, staticDir, storage s
 	if s.staffEnabled() {
 		s.registerStaffRoutes(mux)
 	}
+	s.registerMediaRoutes(mux)
 	mux.Handle("/", s.staticHandler())
 	return s.middleware(mux)
 }
@@ -588,6 +592,13 @@ func (s *Server) writeError(w http.ResponseWriter, r *http.Request, err error) {
 		status, code, message = http.StatusConflict, "invalid_transition", "Такое изменение статуса недоступно для заказа в его текущем состоянии"
 	case errors.Is(err, errAuthenticatedStaffChanged):
 		status, code, message = http.StatusConflict, "authenticated_staff_changed", "Сессия принадлежит другому сотруднику: обновите страницу"
+	case errors.Is(err, domain.ErrMediaTooLarge):
+		status, code, message = http.StatusRequestEntityTooLarge, "media_too_large", "Файл больше 10 МБ"
+	case errors.Is(err, domain.ErrUnsupportedMedia):
+		status, code, message = http.StatusUnsupportedMediaType, "unsupported_media_type", "Поддерживаются только изображения JPEG, PNG и WebP без анимации"
+	case errors.Is(err, domain.ErrStorageUnavailable):
+		status, code, message = http.StatusServiceUnavailable, "storage_unavailable", "Хранилище изображений недоступно, повторите попытку позже"
+		w.Header().Set("Retry-After", "5")
 	case errors.Is(err, domain.ErrInvalidHierarchy):
 		status, code, message = http.StatusUnprocessableEntity, "invalid_hierarchy", "Категории образуют два уровня: родитель должен быть корневой категорией, а категория с подкатегориями не может стать подкатегорией"
 	case errors.As(err, new(*domain.ReferenceConflictError)):

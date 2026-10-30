@@ -186,6 +186,19 @@ jobs:
         env:
           COMPOSE_PROJECT: sweetshop-edge-smoke
         run: bash scripts/with-admin-tls-proxy.sh node scripts/test-admin-catalog-flow.mjs
+      - name: Recreate the admin edge before the media smoke
+        env:
+          COMPOSE_PROFILES: mail,admin
+        run: docker compose -p sweetshop-edge-smoke --env-file .env.example up -d --no-deps --force-recreate --wait --wait-timeout 60 admin-edge
+      - name: Managed media through the real stack (upload, survives app replacement, public delivery on both edges, reference-safe delete, audit rows, store verification)
+        env:
+          COMPOSE_PROJECT: sweetshop-edge-smoke
+          # The smoke recreates app, so it needs the same app configuration as its start.
+          COMPOSE_PROFILES: mail,admin
+          EDGE_ROUTE_MAP: default
+          SESSION_COOKIE_SECURE: 'true'
+          STAFF_TRUSTED_ORIGINS: http://localhost:8081,https://localhost:8443
+        run: node scripts/test-media-smoke.mjs
       - name: Recreate the admin edge again for the limiter burst
         env:
           COMPOSE_PROFILES: mail,admin

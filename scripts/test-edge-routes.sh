@@ -118,7 +118,7 @@ expect_body api-health '"status":"ok"'
 # The staff (admin) API never answers on the shop host, whatever Go's
 # STAFF_TRUSTED_ORIGINS is: the edge itself returns 404 (ADR 006).
 for method in GET POST DELETE; do
-  for path in /api/admin /api/admin/v1/auth/session /%61pi/admin/v1/auth/session //api//admin/v1/auth/session /api/admin/v1/products /api/admin/v1/products/p01/archive /api/admin/v1/catalog-options /api/admin/v1/orders /api/admin/v1/orders/ord-2026-002/status /api/admin/v1/categories /api/admin/v1/manufacturers/m-choco /api/admin/v1/brands/b-caffarel/archive /api/admin/v1/collections/col-gifts/restore; do
+  for path in /api/admin /api/admin/v1/auth/session /%61pi/admin/v1/auth/session //api//admin/v1/auth/session /api/admin/v1/products /api/admin/v1/products/p01/archive /api/admin/v1/catalog-options /api/admin/v1/orders /api/admin/v1/orders/ord-2026-002/status /api/admin/v1/categories /api/admin/v1/manufacturers/m-choco /api/admin/v1/brands/b-caffarel/archive /api/admin/v1/collections/col-gifts/restore /api/admin/v1/media /api/admin/v1/media/med_00000000000000000000000000000000; do
     status="$(curl --silent --show-error --path-as-is --max-time 15 --request "$method" \
       --header 'Origin: https://admin.invalid' --header 'Content-Type: application/json' --data '{}' \
       --dump-header "$temporary_dir/admin.headers" --output "$temporary_dir/admin.body" \
@@ -129,6 +129,19 @@ for method in GET POST DELETE; do
     fi
   done
 done
+
+# Managed media (ADR 019) is Go-owned and public, but an unknown asset or a
+# malformed path is a plain 404 that names no file, and only GET/HEAD pass.
+for path in /media /media/ /media/med_00000000000000000000000000000000 /media/not-an-id /%6Dedia/med_00000000000000000000000000000000 /media/med_00000000000000000000000000000000/x; do
+  request_raw media-missing "$path"
+  expect_status 404 "$status" "media $path"
+  expect_go media-missing
+  if grep -Eqi '/var/lib|sweetshop/media|objects/' "$temporary_dir/media-missing.body"; then
+    fail "media $path: storage path leaked"
+  fi
+done
+status="$(curl --silent --show-error --max-time 15 --request POST --data 'x' --output /dev/null --write-out '%{http_code}' "$edge_origin/media/med_00000000000000000000000000000000")"
+expect_status 403 "$status" "media POST"
 
 # Nginx matches the decoded path, so an encoded /api still reaches Go.
 request api-encoded /%61pi/health

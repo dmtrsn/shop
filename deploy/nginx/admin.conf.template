@@ -2,7 +2,8 @@
 # the Compose "admin" profile, on its own origin. It routes exactly two
 # things: /api/admin/* to Go and everything else to the admin Next app. It
 # never serves the customer API or storefront, and the shop edge never
-# serves /api/admin. Not ready for internet exposure: see ADR 014 (MFA).
+# serves /api/admin. It also serves managed media (/media/*, ADR 019) so the
+# admin can show product images. Not ready for internet exposure: see ADR 014 (MFA).
 
 # --- Staff sign-in rate limit (ADR 008) ----------------------------------
 # Key: $binary_remote_addr, the TCP peer of this nginx. The real_ip module is
@@ -56,6 +57,26 @@ server {
     }
 
     location ^~ /api/admin/ {
+        proxy_pass http://app:8080;
+    }
+
+    # Media upload: the only admin route with a larger body (10 MiB file plus
+    # multipart overhead; Go enforces the exact limit too). Everything else
+    # keeps nginx's 1 MiB default.
+    location = /api/admin/v1/media {
+        client_max_body_size 11m;
+        proxy_pass http://app:8080;
+    }
+
+    # Managed product media for previews: public, read-only, GET and HEAD only.
+    location = /media {
+        return 404;
+    }
+
+    location ^~ /media/ {
+        limit_except GET {
+            deny all;
+        }
         proxy_pass http://app:8080;
     }
 

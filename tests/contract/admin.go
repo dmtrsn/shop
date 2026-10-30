@@ -1,8 +1,13 @@
 package contract
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"image"
+	"image/color"
+	"image/png"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -139,6 +144,7 @@ func RunAdmin(t *testing.T, handler http.Handler, email, password string, orders
 	runAdminProducts(t, send, errorCode, cookie, csrf)
 	runAdminOrders(t, send, errorCode, cookie, csrf, orders)
 	runAdminDictionaries(t, send, errorCode, cookie, csrf)
+	runAdminMedia(t, send, errorCode, cookie, csrf)
 	send("DELETE", sessionPath, "", 204, map[string]string{"Cookie": cookie, "Origin": AdminTrustedOrigin, "X-CSRF-Token": csrf, "X-Expected-Staff-ID": id})
 	if state, _ := send("GET", sessionPath, "", 200, map[string]string{"Cookie": cookie}); state["authenticated"] != false {
 		t.Fatal("staff session survived logout")
@@ -149,7 +155,8 @@ func RunAdmin(t *testing.T, handler http.Handler, email, password string, orders
 		"listCategories", "createCategory", "getCategory", "updateCategory", "archiveCategory", "restoreCategory",
 		"listManufacturers", "createManufacturer", "getManufacturer", "updateManufacturer", "archiveManufacturer", "restoreManufacturer",
 		"listBrands", "createBrand", "getBrand", "updateBrand", "archiveBrand", "restoreBrand",
-		"listCollections", "createCollection", "getCollection", "updateCollection", "archiveCollection", "restoreCollection"} {
+		"listCollections", "createCollection", "getCollection", "updateCollection", "archiveCollection", "restoreCollection",
+		"listMedia", "uploadMedia", "getMedia", "deleteMedia"} {
 		if !covered[operation] {
 			t.Errorf("operation %s not covered", operation)
 		}
@@ -341,5 +348,69 @@ func runAdminDictionaries(t *testing.T, send adminSend, errorCode func(map[strin
 	}
 	if options, _ := send("GET", "/api/admin/v1/catalog-options", "", 200, read); options["categories"].([]any)[0].(map[string]any)["archived"] != false {
 		t.Fatal("catalog options without archive flags")
+	}
+}
+
+// mediaUpload is a multipart body with one "file" part.
+func mediaUpload(data []byte) (string, string) {
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	part, _ := writer.CreateFormFile("file", "contract.png")
+	_, _ = part.Write(data)
+	_ = writer.Close()
+	return body.String(), writer.FormDataContentType()
+}
+
+func runAdminMedia(t *testing.T, send adminSend, errorCode func(map[string]any) string, cookie, csrf string) {
+	t.Helper()
+	read := map[string]string{"Cookie": cookie}
+	write := func(contentType string) map[string]string {
+		return map[string]string{"Cookie": cookie, "Origin": AdminTrustedOrigin, "X-CSRF-Token": csrf, "Content-Type": contentType}
+	}
+	img := image.NewNRGBA(image.Rect(0, 0, 24, 18))
+	for i := range img.Pix {
+		img.Pix[i] = 0xC0
+	}
+	img.Set(0, 0, color.NRGBA{0, 0, 0, 0})
+	var encoded bytes.Buffer
+	_ = png.Encode(&encoded, img)
+
+	if result, _ := send("GET", "/api/admin/v1/media", "", 401, nil); errorCode(result) != "unauthorized" {
+		t.Fatal("anonymous media list")
+	}
+	body, contentType := mediaUpload(encoded.Bytes())
+	if result, _ := send("POST", "/api/admin/v1/media", body, 403, map[string]string{"Cookie": cookie, "Origin": AdminTrustedOrigin, "Content-Type": contentType}); errorCode(result) != "csrf_failed" {
+		t.Fatal("media upload without CSRF")
+	}
+	svg, svgType := mediaUpload([]byte(`<svg xmlns="http://www.w3.org/2000/svg"/>`))
+	if result, _ := send("POST", "/api/admin/v1/media", svg, 415, write(svgType)); errorCode(result) != "unsupported_media_type" {
+		t.Fatal("svg accepted")
+	}
+	truncated, truncatedType := mediaUpload(encoded.Bytes()[:40])
+	if result, _ := send("POST", "/api/admin/v1/media", truncated, 422, write(truncatedType)); errorCode(result) != "validation_error" {
+		t.Fatal("truncated image accepted")
+	}
+	huge, hugeType := mediaUpload(make([]byte, 10<<20+1))
+	if result, _ := send("POST", "/api/admin/v1/media", huge, 413, write(hugeType)); errorCode(result) != "media_too_large" {
+		t.Fatal("oversized upload accepted")
+	}
+	created, _ := send("POST", "/api/admin/v1/media", body, 201, write(contentType))
+	id := created["id"].(string)
+	// Transparency keeps the image PNG.
+	if created["contentType"] != "image/png" || created["width"].(float64) != 24 || created["url"] != "/media/"+id {
+		t.Fatalf("uploaded media: %v", created)
+	}
+	if page, _ := send("GET", "/api/admin/v1/media?limit=5", "", 200, read); page["total"].(float64) < 1 {
+		t.Fatal("media list")
+	}
+	if got, _ := send("GET", "/api/admin/v1/media/"+id, "", 200, read); got["sha256"] != created["sha256"] {
+		t.Fatal("media read")
+	}
+	send("DELETE", "/api/admin/v1/media/"+id, "", 204, map[string]string{"Cookie": cookie, "Origin": AdminTrustedOrigin, "X-CSRF-Token": csrf})
+	if result, _ := send("DELETE", "/api/admin/v1/media/"+id, "", 404, map[string]string{"Cookie": cookie, "Origin": AdminTrustedOrigin, "X-CSRF-Token": csrf}); errorCode(result) != "not_found" {
+		t.Fatal("deleted twice")
+	}
+	if result, _ := send("GET", "/api/admin/v1/media/"+id, "", 404, read); errorCode(result) != "not_found" {
+		t.Fatal("deleted media still readable")
 	}
 }

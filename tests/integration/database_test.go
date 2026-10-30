@@ -22,6 +22,10 @@ type database struct {
 	pool    *pgxpool.Pool
 	store   *postgres.Store
 	service *application.Service
+	// media is the managed media library over a temporary root, created on
+	// first use (mediaLibrary); never the developer's media directory.
+	media     *application.Media
+	mediaRoot string
 }
 
 func newDatabase(t *testing.T, migrate bool) *database {
@@ -73,7 +77,7 @@ func newDatabase(t *testing.T, migrate bool) *database {
 	t.Cleanup(pool.Close)
 	store := postgres.New(pool)
 	// Demo options preserve the fixture login; production policy is tested explicitly.
-	db := &database{ctx, pool, store, application.New(store, application.Options{AllowDemoAccount: true})}
+	db := &database{ctx: ctx, pool: pool, store: store, service: application.New(store, application.Options{AllowDemoAccount: true})}
 	if migrate {
 		// The suite's single fixture choice: every fixture-based test expects
 		// the demo data. Production (FixtureSkip) has dedicated tests.
