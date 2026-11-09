@@ -38,7 +38,7 @@ var ErrNotStored = errors.New("media object not stored")
 
 // Store is the narrow storage boundary of managed media. The filesystem
 // implementation below is the only one; an object store could implement the
-// same four operations later.
+// same operations later.
 type Store interface {
 	// Put stores data under id. It never overwrites an existing object.
 	Put(id string, data []byte) error
@@ -50,6 +50,11 @@ type Store interface {
 	Objects() ([]Object, error)
 	// RemoveTemp deletes one leftover temporary file Objects reported.
 	RemoveTemp(name string) error
+	// PutThumbnail stores a thumbnail of id under its digest. It never
+	// overwrites an existing thumbnail.
+	PutThumbnail(id, sum string, data []byte) error
+	// RemoveThumbnails deletes every thumbnail of id; none is not an error.
+	RemoveThumbnails(id string) error
 }
 
 // Object is one entry of the store as reconciliation sees it.
@@ -65,17 +70,22 @@ type Object struct {
 // Layout under the root, all created and owned by the application:
 //
 //	objects/<first two hex digits of the ID>/<ID>   finished, immutable bytes
+//	thumbnails/<two hex digits>/<ID>/<SHA-256>      derived images (ADR 022)
 //	tmp/upload-<random>                             writes in progress
 //
-// Paths are built only from validated IDs and fixed names, so no client
-// input can reach the filesystem.
+// Paths are built only from validated IDs, digests and fixed names, so no
+// client input can reach the filesystem. Thumbnails stay outside objects/:
+// reconciliation removes any object without a row, including in older binaries.
 const (
-	objectsDir = "objects"
-	tmpDir     = "tmp"
-	tmpPrefix  = "upload-"
-	dirMode    = 0o750
-	fileMode   = 0o640
+	objectsDir    = "objects"
+	thumbnailsDir = "thumbnails"
+	tmpDir        = "tmp"
+	tmpPrefix     = "upload-"
+	dirMode       = 0o750
+	fileMode      = 0o640
 )
+
+var thumbnailDigestPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
 // FileStore keeps managed media in a directory the process owns.
 type FileStore struct {
@@ -118,7 +128,7 @@ func openFileStore(root string, readOnly bool) (*FileStore, error) {
 	if readOnly {
 		return store, nil
 	}
-	for _, dir := range []string{objectsDir, tmpDir} {
+	for _, dir := range []string{objectsDir, thumbnailsDir, tmpDir} {
 		if err := os.Mkdir(filepath.Join(root, dir), dirMode); err != nil && !errors.Is(err, fs.ErrExist) {
 			return nil, fmt.Errorf("MEDIA_ROOT is not writable: %w", err)
 		}
@@ -150,6 +160,47 @@ func (s *FileStore) Put(id string, data []byte) error {
 	if err := os.Mkdir(filepath.Dir(target), dirMode); err != nil && !errors.Is(err, fs.ErrExist) {
 		return fmt.Errorf("%w: create object directory: %v", ErrStorage, err)
 	}
+	return s.publish(target, data)
+}
+
+// thumbnailDir is the only way a thumbnail path is formed: from a validated ID.
+func (s *FileStore) thumbnailDir(id string) (string, error) {
+	if !IDPattern.MatchString(id) {
+		return "", ErrNotStored
+	}
+	return filepath.Join(s.root, thumbnailsDir, id[4:6], id), nil
+}
+
+func (s *FileStore) PutThumbnail(id, sum string, data []byte) error {
+	dir, err := s.thumbnailDir(id)
+	if err != nil || !thumbnailDigestPattern.MatchString(sum) {
+		return fmt.Errorf("%w: invalid thumbnail name", ErrStorage)
+	}
+	if err := os.MkdirAll(dir, dirMode); err != nil {
+		return fmt.Errorf("%w: create thumbnail directory: %v", ErrStorage, err)
+	}
+	if err := s.publish(filepath.Join(dir, sum), data); err != nil {
+		return err
+	}
+	// The per-asset directory is new, so its own entry must reach the disk too.
+	syncDir(filepath.Dir(dir))
+	syncDir(filepath.Join(s.root, thumbnailsDir))
+	return nil
+}
+
+func (s *FileStore) RemoveThumbnails(id string) error {
+	dir, err := s.thumbnailDir(id)
+	if err != nil {
+		return nil
+	}
+	if err := os.RemoveAll(dir); err != nil {
+		return fmt.Errorf("%w: remove thumbnails: %v", ErrStorage, err)
+	}
+	return nil
+}
+
+// publish durably writes data to a temporary file and links it to target.
+func (s *FileStore) publish(target string, data []byte) error {
 	temp, err := os.CreateTemp(filepath.Join(s.root, tmpDir), tmpPrefix)
 	if err != nil {
 		return fmt.Errorf("%w: create temporary file: %v", ErrStorage, err)
@@ -169,11 +220,15 @@ func (s *FileStore) Put(id string, data []byte) error {
 	if err := os.Link(temp.Name(), target); err != nil {
 		return fmt.Errorf("%w: publish object: %v", ErrStorage, err)
 	}
-	if dir, err := os.Open(filepath.Dir(target)); err == nil {
+	syncDir(filepath.Dir(target))
+	return nil
+}
+
+func syncDir(path string) {
+	if dir, err := os.Open(path); err == nil {
 		dir.Sync()
 		dir.Close()
 	}
-	return nil
 }
 
 func writeSynced(file *os.File, data []byte) error {

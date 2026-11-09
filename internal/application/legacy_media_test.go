@@ -19,14 +19,15 @@ import (
 
 type fakeLegacyStore struct {
 	MediaStore
-	products []domain.LegacyMediaProduct
-	refs     map[string]*domain.LegacyPathReferences
-	byDigest map[string]domain.StoredMedia
-	assets   []domain.MediaAsset
-	migrated map[string]domain.ProductMedia
-	retired  []string
-	attachE  error
-	locks    int
+	products   []domain.LegacyMediaProduct
+	refs       map[string]*domain.LegacyPathReferences
+	byDigest   map[string]domain.StoredMedia
+	assets     []domain.MediaAsset
+	thumbnails []domain.MediaThumbnail
+	migrated   map[string]domain.ProductMedia
+	retired    []string
+	attachE    error
+	locks      int
 }
 
 func (s *fakeLegacyStore) LockLegacyMigration(context.Context) (func(), error) {
@@ -56,8 +57,11 @@ func (s *fakeLegacyStore) RetireLegacyProductMedia(_ context.Context, _ domain.S
 func (s *fakeLegacyStore) LegacyMediaReferences(context.Context) (map[string]*domain.LegacyPathReferences, error) {
 	return s.refs, nil
 }
-func (s *fakeLegacyStore) CreateMediaAsset(_ context.Context, _ domain.StaffMutation, asset domain.MediaAsset) (domain.MediaAsset, error) {
+func (s *fakeLegacyStore) CreateMediaAsset(_ context.Context, _ domain.StaffMutation, asset domain.MediaAsset, thumbnail *domain.MediaThumbnail) (domain.MediaAsset, error) {
 	s.assets = append(s.assets, asset)
+	if thumbnail != nil {
+		s.thumbnails = append(s.thumbnails, *thumbnail)
+	}
 	s.byDigest[asset.SHA256] = domain.StoredMedia{ID: asset.ID, ContentType: asset.ContentType, SizeBytes: asset.SizeBytes, SHA256: asset.SHA256}
 	return asset, nil
 }
@@ -75,6 +79,55 @@ func samplePNG(t *testing.T, value uint8) []byte {
 		t.Fatal(err)
 	}
 	return buf.Bytes()
+}
+
+// largePNG is larger than the thumbnail recipe's maximum side.
+func largePNG(t *testing.T, value uint8) []byte {
+	t.Helper()
+	img := image.NewNRGBA(image.Rect(0, 0, 800, 600))
+	for y := 0; y < 600; y++ {
+		for x := 0; x < 800; x++ {
+			img.SetNRGBA(x, y, color.NRGBA{value, uint8(x), uint8(y), 255})
+		}
+	}
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, img); err != nil {
+		t.Fatal(err)
+	}
+	return buf.Bytes()
+}
+
+func TestLegacyApplyDerivesThumbnailsOnlyForNewlyCreatedAssets(t *testing.T) {
+	store := newLegacyStore(
+		domain.LegacyMediaProduct{ID: "first", Image: "/assets/new.png", Gallery: []string{"/assets/older.png"}},
+		domain.LegacyMediaProduct{ID: "second", Image: "/assets/new.png"},
+	)
+	migration, assets, files := legacyHarness(t, store)
+	write(t, assets, "new.png", largePNG(t, 1))
+	write(t, assets, "older.png", largePNG(t, 2))
+	older, err := media.Normalize(largePNG(t, 2))
+	if err != nil {
+		t.Fatal(err)
+	}
+	olderID, err := media.NewID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := files.Put(olderID, older.Data); err != nil {
+		t.Fatal(err)
+	}
+	store.byDigest[older.SHA256] = domain.StoredMedia{ID: olderID, ContentType: older.ContentType, SizeBytes: int64(len(older.Data)), SHA256: older.SHA256}
+	report, err := migration.Run(context.Background(), true, staffActor(), "req-p21")
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, second := entryByID(t, report, "first"), entryByID(t, report, "second")
+	if first.Status != LegacyMigrated || second.Status != LegacyMigrated || first.Primary.AssetID != second.Primary.AssetID || first.Gallery[0].AssetID != olderID || !first.Gallery[0].Reused {
+		t.Fatalf("first %+v second %+v", first, second)
+	}
+	if len(store.assets) != 1 || len(store.thumbnails) != 1 || store.thumbnails[0].Width != 640 || store.thumbnails[0].Height != 480 {
+		t.Fatalf("assets %d thumbnails %+v", len(store.assets), store.thumbnails)
+	}
 }
 
 func legacyHarness(t *testing.T, store *fakeLegacyStore) (*LegacyMediaMigration, string, *media.FileStore) {

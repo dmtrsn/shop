@@ -49,12 +49,18 @@ func loadMediaAsset(ctx context.Context, q rowQuerier, id string) (domain.MediaA
 	return asset, nil
 }
 
-func (s *Store) CreateMediaAsset(ctx context.Context, mutation domain.StaffMutation, asset domain.MediaAsset) (domain.MediaAsset, error) {
+func (s *Store) CreateMediaAsset(ctx context.Context, mutation domain.StaffMutation, asset domain.MediaAsset, thumbnail *domain.MediaThumbnail) (domain.MediaAsset, error) {
 	var result domain.MediaAsset
 	_, err := s.InStaffMutation(ctx, mutation, func(ctx context.Context, tx StaffTx) (domain.AuditTarget, error) {
 		if _, err := tx.Exec(ctx, `INSERT INTO media_assets(id,content_type,size_bytes,width,height,sha256) VALUES ($1,$2,$3,$4,$5,$6)`,
 			asset.ID, asset.ContentType, asset.SizeBytes, asset.Width, asset.Height, asset.SHA256); err != nil {
 			return domain.AuditTarget{}, fmt.Errorf("insert media asset: %w", err)
+		}
+		if thumbnail != nil {
+			if _, err := tx.Exec(ctx, `INSERT INTO media_thumbnails(media_id,recipe,content_type,size_bytes,width,height,sha256) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+				asset.ID, thumbnail.Recipe, thumbnail.ContentType, thumbnail.SizeBytes, thumbnail.Width, thumbnail.Height, thumbnail.SHA256); err != nil {
+				return domain.AuditTarget{}, fmt.Errorf("insert media thumbnail: %w", err)
+			}
 		}
 		var err error
 		if result, err = loadMediaAsset(ctx, tx, asset.ID); err != nil {
@@ -129,6 +135,10 @@ func (s *Store) DeleteMediaAsset(ctx context.Context, mutation domain.StaffMutat
 		}
 		if conflict.Products > 0 || conflict.Orders > 0 {
 			return domain.AuditTarget{}, &conflict
+		}
+		// The caller unlinks the thumbnail once this commits, so no row outlives it.
+		if _, err := tx.Exec(ctx, `DELETE FROM media_thumbnails WHERE media_id=$1`, id); err != nil {
+			return domain.AuditTarget{}, fmt.Errorf("delete media thumbnail: %w", err)
 		}
 		if _, err := tx.Exec(ctx, `UPDATE media_assets SET deleted_at=now() WHERE id=$1`, id); err != nil {
 			return domain.AuditTarget{}, fmt.Errorf("delete media asset: %w", err)

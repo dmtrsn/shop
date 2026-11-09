@@ -25,14 +25,15 @@ const (
 const MaxGalleryImages = 20
 
 // maxConcurrentNormalizations bounds decoded pixel buffers in memory: each
-// normalization may hold up to media.MaxPixels RGBA pixels (64 MiB).
+// normalization or thumbnail derivation may hold up to media.MaxPixels RGBA
+// pixels (64 MiB) and, for a thumbnail, its resampling buffer (ADR 022).
 const maxConcurrentNormalizations = 2
 
 // MediaStore is the metadata port; only PostgreSQL implements it.
 type MediaStore interface {
-	// CreateMediaAsset registers a stored object and its audit event in one
-	// transaction.
-	CreateMediaAsset(ctx context.Context, mutation domain.StaffMutation, asset domain.MediaAsset) (domain.MediaAsset, error)
+	// CreateMediaAsset registers a stored object, its thumbnail if it has one,
+	// and one audit event in one transaction.
+	CreateMediaAsset(ctx context.Context, mutation domain.StaffMutation, asset domain.MediaAsset, thumbnail *domain.MediaThumbnail) (domain.MediaAsset, error)
 	MediaAssets(ctx context.Context, page, limit int) (domain.MediaPage, error)
 	// MediaAsset and LiveMedia return ErrNotFound for unknown and deleted assets.
 	MediaAsset(ctx context.Context, id string) (domain.MediaAsset, error)
@@ -62,11 +63,11 @@ func NewMedia(store MediaStore, files media.Store, logger *slog.Logger) *Media {
 	return &Media{store: store, files: files, logger: logger, slots: make(chan struct{}, maxConcurrentNormalizations)}
 }
 
-// Upload validates and normalizes one image, writes it to the store and only
-// then registers it. If registration fails the new object is removed best
-// effort; a crash in between leaves an orphan that reconciliation removes
-// after its grace period. A row therefore never names bytes that were not
-// written completely.
+// Upload validates and normalizes one image, derives its thumbnail, writes
+// both to the store and only then registers them. If registration fails the
+// new files are removed best effort; a crash in between leaves an orphan that
+// reconciliation removes after its grace period. A row therefore never names
+// bytes that were not written completely.
 func (m *Media) Upload(ctx context.Context, mutation domain.StaffMutation, data []byte) (domain.MediaAsset, error) {
 	if err := requireAction(mutation, MediaUpload); err != nil {
 		return domain.MediaAsset{}, err
@@ -88,27 +89,63 @@ func (m *Media) normalize(ctx context.Context, data []byte) (media.Normalized, e
 	return media.Normalize(data)
 }
 
-// register writes normalized bytes and registers them; see Upload.
+// deriveThumbnail shares the normalization slots, so the two together stay
+// within the same bound of decoded images.
+func (m *Media) deriveThumbnail(ctx context.Context, original []byte) (media.Thumbnail, bool, error) {
+	select {
+	case m.slots <- struct{}{}:
+	case <-ctx.Done():
+		return media.Thumbnail{}, false, ctx.Err()
+	}
+	defer func() { <-m.slots }()
+	return media.DeriveThumbnail(original)
+}
+
+// register writes normalized bytes and their thumbnail and registers them;
+// see Upload. The thumbnail is derived from those same normalized bytes, and
+// before anything is written, so its failure leaves nothing behind.
 func (m *Media) register(ctx context.Context, mutation domain.StaffMutation, normalized media.Normalized) (domain.MediaAsset, error) {
 	id, err := media.NewID()
 	if err != nil {
 		return domain.MediaAsset{}, err
 	}
+	thumbnail, hasThumbnail, err := m.deriveThumbnail(ctx, normalized.Data)
+	if err != nil {
+		return domain.MediaAsset{}, fmt.Errorf("derive media thumbnail: %w", err)
+	}
 	if err := m.files.Put(id, normalized.Data); err != nil {
 		m.logger.Error("media store write failed", "error", err)
 		return domain.MediaAsset{}, domain.ErrStorageUnavailable
 	}
+	var row *domain.MediaThumbnail
+	if hasThumbnail {
+		if err := m.files.PutThumbnail(id, thumbnail.SHA256, thumbnail.Data); err != nil {
+			m.logger.Error("media thumbnail write failed", "error", err)
+			m.discardFiles(id)
+			return domain.MediaAsset{}, domain.ErrStorageUnavailable
+		}
+		row = &domain.MediaThumbnail{Recipe: thumbnail.Recipe, ContentType: thumbnail.ContentType,
+			SizeBytes: int64(len(thumbnail.Data)), Width: thumbnail.Width, Height: thumbnail.Height, SHA256: thumbnail.SHA256}
+	}
 	asset, err := m.store.CreateMediaAsset(ctx, mutation, domain.MediaAsset{
 		ID: id, ContentType: normalized.ContentType, SizeBytes: int64(len(normalized.Data)),
 		Width: normalized.Width, Height: normalized.Height, SHA256: normalized.SHA256,
-	})
+	}, row)
 	if err != nil {
-		if removeErr := m.files.Remove(id); removeErr != nil {
-			m.logger.Error("unregistered media object left for reconciliation", "media", id, "error", removeErr)
-		}
+		m.discardFiles(id)
 		return domain.MediaAsset{}, err
 	}
 	return asset, nil
+}
+
+// discardFiles removes the files of an asset that was never registered.
+func (m *Media) discardFiles(id string) {
+	if err := m.files.RemoveThumbnails(id); err != nil {
+		m.logger.Error("unregistered media thumbnail left for reconciliation", "media", id, "error", err)
+	}
+	if err := m.files.Remove(id); err != nil {
+		m.logger.Error("unregistered media object left for reconciliation", "media", id, "error", err)
+	}
 }
 
 // verifyStored proves a live asset's object exists with its recorded size.
@@ -179,6 +216,9 @@ func (m *Media) Delete(ctx context.Context, mutation domain.StaffMutation, id st
 	}
 	if err := m.store.DeleteMediaAsset(ctx, mutation, id); err != nil {
 		return err
+	}
+	if err := m.files.RemoveThumbnails(id); err != nil {
+		m.logger.Warn("deleted media thumbnail left for reconciliation", "media", id, "error", err)
 	}
 	if err := m.files.Remove(id); err != nil {
 		m.logger.Warn("deleted media object left for reconciliation", "media", id, "error", err)

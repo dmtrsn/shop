@@ -253,6 +253,57 @@ func TestLegacyMediaMigrationScenario(t *testing.T) {
 	}
 }
 
+// A newly imported asset gets its thumbnail; one reused from before P2 stays
+// exactly as it was and valid without one.
+func TestLegacyMediaImportDerivesThumbnailsAndKeepsOlderAssetsValid(t *testing.T) {
+	d := newDatabase(t, true)
+	handler := d.staffServer(t, nil)
+	login := d.signedInStaff(t, handler)
+	staff := domain.StaffUser{ID: login.id}
+	assets := legacyAssets(t)
+	data, err := os.ReadFile(filepath.Join(assets, "product-chocolate.webp"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	older, err := d.mediaLibrary(t).Upload(d.ctx, mutationAs(t, staff, application.MediaUpload), data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d.exec(t, `DELETE FROM media_thumbnails WHERE media_id=$1`, older.ID)
+	if err := os.RemoveAll(d.thumbnailDir(older.ID)); err != nil {
+		t.Fatal(err)
+	}
+	d.exec(t, `UPDATE products SET image=$1,gallery=$2 WHERE id='p01'`, chocolatePath, []string{giftboxPath})
+	ctx, cancel := context.WithTimeout(d.ctx, 30*time.Second)
+	defer cancel()
+	report, err := d.legacyMigration(t, assets).Run(ctx, true, staff, "req-p21")
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry := legacyEntry(t, report, "p01")
+	if entry.Status != application.LegacyMigrated || entry.Primary == nil || entry.Primary.AssetID != older.ID || !entry.Primary.Reused || len(entry.Gallery) != 1 || entry.Gallery[0].Reused {
+		t.Fatalf("entry %+v", entry)
+	}
+	if count := d.number(t, `SELECT count(*) FROM media_thumbnails WHERE media_id=$1`, older.ID); count != 0 {
+		t.Fatalf("a reused asset gained a thumbnail: %d", count)
+	}
+	if public := serve(handler, "GET", "/media/"+older.ID, "", nil); public.Code != 200 {
+		t.Fatalf("reused asset: %d", public.Code)
+	}
+	imported := entry.Gallery[0].AssetID
+	var digest string
+	var width int
+	if err := d.pool.QueryRow(d.ctx, `SELECT sha256,width FROM media_thumbnails WHERE media_id=$1`, imported).Scan(&digest, &width); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(d.thumbnailDir(imported), digest)); err != nil || width != 640 {
+		t.Fatalf("imported thumbnail: %d %v", width, err)
+	}
+	if d.number(t, `SELECT count(*) FROM media_assets m WHERE m.deleted_at IS NULL AND m.id<>$1 AND NOT EXISTS(SELECT 1 FROM media_thumbnails t WHERE t.media_id=m.id)`, older.ID) != 0 {
+		t.Fatal("a newly imported asset has no thumbnail")
+	}
+}
+
 func TestLegacyMediaRetiredProductIgnoresLaterStaffChoices(t *testing.T) {
 	d := newDatabase(t, true)
 	login := d.signedInStaff(t, d.staffServer(t, nil))
@@ -345,6 +396,9 @@ func TestLegacyMediaApplyRequiresAnActiveActor(t *testing.T) {
 	if _, err := d.store.SetStaffDisabled(d.ctx, staffEmail, true); err != nil {
 		t.Fatal(err)
 	}
+	// A refused actor is never cached, so each image of each product repeats
+	// normalization and derivation; one product proves the rule.
+	d.exec(t, `UPDATE products SET image='',gallery='{}' WHERE id<>'p01'`)
 	before := d.legacyState(t)
 	report, err := d.legacyMigration(t, legacyAssets(t)).Run(d.ctx, true, domain.StaffUser{ID: login.id}, "migrate-legacy:run")
 	if err != nil {

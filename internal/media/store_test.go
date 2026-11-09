@@ -114,6 +114,79 @@ func TestPutStoresImmutableObjectsUnderTheirIDOnly(t *testing.T) {
 	}
 }
 
+func TestThumbnailsLiveOutsideObjects(t *testing.T) {
+	store, root := newStore(t)
+	id, sum := mustID(t), strings.Repeat("a", 64)
+	if err := store.Put(id, []byte("original")); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.PutThumbnail(id, sum, []byte("first")); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(root, "thumbnails", id[4:6], id, sum)
+	info, err := os.Stat(path)
+	if err != nil || info.Mode().Perm() != fileMode {
+		t.Fatalf("thumbnail at %s: %v %v", path, info, err)
+	}
+	// The same name is never written twice; the stored bytes stay.
+	if err := store.PutThumbnail(id, sum, []byte("second")); !errors.Is(err, ErrStorage) {
+		t.Fatalf("overwrite: %v", err)
+	}
+	if data, _ := os.ReadFile(path); string(data) != "first" {
+		t.Fatalf("read %q", data)
+	}
+	if temps, _ := os.ReadDir(filepath.Join(root, "tmp")); len(temps) != 0 {
+		t.Fatalf("temporary files left: %v", temps)
+	}
+	objects, err := store.Objects()
+	if err != nil || len(objects) != 1 || objects[0].ID != id {
+		t.Fatalf("objects %+v %v", objects, err)
+	}
+	// Reconciliation, also in older binaries, never sees a thumbnail.
+	old := time.Now().Add(-48 * time.Hour)
+	_ = os.Chtimes(path, old, old)
+	rows := func(context.Context) (map[string]bool, error) { return map[string]bool{id: false}, nil }
+	if _, err := Reconcile(context.Background(), store, rows, time.Now(), time.Hour, true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("reconciliation removed a thumbnail: %v", err)
+	}
+	if err := store.RemoveThumbnails(id); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Dir(path)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("thumbnail directory left: %v", err)
+	}
+	if err := store.RemoveThumbnails(id); err != nil {
+		t.Fatalf("second remove: %v", err)
+	}
+	if _, _, err := store.Open(id); err != nil {
+		t.Fatalf("removing thumbnails touched the original: %v", err)
+	}
+}
+
+func TestThumbnailPathsNeverComeFromInput(t *testing.T) {
+	store, root := newStore(t)
+	id, sum := mustID(t), strings.Repeat("b", 64)
+	for name, input := range map[string][2]string{
+		"traversal id":     {"../outside", sum},
+		"traversal digest": {id, "../../outside"},
+		"short digest":     {id, "abc"},
+		"upper digest":     {id, strings.Repeat("B", 64)},
+	} {
+		if err := store.PutThumbnail(input[0], input[1], []byte("x")); !errors.Is(err, ErrStorage) {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+	if err := store.RemoveThumbnails("../outside"); err != nil {
+		t.Fatalf("malformed id: %v", err)
+	}
+	if entries, _ := os.ReadDir(filepath.Join(root, "thumbnails")); len(entries) != 0 {
+		t.Fatalf("thumbnails written: %v", entries)
+	}
+}
+
 func TestPathsNeverComeFromInput(t *testing.T) {
 	store, root := newStore(t)
 	outside := filepath.Join(filepath.Dir(root), "outside")

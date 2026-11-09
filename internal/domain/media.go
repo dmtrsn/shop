@@ -36,6 +36,17 @@ type MediaAsset struct {
 	OrderCount   int `json:"orderCount"`
 }
 
+// MediaThumbnail describes the derived thumbnail of one asset (ADR 022). Every
+// field is computed from the thumbnail's bytes or names the recipe that made it.
+type MediaThumbnail struct {
+	Recipe      string
+	ContentType string
+	SizeBytes   int64
+	Width       int
+	Height      int
+	SHA256      string
+}
+
 // MediaPage is one page of live assets, newest first.
 type MediaPage struct {
 	Items      []MediaAsset `json:"items"`

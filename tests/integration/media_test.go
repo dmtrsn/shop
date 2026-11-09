@@ -182,6 +182,243 @@ func TestUploadWhoseAuditFailsLeavesNoLiveAssetAndNoBytes(t *testing.T) {
 	assertNoObjects(t, d)
 }
 
+func (d *database) thumbnailDir(id string) string {
+	return filepath.Join(d.mediaRoot, "thumbnails", id[4:6], id)
+}
+
+func assertNoThumbnails(t *testing.T, d *database) {
+	t.Helper()
+	if d.number(t, "SELECT count(*) FROM media_thumbnails") != 0 {
+		t.Fatal("thumbnail rows left")
+	}
+	shards, _ := os.ReadDir(filepath.Join(d.mediaRoot, "thumbnails"))
+	for _, shard := range shards {
+		if entries, _ := os.ReadDir(filepath.Join(d.mediaRoot, "thumbnails", shard.Name())); len(entries) != 0 {
+			t.Fatalf("thumbnails left in shard %s", shard.Name())
+		}
+	}
+}
+
+func TestUploadPersistsExactlyOneThumbnailWithItsMetadata(t *testing.T) {
+	d := newDatabase(t, true)
+	handler := d.staffServer(t, nil)
+	login := d.signedInStaff(t, handler)
+	ex := uploadAs(t, handler, login, pngImage(t, 1280, 720))
+	if ex.Code != 201 {
+		t.Fatalf("upload: %d %s", ex.Code, ex.Body.String())
+	}
+	id := ex.body["id"].(string)
+	if _, leaked := ex.body["thumbnailUrl"]; leaked {
+		t.Fatalf("P2.1 must not expose thumbnails: %v", ex.body)
+	}
+	if trail := d.auditTrail(t); len(trail) != 1 || trail[0].action != "media.upload" {
+		t.Fatalf("audit %+v", trail)
+	}
+	original, err := os.ReadFile(d.objectPath(id))
+	if err != nil {
+		t.Fatal(err)
+	}
+	expected, ok, err := media.DeriveThumbnail(original)
+	if err != nil || !ok {
+		t.Fatalf("derive: %v %v", ok, err)
+	}
+	var recipe, contentType, digest string
+	var size int64
+	var width, height int
+	if err := d.pool.QueryRow(d.ctx, `SELECT recipe,content_type,size_bytes,width,height,sha256 FROM media_thumbnails WHERE media_id=$1`, id).
+		Scan(&recipe, &contentType, &size, &width, &height, &digest); err != nil {
+		t.Fatal(err)
+	}
+	if recipe != media.ThumbnailRecipe || contentType != "image/jpeg" || size != int64(len(expected.Data)) || width != 640 || height != 360 || digest != expected.SHA256 {
+		t.Fatalf("row %s %s %d %dx%d %s", recipe, contentType, size, width, height, digest)
+	}
+	entries, err := os.ReadDir(d.thumbnailDir(id))
+	if err != nil || len(entries) != 1 || entries[0].Name() != digest {
+		t.Fatalf("thumbnail files %v %v", entries, err)
+	}
+	stored, _ := os.ReadFile(filepath.Join(d.thumbnailDir(id), digest))
+	if !bytes.Equal(stored, expected.Data) {
+		t.Fatal("the stored thumbnail is not the original's derivative")
+	}
+	if d.number(t, "SELECT count(*) FROM media_thumbnails") != 1 {
+		t.Fatal("expected exactly one thumbnail row")
+	}
+	if public := serve(handler, "GET", "/media/"+id, "", nil); public.Code != 200 || !bytes.Equal(public.Body.Bytes(), original) {
+		t.Fatalf("public original: %d", public.Code)
+	}
+}
+
+func TestUploadNoLargerThanTheRecipeGetsNoThumbnail(t *testing.T) {
+	d := newDatabase(t, true)
+	staff := d.auditStaff(t, "a@example.com")
+	asset, err := d.mediaLibrary(t).Upload(d.ctx, mutationAs(t, staff, application.MediaUpload), pngImage(t, 640, 200))
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertNoThumbnails(t, d)
+	if _, err := os.Stat(d.thumbnailDir(asset.ID)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("thumbnail directory: %v", err)
+	}
+	if _, err := os.Stat(d.objectPath(asset.ID)); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestUploadWhoseThumbnailRowFailsLeavesNoPartialState(t *testing.T) {
+	d := newDatabase(t, true)
+	staff := d.auditStaff(t, "a@example.com")
+	d.exec(t, `CREATE FUNCTION fail_thumbnail() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'injected thumbnail failure'; END $$`)
+	d.exec(t, `CREATE TRIGGER fail_media_thumbnail BEFORE INSERT ON media_thumbnails FOR EACH ROW EXECUTE FUNCTION fail_thumbnail()`)
+	if _, err := d.mediaLibrary(t).Upload(d.ctx, mutationAs(t, staff, application.MediaUpload), pngImage(t, 1280, 720)); err == nil {
+		t.Fatal("upload succeeded")
+	}
+	if d.number(t, "SELECT count(*) FROM media_assets") != 0 || len(d.auditTrail(t)) != 0 {
+		t.Fatal("a partial asset committed")
+	}
+	assertNoObjects(t, d)
+	assertNoThumbnails(t, d)
+}
+
+func TestUploadWhoseAuditFailsRemovesItsThumbnail(t *testing.T) {
+	d := newDatabase(t, true)
+	staff := d.auditStaff(t, "a@example.com")
+	d.exec(t, `CREATE FUNCTION fail_audit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'injected audit failure'; END $$`)
+	d.exec(t, `CREATE TRIGGER fail_media_audit BEFORE INSERT ON staff_audit_events FOR EACH ROW WHEN (NEW.entity_type='media') EXECUTE FUNCTION fail_audit()`)
+	if _, err := d.mediaLibrary(t).Upload(d.ctx, mutationAs(t, staff, application.MediaUpload), pngImage(t, 1280, 720)); err == nil {
+		t.Fatal("upload succeeded")
+	}
+	if d.number(t, "SELECT count(*) FROM media_assets") != 0 {
+		t.Fatal("an asset committed without its audit event")
+	}
+	assertNoObjects(t, d)
+	assertNoThumbnails(t, d)
+}
+
+func TestUploadWhoseThumbnailCannotBeWrittenRegistersNothing(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("directory permissions do not bind root")
+	}
+	d := newDatabase(t, true)
+	staff := d.auditStaff(t, "a@example.com")
+	library := d.mediaLibrary(t)
+	thumbnails := filepath.Join(d.mediaRoot, "thumbnails")
+	if err := os.Chmod(thumbnails, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(thumbnails, 0o750) })
+	if _, err := library.Upload(d.ctx, mutationAs(t, staff, application.MediaUpload), pngImage(t, 1280, 720)); !errors.Is(err, domain.ErrStorageUnavailable) {
+		t.Fatalf("upload: %v", err)
+	}
+	if d.number(t, "SELECT count(*) FROM media_assets") != 0 || len(d.auditTrail(t)) != 0 {
+		t.Fatal("a failed thumbnail write registered an asset")
+	}
+	assertNoObjects(t, d)
+	// A small image needs no thumbnail, so it still uploads.
+	if _, err := library.Upload(d.ctx, mutationAs(t, staff, application.MediaUpload), pngImage(t, 16, 12)); err != nil {
+		t.Fatalf("small upload: %v", err)
+	}
+}
+
+// One asset shared by two products keeps one thumbnail, which lives as long
+// as the asset does.
+func TestDeleteRemovesTheThumbnailOnlyAfterReferencesAreGone(t *testing.T) {
+	d := newDatabase(t, true)
+	staff := d.auditStaff(t, "a@example.com")
+	library := d.mediaLibrary(t)
+	asset, err := library.Upload(d.ctx, mutationAs(t, staff, application.MediaUpload), pngImage(t, 1280, 720))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, product := range []string{"p01", "p02"} {
+		if _, err := library.SetProductMedia(d.ctx, mutationAs(t, staff, application.ProductMediaUpdate), d.productRevision(t, product),
+			domain.ProductMedia{ProductID: product, PrimaryID: asset.ID}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if d.number(t, "SELECT count(*) FROM media_thumbnails") != 1 {
+		t.Fatal("sharing an asset changed its thumbnails")
+	}
+	var conflict *domain.ReferenceConflictError
+	if err := library.Delete(d.ctx, mutationAs(t, staff, application.MediaDelete), asset.ID); !errors.As(err, &conflict) || conflict.Products != 2 {
+		t.Fatalf("delete of a shared asset: %v", err)
+	}
+	if entries, _ := os.ReadDir(d.thumbnailDir(asset.ID)); len(entries) != 1 || d.number(t, "SELECT count(*) FROM media_thumbnails") != 1 {
+		t.Fatal("a refused delete touched the thumbnail")
+	}
+	for _, product := range []string{"p01", "p02"} {
+		if _, err := library.SetProductMedia(d.ctx, mutationAs(t, staff, application.ProductMediaUpdate), d.productRevision(t, product),
+			domain.ProductMedia{ProductID: product}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := library.Delete(d.ctx, mutationAs(t, staff, application.MediaDelete), asset.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(d.thumbnailDir(asset.ID)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("thumbnail directory: %v", err)
+	}
+	if d.number(t, "SELECT count(*) FROM media_thumbnails") != 0 {
+		t.Fatal("thumbnail row outlived its file")
+	}
+	if d.number(t, "SELECT count(*) FROM media_assets WHERE deleted_at IS NOT NULL") != 1 {
+		t.Fatal("expected a tombstone")
+	}
+}
+
+func TestMediaThumbnailSchemaConstraints(t *testing.T) {
+	d := newDatabase(t, true)
+	staff := d.auditStaff(t, "a@example.com")
+	asset := d.uploadMedia(t, staff)
+	digest := strings.Repeat("a", 64)
+	for name, row := range map[string][]any{
+		"recipe format": {asset.ID, "Bad Recipe", "image/jpeg", 1, 1, 1, digest},
+		"content type":  {asset.ID, "r1", "image/webp", 1, 1, 1, digest},
+		"empty":         {asset.ID, "r1", "image/jpeg", 0, 1, 1, digest},
+		"width":         {asset.ID, "r1", "image/jpeg", 1, 0, 1, digest},
+		"height":        {asset.ID, "r1", "image/jpeg", 1, 1, 0, digest},
+		"digest":        {asset.ID, "r1", "image/jpeg", 1, 1, 1, "abc"},
+		"unknown asset": {"med_" + strings.Repeat("9", 32), "r1", "image/jpeg", 1, 1, 1, digest},
+	} {
+		if _, err := d.pool.Exec(d.ctx, `INSERT INTO media_thumbnails(media_id,recipe,content_type,size_bytes,width,height,sha256) VALUES ($1,$2,$3,$4,$5,$6,$7)`, row...); err == nil {
+			t.Errorf("%s accepted", name)
+		}
+	}
+}
+
+// A binary from before migration 020 tolerates it, leaves thumbnails alone and
+// keeps serving originals.
+func TestPreviousBinaryIgnoresThumbnails(t *testing.T) {
+	d := newDatabase(t, true)
+	handler := d.staffServer(t, nil)
+	login := d.signedInStaff(t, handler)
+	ex := uploadAs(t, handler, login, pngImage(t, 1280, 720))
+	if ex.Code != 201 {
+		t.Fatalf("upload: %d", ex.Code)
+	}
+	id := ex.body["id"].(string)
+	var prefixes []string
+	for number := 1; number <= 19; number++ {
+		prefixes = append(prefixes, fmt.Sprintf("%03d_", number))
+	}
+	previous := migrator(migrationDir(t, prefixes, nil), &lockedBuffer{})
+	if err := previous.Verify(d.ctx, d.pool); err != nil {
+		t.Fatalf("previous schema check: %v", err)
+	}
+	if err := previous.Migrate(d.ctx, d.pool); err != nil {
+		t.Fatalf("previous migrate: %v", err)
+	}
+	report, err := d.mediaLibrary(t).Reconcile(d.ctx, time.Hour, true)
+	if err != nil || report.Healthy != 1 || len(report.Removed) != 0 {
+		t.Fatalf("reconcile %+v %v", report, err)
+	}
+	if entries, _ := os.ReadDir(d.thumbnailDir(id)); len(entries) != 1 {
+		t.Fatal("reconciliation touched the thumbnail")
+	}
+	if public := serve(handler, "GET", "/media/"+id, "", nil); public.Code != 200 {
+		t.Fatalf("original: %d", public.Code)
+	}
+}
+
 func TestMediaSchemaConstraints(t *testing.T) {
 	d := newDatabase(t, true)
 	staff := d.auditStaff(t, "a@example.com")

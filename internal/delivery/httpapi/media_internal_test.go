@@ -39,7 +39,7 @@ func newTestMediaStore() *testMediaStore {
 	return &testMediaStore{rows: map[string]domain.MediaAsset{}, deleted: map[string]bool{}, references: map[string]int{}}
 }
 
-func (s *testMediaStore) CreateMediaAsset(_ context.Context, m domain.StaffMutation, asset domain.MediaAsset) (domain.MediaAsset, error) {
+func (s *testMediaStore) CreateMediaAsset(_ context.Context, m domain.StaffMutation, asset domain.MediaAsset, _ *domain.MediaThumbnail) (domain.MediaAsset, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.createErr != nil {
