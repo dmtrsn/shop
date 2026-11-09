@@ -71,16 +71,25 @@ func (m *Media) Upload(ctx context.Context, mutation domain.StaffMutation, data 
 	if err := requireAction(mutation, MediaUpload); err != nil {
 		return domain.MediaAsset{}, err
 	}
-	select {
-	case m.slots <- struct{}{}:
-	case <-ctx.Done():
-		return domain.MediaAsset{}, ctx.Err()
-	}
-	normalized, err := media.Normalize(data)
-	<-m.slots
+	normalized, err := m.normalize(ctx, data)
 	if err != nil {
 		return domain.MediaAsset{}, uploadError(err)
 	}
+	return m.register(ctx, mutation, normalized)
+}
+
+func (m *Media) normalize(ctx context.Context, data []byte) (media.Normalized, error) {
+	select {
+	case m.slots <- struct{}{}:
+	case <-ctx.Done():
+		return media.Normalized{}, ctx.Err()
+	}
+	defer func() { <-m.slots }()
+	return media.Normalize(data)
+}
+
+// register writes normalized bytes and registers them; see Upload.
+func (m *Media) register(ctx context.Context, mutation domain.StaffMutation, normalized media.Normalized) (domain.MediaAsset, error) {
 	id, err := media.NewID()
 	if err != nil {
 		return domain.MediaAsset{}, err
@@ -100,6 +109,19 @@ func (m *Media) Upload(ctx context.Context, mutation domain.StaffMutation, data 
 		return domain.MediaAsset{}, err
 	}
 	return asset, nil
+}
+
+// verifyStored proves a live asset's object exists with its recorded size.
+func (m *Media) verifyStored(stored domain.StoredMedia) error {
+	file, size, err := m.files.Open(stored.ID)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	if size != stored.SizeBytes {
+		return fmt.Errorf("stored size %d differs from recorded size %d", size, stored.SizeBytes)
+	}
+	return nil
 }
 
 func uploadError(err error) error {

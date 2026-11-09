@@ -87,8 +87,13 @@ type ManagedMedia struct {
 
 // ResolveProductMedia preserves legacy semantics until any live managed
 // reference exists. A managed primary with an empty gallery never falls back
-// to the legacy gallery. Detaching all references restores legacy behavior.
-func ResolveProductMedia(image string, gallery []string, managed *ManagedMedia) (string, []string) {
+// to the legacy gallery. Detaching all references restores legacy behavior,
+// until the product's legacy media is retired (ADR 021): from then on only
+// managed media counts, and a product with none has no images.
+func ResolveProductMedia(image string, gallery []string, managed *ManagedMedia, legacyRetired bool) (string, []string) {
+	if legacyRetired {
+		image, gallery = "", []string{}
+	}
 	if managed == nil || (managed.Primary == nil && len(managed.Gallery) == 0) {
 		return image, gallery
 	}
@@ -100,4 +105,27 @@ func ResolveProductMedia(image string, gallery []string, managed *ManagedMedia) 
 		gallery = append(gallery, item.URL)
 	}
 	return image, gallery
+}
+
+// LegacyMediaProduct is what migrate-legacy needs to classify one product.
+type LegacyMediaProduct struct {
+	ID             string
+	Image          string
+	Gallery        []string
+	Retired        bool
+	ManagedPrimary bool
+	ManagedGallery int
+}
+
+// LegacyPathReferences counts the database consumers of one /assets path.
+type LegacyPathReferences struct {
+	// Active products have not been cut over and can still render the path.
+	Active int
+	// Compatibility products are cut over and keep the path only in their
+	// legacy columns; only a rollback would read it.
+	Compatibility int
+	Orders        int
+	// Other counts non-product catalog rows (collection images, brand and
+	// manufacturer logos).
+	Other int
 }

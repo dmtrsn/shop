@@ -252,7 +252,7 @@ A complete backup is now **PostgreSQL plus the `media_data` volume**. A database
 
 - **Order:** back up the database, then the volume. Files written after the dump are just orphans to the restored database, which reconciliation removes after the grace period.
 - **Restore:** restore both from the same backup set, then run `shopctl media verify` (no `--apply`). It must report no `missing`.
-- **Legacy images** still live in the repository and image (`web/assets`) until C3. They are versioned with the code, not part of the volume, and must not be deleted yet.
+- **Legacy images** live in the repository and image (`web/assets`). They are versioned with the code, not part of the volume, and are retained for historical orders and the legacy storefront ([ADR 021](021-legacy-media-migration.md)).
 
 ### Legacy coexistence and the C2/C3 boundaries
 
@@ -263,7 +263,7 @@ C1 changes no existing image:
 | Slice | Scope |
 | --- | --- |
 | C2 | Exposes attachment in the product editor and decides how managed images reach the customer DTO. Order snapshots copy image URLs at checkout, so C2/C3 must decide whether an asset referenced only by `order_items.image` may be deleted. |
-| C3 | Migrates the legacy files into managed media and retires `web/assets` product photos and the legacy columns. |
+| C3 | Migrated the legacy files into managed media and retired the customer fallback per product; `web/assets` and the legacy columns stay ([ADR 021](021-legacy-media-migration.md)). |
 
 ### Rollback and mixed versions
 

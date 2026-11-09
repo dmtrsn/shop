@@ -94,6 +94,9 @@ export function ProductMediaEditor({ product, disabled, onDirty, onBusy, onStale
   function move(index: number, direction: number) {
     setGallery((items) => { const next = [...items]; [next[index], next[index + direction]] = [next[index + direction], next[index]]; return next; });
   }
+  // A migrated product no longer shows its compatibility columns.
+  const legacyImage = product.legacyMediaRetired ? "" : product.image;
+  const legacyGallery = product.legacyMediaRetired ? [] : product.gallery;
   const candidates = [...new Map([...uploaded, ...assets].map((item) => [item.id, item])).values()];
   const preview = (item: MediaItem, label: string) => <img alt={`${label}: ${product.name}`} src={item.url} width={128} height={128} />;
   return (
@@ -107,7 +110,7 @@ export function ProductMediaEditor({ product, disabled, onDirty, onBusy, onStale
         {primary ? <div className={styles.mediaCard} data-testid="media-primary">
           {preview(primary, "Основное изображение")}
           <button type="button" onClick={() => setPrimary(null)}>Убрать основное из товара</button>
-        </div> : <p>{product.image ? `Основное из прежнего каталога: ${product.image}` : "Основное изображение не выбрано."}</p>}
+        </div> : <p>{legacyImage ? `Основное из прежнего каталога (только совместимость, нужна миграция): ${legacyImage}` : "Основное изображение не выбрано."}</p>}
         <h3>Галерея</h3>
         <ol className={styles.mediaGrid} aria-label="Галерея товара">
           {gallery.map((item, index) => <li key={item.id} className={styles.mediaCard} data-media-id={item.id}>
@@ -120,8 +123,8 @@ export function ProductMediaEditor({ product, disabled, onDirty, onBusy, onStale
             </div>
           </li>)}
         </ol>
-        {!primary && gallery.length === 0 && product.gallery.length > 0 ? <p className={styles.muted}>Используется прежняя галерея: {product.gallery.join(", ")}</p> : null}
-        <p className={styles.muted}>Выбранные изображения заменяют прежнюю галерею целиком. Без выбранных изображений магазин использует прежние изображения товара.</p>
+        {!primary && gallery.length === 0 && legacyGallery.length > 0 ? <p className={styles.muted}>Используется прежняя галерея (только совместимость, нужна миграция): {legacyGallery.join(", ")}</p> : null}
+        <p className={styles.muted}>{product.legacyMediaRetired ? "В магазине показываются только изображения, выбранные здесь." : "Выбранные изображения заменяют прежнюю галерею целиком. Без выбранных изображений магазин использует прежние изображения товара."}</p>
         <button className={styles.primaryButton} type="button" disabled={!dirty} onClick={save}>Сохранить изображения</button>
         {dirty ? <p role="status">Есть несохранённые изменения изображений.</p> : null}
         <h3>Добавить изображение</h3>

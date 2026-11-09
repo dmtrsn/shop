@@ -53,7 +53,7 @@ type Reference struct {
 }
 
 // AdminProduct is the staff view of a product, archived or not. Image and
-// gallery are read-only until media management exists.
+// gallery are the read-only legacy columns; managed media replaces them.
 type AdminProduct struct {
 	ManagedMedia    *ManagedMedia `json:"managedMedia,omitempty"`
 	ID              string        `json:"id"`
@@ -90,6 +90,9 @@ type AdminProduct struct {
 	Featured        bool          `json:"featured"`
 	CreatedAt       time.Time     `json:"createdAt"`
 	UpdatedAt       time.Time     `json:"updatedAt"`
+
+	// LegacyMediaRetired: image and gallery no longer reach customers (ADR 021).
+	LegacyMediaRetired bool `json:"legacyMediaRetired"`
 }
 
 // CatalogOptions are the dictionaries a staff product form chooses from: every

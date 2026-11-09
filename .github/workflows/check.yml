@@ -219,6 +219,11 @@ jobs:
         env:
           COMPOSE_PROJECT: sweetshop-edge-smoke
         run: bash scripts/with-admin-tls-proxy.sh node scripts/test-admin-media-flow.mjs
+      # After the media journey: it needs the non-Secure cookies set above.
+      - name: Legacy media migration through the real stack (dry-run, apply, idempotent apply, already-managed preservation, historical order, browser journey)
+        env:
+          COMPOSE_PROJECT: sweetshop-edge-smoke
+        run: bash scripts/with-admin-tls-proxy.sh node scripts/test-legacy-media-flow.mjs
       - name: Show service logs on failure
         if: failure()
         env:

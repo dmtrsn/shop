@@ -25,6 +25,11 @@ func TestUsageAndConfigurationExitCodes(t *testing.T) {
 		{"negative lock timeout", []string{"migrate", "--lock-timeout=-1s"}, map[string]string{"DATABASE_URL": "postgres://localhost/db"}, exitUsage},
 		{"bad mode", []string{"migrate"}, map[string]string{"APP_MODE": "staging", "DATABASE_URL": "postgres://localhost/db"}, exitUsage},
 		{"missing DSN", []string{"migrate", "--status"}, map[string]string{"DATABASE_URL": " "}, exitUsage},
+		{"legacy apply without staff", []string{"media", "migrate-legacy", "--apply"}, map[string]string{"DATABASE_URL": "postgres://localhost/db"}, exitUsage},
+		{"legacy staff without apply", []string{"media", "migrate-legacy", "--staff-email", "a@b.c"}, map[string]string{"DATABASE_URL": "postgres://localhost/db"}, exitUsage},
+		{"legacy unknown flag", []string{"media", "migrate-legacy", "--force"}, nil, exitUsage},
+		{"legacy extra argument", []string{"media", "migrate-legacy", "now"}, nil, exitUsage},
+		{"legacy missing assets dir", []string{"media", "migrate-legacy", "--assets-dir", "/does/not/exist"}, map[string]string{"DATABASE_URL": "postgres://localhost/db"}, exitUsage},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv("APP_MODE", "")

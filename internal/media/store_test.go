@@ -278,3 +278,20 @@ func TestReconcileKeepsOrphansWhenTheDatabaseLooksWrong(t *testing.T) {
 		t.Fatal("orphan removed against an empty database")
 	}
 }
+
+func TestOpenFileStoreReadOnlyCreatesNothing(t *testing.T) {
+	root := t.TempDir()
+	if _, err := OpenFileStoreReadOnly(root); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("read-only open created %+v", entries)
+	}
+	if _, err := OpenFileStoreReadOnly("relative/path"); err == nil {
+		t.Fatal("relative root accepted")
+	}
+}

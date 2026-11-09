@@ -139,6 +139,9 @@ type Product struct {
 	// Archived products are withdrawn from sale (ADR 013). Customer reads
 	// omit them, except cart lines, which show them as unavailable.
 	Archived bool `json:"-"`
+
+	// LegacyMediaRetired is true once the legacy fallback is retired (ADR 021).
+	LegacyMediaRetired bool `json:"-"`
 }
 
 type Collection struct {

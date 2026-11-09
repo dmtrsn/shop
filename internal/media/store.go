@@ -88,6 +88,16 @@ type FileStore struct {
 // so a misconfigured production server fails at startup instead of writing
 // into an image layer or a working directory.
 func OpenFileStore(root string) (*FileStore, error) {
+	return openFileStore(root, false)
+}
+
+// OpenFileStoreReadOnly validates the root like OpenFileStore but creates and
+// probes nothing, for a report that must not touch the store.
+func OpenFileStoreReadOnly(root string) (*FileStore, error) {
+	return openFileStore(root, true)
+}
+
+func openFileStore(root string, readOnly bool) (*FileStore, error) {
 	if root == "" || !filepath.IsAbs(root) || filepath.Clean(root) != root || root == "/" {
 		return nil, errors.New("MEDIA_ROOT must be a clean absolute path other than /")
 	}
@@ -105,6 +115,9 @@ func OpenFileStore(root string) (*FileStore, error) {
 		return nil, errors.New("MEDIA_ROOT must not be world-writable")
 	}
 	store := &FileStore{root: root}
+	if readOnly {
+		return store, nil
+	}
 	for _, dir := range []string{objectsDir, tmpDir} {
 		if err := os.Mkdir(filepath.Join(root, dir), dirMode); err != nil && !errors.Is(err, fs.ErrExist) {
 			return nil, fmt.Errorf("MEDIA_ROOT is not writable: %w", err)

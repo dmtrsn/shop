@@ -45,7 +45,7 @@ export function product(overrides: Partial<AdminProduct> = {}): AdminProduct {
   return {
     id: "p01", revision: 7, archived: false, slug: "dark-bar", sku: "CHA-701", name: "Тёмный шоколад", shortName: "Тёмный",
     description: "Описание", priceMinor: 48900, oldPriceMinor: 54900, currency: "RUB", unit: "плитка 90 г", weightGrams: 90,
-    image: "/assets/product-chocolate.webp", gallery: [], category: { id: "cat-bars", name: "Плитки" },
+    legacyMediaRetired: false, image: "/assets/product-chocolate.webp", gallery: [], category: { id: "cat-bars", name: "Плитки" },
     manufacturer: { id: "m-choco", name: "Choco Atelier" }, brand: { id: "b-noir", name: "Atelier Noir" },
     collections: [{ id: "col-best", name: "Хиты" }], series: "", tags: ["веган"], badges: ["Хит"], ingredients: "", nutrition: "",
     shelfLifeDays: 180, rating: 4.9, reviewsCount: 142, stock: 24, minimumQuantity: 1, quantityStep: 1, featured: true,

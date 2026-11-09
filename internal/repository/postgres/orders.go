@@ -211,7 +211,7 @@ func (s *Store) createOrder(ctx context.Context, userID string, input domain.Che
 			&p.Rating, &p.ReviewsCount, &p.Stock, &p.MinimumQuantity, &p.QuantityStep, &p.Featured, &p.CreatedAt,
 			&p.Category.ID, &p.Category.Slug, &p.Category.Name, &p.Category.Description, &p.Category.ParentID, &p.Category.Icon,
 			&p.Manufacturer.ID, &p.Manufacturer.Slug, &p.Manufacturer.Name, &p.Manufacturer.Country, &p.Manufacturer.Description, &p.Manufacturer.Logo,
-			&p.Brand.ID, &p.Brand.Slug, &p.Brand.Name, &p.Brand.ManufacturerID, &p.Brand.Manufacturer, &p.Brand.Description, &p.Brand.Logo, &p.Archived, &p.ManagedMedia, &qty)
+			&p.Brand.ID, &p.Brand.Slug, &p.Brand.Name, &p.Brand.ManufacturerID, &p.Brand.Manufacturer, &p.Brand.Description, &p.Brand.Logo, &p.Archived, &p.LegacyMediaRetired, &p.ManagedMedia, &qty)
 		if err != nil {
 			rows.Close()
 			return domain.Order{}, fmt.Errorf("scan checkout cart: %w", err)
@@ -226,7 +226,7 @@ func (s *Store) createOrder(ctx context.Context, userID string, input domain.Che
 			rows.Close()
 			return domain.Order{}, domain.ErrCheckoutChanged
 		}
-		p.Image, p.Gallery = domain.ResolveProductMedia(p.Image, p.Gallery, p.ManagedMedia)
+		p.Image, p.Gallery = domain.ResolveProductMedia(p.Image, p.Gallery, p.ManagedMedia, p.LegacyMediaRetired)
 		selected = append(selected, checkoutRow{product: p, quantity: qty})
 	}
 	rows.Close()

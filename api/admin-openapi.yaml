@@ -2366,10 +2366,14 @@ components:
       - reviewsCount
       - createdAt
       - updatedAt
+      - legacyMediaRetired
       additionalProperties: false
       properties:
         managedMedia:
           $ref: '#/components/schemas/ManagedMedia'
+        legacyMediaRetired:
+          type: boolean
+          description: True once image and gallery no longer reach customers; they remain as compatibility columns (ADR 021).
         id:
           type: string
         revision:
@@ -2431,9 +2435,10 @@ components:
           type: string
         image:
           type: string
-          description: Read-only until media management exists.
+          description: Legacy compatibility column, read-only. Managed media replaces it (ADR 021).
         gallery:
           type: array
+          description: Legacy compatibility column, read-only. Managed media replaces it (ADR 021).
           items:
             type: string
         category:

@@ -10,6 +10,8 @@ export type ManagedMedia = { primary: MediaItem | null; gallery: MediaItem[] };
 
 export type AdminProduct = {
   managedMedia?: ManagedMedia;
+  /** True once `image` and `gallery` are only compatibility data (ADR 021). */
+  legacyMediaRetired: boolean;
   id: string;
   revision: number;
   archived: boolean;
@@ -105,7 +107,7 @@ export function parseProduct(body: unknown): AdminProduct | null {
   if (!textFields.every((key) => typeof body[key] === "string") || !numberFields.every((key) => Number.isSafeInteger(body[key]) || (key === "rating" && typeof body[key] === "number"))) {
     return null;
   }
-  if (typeof body.archived !== "boolean" || typeof body.featured !== "boolean" || !strings(body.gallery) || !strings(body.tags) || !strings(body.badges)) return null;
+  if (typeof body.archived !== "boolean" || typeof body.featured !== "boolean" || typeof body.legacyMediaRetired !== "boolean" || !strings(body.gallery) || !strings(body.tags) || !strings(body.badges)) return null;
   if (!isReference(body.category) || !isReference(body.manufacturer) || !isReference(body.brand) || !Array.isArray(body.collections) || !body.collections.every(isReference)) {
     return null;
   }

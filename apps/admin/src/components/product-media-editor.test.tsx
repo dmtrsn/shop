@@ -28,6 +28,20 @@ async function candidate(id: string) {
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 describe("product media editor", () => {
+  it("shows no legacy paths for a migrated product and labels them compatibility-only otherwise", async () => {
+    setup({ [`GET ${path}`]: json(product({ legacyMediaRetired: true, gallery: ["/assets/old.webp"] })) });
+    await screen.findByText("Основное изображение не выбрано.");
+    expect(screen.queryByText(/прежнего каталога/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/прежняя галерея/)).not.toBeInTheDocument();
+    expect(screen.getByText("В магазине показываются только изображения, выбранные здесь.")).toBeInTheDocument();
+  });
+
+  it("marks unmigrated legacy paths as compatibility-only", async () => {
+    setup({ [`GET ${path}`]: json(product({ gallery: ["/assets/old.webp"] })) });
+    expect(await screen.findByText(/Основное из прежнего каталога \(только совместимость/)).toHaveTextContent("/assets/product-chocolate.webp");
+    expect(screen.getByText(/прежняя галерея/)).toHaveTextContent("/assets/old.webp");
+  });
+
   it("uploads multipart with staff guards, previews, selects primary/gallery, reorders and atomically saves", async () => {
     const uploaded = asset("d");
     const api = setup({ "POST /api/admin/v1/media": json(uploaded,201), [`PUT ${path}/media`]: json({ revision: 8 }) });

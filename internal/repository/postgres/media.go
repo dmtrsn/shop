@@ -197,55 +197,13 @@ func (s *Store) SetProductMedia(ctx context.Context, mutation domain.StaffMutati
 		if _, err := lockProductRevision(ctx, tx, value.ProductID, expectedRevision); err != nil {
 			return domain.AuditTarget{}, err
 		}
-		ids := append([]string{}, value.GalleryIDs...)
-		if value.PrimaryID != "" {
-			ids = append(ids, value.PrimaryID)
-		}
-		rows, err := tx.Query(ctx, `SELECT id FROM media_assets WHERE id=ANY($1) AND deleted_at IS NULL ORDER BY id FOR SHARE`, ids)
-		if err != nil {
-			return domain.AuditTarget{}, fmt.Errorf("lock media assets: %w", err)
-		}
-		live := map[string]bool{}
-		for rows.Next() {
-			var id string
-			if err := rows.Scan(&id); err != nil {
-				rows.Close()
-				return domain.AuditTarget{}, err
-			}
-			live[id] = true
-		}
-		rows.Close()
-		if err := rows.Err(); err != nil {
+		if err := replaceProductMedia(ctx, tx, value); err != nil {
 			return domain.AuditTarget{}, err
-		}
-		fields := []domain.FieldError{}
-		if value.PrimaryID != "" && !live[value.PrimaryID] {
-			fields = append(fields, domain.FieldError{Field: "primaryId", Message: "Изображение не найдено или удалено"})
-		}
-		for _, id := range value.GalleryIDs {
-			if !live[id] {
-				fields = append(fields, domain.FieldError{Field: "galleryIds", Message: "Изображение не найдено или удалено"})
-				break
-			}
-		}
-		if len(fields) > 0 {
-			return domain.AuditTarget{}, &domain.ValidationError{Fields: fields}
-		}
-		if _, err := tx.Exec(ctx, `DELETE FROM product_media WHERE product_id=$1`, value.ProductID); err != nil {
-			return domain.AuditTarget{}, fmt.Errorf("clear product media: %w", err)
-		}
-		if value.PrimaryID != "" {
-			if _, err := tx.Exec(ctx, `INSERT INTO product_media(product_id,media_id,role,position) VALUES ($1,$2,'primary',0)`, value.ProductID, value.PrimaryID); err != nil {
-				return domain.AuditTarget{}, fmt.Errorf("set primary media: %w", err)
-			}
-		}
-		if _, err := tx.Exec(ctx, `INSERT INTO product_media(product_id,media_id,role,position)
-			SELECT $1,g.id,'gallery',g.ordinality-1 FROM unnest($2::text[]) WITH ORDINALITY AS g(id,ordinality)`, value.ProductID, value.GalleryIDs); err != nil {
-			return domain.AuditTarget{}, fmt.Errorf("set gallery media: %w", err)
 		}
 		if _, err := tx.Exec(ctx, `UPDATE products SET revision=revision+1,updated_at=now() WHERE id=$1`, value.ProductID); err != nil {
 			return domain.AuditTarget{}, fmt.Errorf("bump product revision: %w", err)
 		}
+		var err error
 		if result, err = productMedia(ctx, tx, value.ProductID); err != nil {
 			return domain.AuditTarget{}, err
 		}
@@ -255,6 +213,59 @@ func (s *Store) SetProductMedia(ctx context.Context, mutation domain.StaffMutati
 		return domain.ProductMedia{}, err
 	}
 	return result, nil
+}
+
+// replaceProductMedia share-locks the selected assets, requires them to be
+// live and replaces every reference of the product, whose row the caller
+// holds locked.
+func replaceProductMedia(ctx context.Context, tx StaffTx, value domain.ProductMedia) error {
+	ids := append([]string{}, value.GalleryIDs...)
+	if value.PrimaryID != "" {
+		ids = append(ids, value.PrimaryID)
+	}
+	rows, err := tx.Query(ctx, `SELECT id FROM media_assets WHERE id=ANY($1) AND deleted_at IS NULL ORDER BY id FOR SHARE`, ids)
+	if err != nil {
+		return fmt.Errorf("lock media assets: %w", err)
+	}
+	live := map[string]bool{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return err
+		}
+		live[id] = true
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	fields := []domain.FieldError{}
+	if value.PrimaryID != "" && !live[value.PrimaryID] {
+		fields = append(fields, domain.FieldError{Field: "primaryId", Message: "Изображение не найдено или удалено"})
+	}
+	for _, id := range value.GalleryIDs {
+		if !live[id] {
+			fields = append(fields, domain.FieldError{Field: "galleryIds", Message: "Изображение не найдено или удалено"})
+			break
+		}
+	}
+	if len(fields) > 0 {
+		return &domain.ValidationError{Fields: fields}
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM product_media WHERE product_id=$1`, value.ProductID); err != nil {
+		return fmt.Errorf("clear product media: %w", err)
+	}
+	if value.PrimaryID != "" {
+		if _, err := tx.Exec(ctx, `INSERT INTO product_media(product_id,media_id,role,position) VALUES ($1,$2,'primary',0)`, value.ProductID, value.PrimaryID); err != nil {
+			return fmt.Errorf("set primary media: %w", err)
+		}
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO product_media(product_id,media_id,role,position)
+		SELECT $1,g.id,'gallery',g.ordinality-1 FROM unnest($2::text[]) WITH ORDINALITY AS g(id,ordinality)`, value.ProductID, value.GalleryIDs); err != nil {
+		return fmt.Errorf("set gallery media: %w", err)
+	}
+	return nil
 }
 
 // The correlated read runs in the same statement/snapshot as the product and

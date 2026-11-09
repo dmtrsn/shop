@@ -17,7 +17,7 @@ The projection is read in the same PostgreSQL statement as the product revision,
 | Gallery only | Original `products.image` | Managed gallery in position order |
 | Primary and gallery | Managed primary URL | Managed gallery in position order |
 
-Detaching every managed reference restores the legacy fallback. There is no separate persisted “configured but empty” flag. This cutover avoids bringing old gallery images back when a managed primary has deliberately been given an empty gallery.
+Detaching every managed reference restores the legacy fallback until the product is migrated; [ADR 021](021-legacy-media-migration.md) retires the fallback per product and adds the marker that records it. This cutover avoids bringing old gallery images back when a managed primary has deliberately been given an empty gallery.
 
 Public product DTO `image` and `gallery` are the resolved values. Their field names and types remain compatible; the optional `managedMedia` field makes the managed identity explicit. The shared reader covers catalog, product detail, home/collection lists, favorites, cart, checkout review, search suggestions and current-product data in repeat-order previews. Frontend components consume these resolved URLs without maintaining a second selection rule. Historical order lines and repeat source lines continue to use their own snapshots.
 
