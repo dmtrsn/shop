@@ -16,7 +16,8 @@ COPY . .
 # The browser API stays /api. STOREFRONT_BASE_PATH is intentionally not set.
 RUN npm run build \
     && mkdir -p .next/standalone/.next \
-    && cp -R .next/static .next/standalone/.next/static
+    && cp -R .next/static .next/standalone/.next/static \
+    && cp -R public .next/standalone/public
 
 FROM node:22.12-alpine AS runtime
 

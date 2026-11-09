@@ -1,8 +1,16 @@
 name: sweetshop
 
+# Bounds each container to about 30 MB of json-file logs.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   postgres:
     image: postgres:16-alpine
+    logging: *default-logging
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-sweetshop}
@@ -23,6 +31,7 @@ services:
 
   app:
     image: sweetshop:local
+    logging: *default-logging
     build:
       context: .
       dockerfile: Dockerfile
@@ -81,6 +90,7 @@ services:
 
   storefront:
     image: sweetshop-storefront:local
+    logging: *default-logging
     # Root artifact: Next is built without a basePath and owns / at the edge.
     build:
       context: ./apps/storefront
@@ -115,6 +125,7 @@ services:
 
   edge:
     image: nginx:1.27-alpine
+    logging: *default-logging
     restart: unless-stopped
     init: true
     depends_on:
@@ -152,6 +163,7 @@ services:
   admin:
     image: sweetshop-admin:local
     profiles: ["admin"]
+    logging: *default-logging
     build:
       context: ./apps/admin
       dockerfile: Dockerfile
@@ -187,6 +199,7 @@ services:
   admin-edge:
     image: nginx:1.27-alpine
     profiles: ["admin"]
+    logging: *default-logging
     restart: unless-stopped
     init: true
     depends_on:
@@ -219,6 +232,7 @@ services:
   mailpit:
     image: axllent/mailpit:v1.27.10
     profiles: ["mail"]
+    logging: *default-logging
     restart: unless-stopped
     ports:
       - "127.0.0.1:${MAILPIT_UI_PORT:-8025}:8025"
