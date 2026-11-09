@@ -44,6 +44,14 @@ afterEach(() => {
 });
 
 describe("product API boundary", () => {
+  it("keeps server-resolved managed primary/gallery and legacy responses unchanged", () => {
+    const managed = parseProduct({ ...productResponse, image: "/media/med_" + "a".repeat(32), gallery: ["/media/med_" + "c".repeat(32), "/media/med_" + "b".repeat(32)] });
+    expect(managed.image).toBe("/media/med_" + "a".repeat(32));
+    expect(managed.gallery).toEqual(["/media/med_" + "c".repeat(32), "/media/med_" + "b".repeat(32)]);
+    expect(parseProduct({ ...productResponse, image: managed.image, gallery: [] }).gallery).toEqual([]);
+    expect(parseProduct(productResponse).image).toBe(productResponse.image);
+    expect(parseProduct(productResponse).gallery).toEqual(productResponse.gallery);
+  });
   it("parses and maps the authoritative response without retaining unrelated fields", () => {
     const product = parseProduct(productResponse);
 

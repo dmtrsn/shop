@@ -27,7 +27,9 @@ export function getStorefrontRewrites(environment: ApiBaseEnvironment = process.
       })),
     ] : [],
     afterFiles: assetRewriteBaseUrl
-      ? [{ source: "/assets/:path*", destination: `${assetRewriteBaseUrl}/assets/:path*` }]
+      ? ["assets", "media"].map(prefix => ({
+        source: `/${prefix}/:path*`, destination: `${assetRewriteBaseUrl}/${prefix}/:path*`,
+      }))
       : [],
     fallback: apiProxyBaseUrl
       ? [{ source: "/api/:path*", destination: `${apiProxyBaseUrl}/api/:path*` }]

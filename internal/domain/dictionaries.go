@@ -22,6 +22,7 @@ var ErrInvalidHierarchy = errors.New("category hierarchy change not allowed")
 // used row, moving a used brand to another manufacturer). It carries counts
 // only.
 type ReferenceConflictError struct {
+	Orders     int `json:"orders,omitempty"`
 	Products   int `json:"products"`
 	Brands     int `json:"brands"`
 	Categories int `json:"categories"`
@@ -29,6 +30,9 @@ type ReferenceConflictError struct {
 
 func (e *ReferenceConflictError) Error() string {
 	parts := []string{}
+	if e.Orders > 0 {
+		parts = append(parts, fmt.Sprintf("заказов: %d", e.Orders))
+	}
 	if e.Products > 0 {
 		parts = append(parts, fmt.Sprintf("товаров: %d", e.Products))
 	}

@@ -211,7 +211,7 @@ func (s *Store) createOrder(ctx context.Context, userID string, input domain.Che
 			&p.Rating, &p.ReviewsCount, &p.Stock, &p.MinimumQuantity, &p.QuantityStep, &p.Featured, &p.CreatedAt,
 			&p.Category.ID, &p.Category.Slug, &p.Category.Name, &p.Category.Description, &p.Category.ParentID, &p.Category.Icon,
 			&p.Manufacturer.ID, &p.Manufacturer.Slug, &p.Manufacturer.Name, &p.Manufacturer.Country, &p.Manufacturer.Description, &p.Manufacturer.Logo,
-			&p.Brand.ID, &p.Brand.Slug, &p.Brand.Name, &p.Brand.ManufacturerID, &p.Brand.Manufacturer, &p.Brand.Description, &p.Brand.Logo, &p.Archived, &qty)
+			&p.Brand.ID, &p.Brand.Slug, &p.Brand.Name, &p.Brand.ManufacturerID, &p.Brand.Manufacturer, &p.Brand.Description, &p.Brand.Logo, &p.Archived, &p.ManagedMedia, &qty)
 		if err != nil {
 			rows.Close()
 			return domain.Order{}, fmt.Errorf("scan checkout cart: %w", err)
@@ -226,6 +226,7 @@ func (s *Store) createOrder(ctx context.Context, userID string, input domain.Che
 			rows.Close()
 			return domain.Order{}, domain.ErrCheckoutChanged
 		}
+		p.Image, p.Gallery = domain.ResolveProductMedia(p.Image, p.Gallery, p.ManagedMedia)
 		selected = append(selected, checkoutRow{product: p, quantity: qty})
 	}
 	rows.Close()
@@ -234,6 +235,18 @@ func (s *Store) createOrder(ctx context.Context, userID string, input domain.Che
 	}
 	if len(selected) == 0 {
 		return domain.Order{}, domain.ErrConflict
+	}
+	// Product locks stabilize the selected references. Share-lock the assets
+	// in ID order through the order snapshot commit; deletion locks those same
+	// rows FOR UPDATE before counting both products and orders.
+	mediaIDs := []string{}
+	for _, row := range selected {
+		if row.product.ManagedMedia != nil && row.product.ManagedMedia.Primary != nil {
+			mediaIDs = append(mediaIDs, row.product.ManagedMedia.Primary.ID)
+		}
+	}
+	if _, err := tx.Exec(ctx, `SELECT id FROM media_assets WHERE id=ANY($1) AND deleted_at IS NULL ORDER BY id FOR SHARE`, mediaIDs); err != nil {
+		return domain.Order{}, fmt.Errorf("lock order snapshot media: %w", err)
 	}
 	selectedProductIDs := make([]string, 0, len(selected))
 	items := make([]domain.OrderItem, 0, len(selected))

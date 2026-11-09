@@ -1,0 +1,1 @@
+DROP INDEX order_items_managed_image_idx;

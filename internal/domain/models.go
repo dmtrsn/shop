@@ -106,35 +106,36 @@ type Brand struct {
 }
 
 type Product struct {
-	ID              string       `json:"id"`
-	Slug            string       `json:"slug"`
-	SKU             string       `json:"sku"`
-	Name            string       `json:"name"`
-	ShortName       string       `json:"shortName,omitempty"`
-	Description     string       `json:"description"`
-	PriceMinor      int64        `json:"priceMinor"`
-	OldPriceMinor   int64        `json:"oldPriceMinor,omitempty"`
-	Currency        string       `json:"currency"`
-	Unit            string       `json:"unit"`
-	WeightGrams     int          `json:"weightGrams,omitempty"`
-	Image           string       `json:"image"`
-	Gallery         []string     `json:"gallery,omitempty"`
-	Category        Category     `json:"category"`
-	Manufacturer    Manufacturer `json:"manufacturer"`
-	Brand           Brand        `json:"brand"`
-	Series          string       `json:"series,omitempty"`
-	Tags            []string     `json:"tags,omitempty"`
-	Badges          []string     `json:"badges,omitempty"`
-	Ingredients     string       `json:"ingredients,omitempty"`
-	Nutrition       string       `json:"nutrition,omitempty"`
-	ShelfLifeDays   int          `json:"shelfLifeDays,omitempty"`
-	Rating          float64      `json:"rating"`
-	ReviewsCount    int          `json:"reviewsCount"`
-	Stock           int          `json:"stock"`
-	MinimumQuantity int          `json:"minimumQuantity"`
-	QuantityStep    int          `json:"quantityStep"`
-	Featured        bool         `json:"featured,omitempty"`
-	CreatedAt       time.Time    `json:"createdAt"`
+	ManagedMedia    *ManagedMedia `json:"managedMedia,omitempty"`
+	ID              string        `json:"id"`
+	Slug            string        `json:"slug"`
+	SKU             string        `json:"sku"`
+	Name            string        `json:"name"`
+	ShortName       string        `json:"shortName,omitempty"`
+	Description     string        `json:"description"`
+	PriceMinor      int64         `json:"priceMinor"`
+	OldPriceMinor   int64         `json:"oldPriceMinor,omitempty"`
+	Currency        string        `json:"currency"`
+	Unit            string        `json:"unit"`
+	WeightGrams     int           `json:"weightGrams,omitempty"`
+	Image           string        `json:"image"`
+	Gallery         []string      `json:"gallery,omitempty"`
+	Category        Category      `json:"category"`
+	Manufacturer    Manufacturer  `json:"manufacturer"`
+	Brand           Brand         `json:"brand"`
+	Series          string        `json:"series,omitempty"`
+	Tags            []string      `json:"tags,omitempty"`
+	Badges          []string      `json:"badges,omitempty"`
+	Ingredients     string        `json:"ingredients,omitempty"`
+	Nutrition       string        `json:"nutrition,omitempty"`
+	ShelfLifeDays   int           `json:"shelfLifeDays,omitempty"`
+	Rating          float64       `json:"rating"`
+	ReviewsCount    int           `json:"reviewsCount"`
+	Stock           int           `json:"stock"`
+	MinimumQuantity int           `json:"minimumQuantity"`
+	QuantityStep    int           `json:"quantityStep"`
+	Featured        bool          `json:"featured,omitempty"`
+	CreatedAt       time.Time     `json:"createdAt"`
 	// Archived products are withdrawn from sale (ADR 013). Customer reads
 	// omit them, except cart lines, which show them as unavailable.
 	Archived bool `json:"-"`

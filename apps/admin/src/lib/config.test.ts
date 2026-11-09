@@ -15,7 +15,7 @@ describe("admin server configuration", () => {
   it("forwards only the staff API, and only in development", () => {
     expect(getAdminRewrites({ NODE_ENV: "production", ADMIN_API_BASE_URL: "http://app:8080" })).toEqual({ fallback: [] });
     expect(getAdminRewrites({ NODE_ENV: "development" })).toEqual({
-      fallback: [{ source: "/api/admin/:path*", destination: "http://127.0.0.1:8080/api/admin/:path*" }],
+      fallback: [{ source: "/api/admin/:path*", destination: "http://127.0.0.1:8080/api/admin/:path*" }, { source: "/media/:path*", destination: "http://127.0.0.1:8080/media/:path*" }],
     });
   });
 });

@@ -221,8 +221,8 @@ func TestProductMediaReferencesBlockDeletionAndDeletedMediaCannotBeAttached(t *t
 	legacyImage, legacyGallery := d.adminProduct(t, "p01").Image, d.adminProduct(t, "p01").Gallery
 	revision := d.productRevision(t, "p01")
 	set, err := library.SetProductMedia(d.ctx, mutationAs(t, staff, application.ProductMediaUpdate), revision,
-		domain.ProductMedia{ProductID: "p01", PrimaryID: primary.ID, GalleryIDs: []string{gallery.ID, primary.ID}})
-	if err != nil || set.PrimaryID != primary.ID || strings.Join(set.GalleryIDs, ",") != gallery.ID+","+primary.ID {
+		domain.ProductMedia{ProductID: "p01", PrimaryID: primary.ID, GalleryIDs: []string{gallery.ID}})
+	if err != nil || set.PrimaryID != primary.ID || strings.Join(set.GalleryIDs, ",") != gallery.ID {
 		t.Fatalf("attach: %+v %v", set, err)
 	}
 	if d.productRevision(t, "p01") != revision+1 {
@@ -231,10 +231,10 @@ func TestProductMediaReferencesBlockDeletionAndDeletedMediaCannotBeAttached(t *t
 	if _, err := library.SetProductMedia(d.ctx, mutationAs(t, staff, application.ProductMediaUpdate), revision, domain.ProductMedia{ProductID: "p01"}); !errors.Is(err, domain.ErrStaleRevision) {
 		t.Fatalf("stale attach: %v", err)
 	}
-	// Legacy columns stay authoritative: the customer still sees them.
+	// Legacy columns remain untouched; customer reads resolve managed media.
 	after := d.adminProduct(t, "p01")
 	customerView, _ := d.service.Product(d.ctx, "p01")
-	if after.Image != legacyImage || strings.Join(after.Gallery, ",") != strings.Join(legacyGallery, ",") || customerView.Image != legacyImage {
+	if after.Image != legacyImage || strings.Join(after.Gallery, ",") != strings.Join(legacyGallery, ",") || customerView.Image != primary.URL {
 		t.Fatal("managed media changed legacy product images")
 	}
 
@@ -383,8 +383,8 @@ func TestReconciliationClassifiesFilesystemAndDatabaseDivergence(t *testing.T) {
 	}
 }
 
-// The B6 image (migrations 001–016) accepts migration 017; it ignores the
-// new tables, and legacy product images keep working.
+// The C1 migration runner (001–017) tolerates C2's additive index.
+// Legacy columns and ordinary product edits remain compatible.
 func TestPreviousBinaryToleratesMediaSchema(t *testing.T) {
 	d := newDatabase(t, true)
 	staff := d.auditStaff(t, "a@example.com")
@@ -393,12 +393,12 @@ func TestPreviousBinaryToleratesMediaSchema(t *testing.T) {
 		domain.ProductMedia{ProductID: "p01", PrimaryID: asset.ID}); err != nil {
 		t.Fatal(err)
 	}
-	previous := migrator(migrationDir(t, []string{"001_", "002_", "003_", "004_", "005_", "006_", "007_", "008_", "009_", "010_", "011_", "012_", "013_", "014_", "015_", "016_"}, nil), &lockedBuffer{})
+	previous := migrator(migrationDir(t, []string{"001_", "002_", "003_", "004_", "005_", "006_", "007_", "008_", "009_", "010_", "011_", "012_", "013_", "014_", "015_", "016_", "017_"}, nil), &lockedBuffer{})
 	if err := previous.Verify(d.ctx, d.pool); err != nil {
-		t.Fatalf("B6 schema check on the C1 schema: %v", err)
+		t.Fatalf("C1 schema check on the C2 schema: %v", err)
 	}
 	if err := previous.Migrate(d.ctx, d.pool); err != nil {
-		t.Fatalf("B6 migrate on the C1 schema: %v", err)
+		t.Fatalf("C1 migrate on the C2 schema: %v", err)
 	}
 	// B6's product write (no media awareness) still works on a product with managed media.
 	p01 := d.adminProduct(t, "p01")
@@ -408,7 +408,7 @@ func TestPreviousBinaryToleratesMediaSchema(t *testing.T) {
 		t.Fatal(err)
 	}
 	product, err := d.service.Product(d.ctx, "p01")
-	if err != nil || product.Image != p01.Image || !strings.HasPrefix(product.Image, "/assets/") {
+	if err != nil || product.Image != asset.URL || !strings.HasPrefix(p01.Image, "/assets/") {
 		t.Fatalf("customer product: %+v %v", product.Image, err)
 	}
 }

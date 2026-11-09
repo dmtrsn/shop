@@ -33,6 +33,7 @@ type MediaAsset struct {
 	URL string `json:"url"`
 	// ProductCount counts products that reference the asset.
 	ProductCount int `json:"productCount"`
+	OrderCount   int `json:"orderCount"`
 }
 
 // MediaPage is one page of live assets, newest first.
@@ -67,4 +68,36 @@ type ProductMedia struct {
 	ProductID  string   `json:"productId"`
 	PrimaryID  string   `json:"primaryId,omitempty"`
 	GalleryIDs []string `json:"galleryIds"`
+}
+
+// ProductMediaItem contains only public, immutable image metadata.
+type ProductMediaItem struct {
+	ID          string `json:"id"`
+	URL         string `json:"url"`
+	Width       int    `json:"width"`
+	Height      int    `json:"height"`
+	ContentType string `json:"contentType"`
+	Position    int    `json:"position"`
+}
+
+type ManagedMedia struct {
+	Primary *ProductMediaItem  `json:"primary"`
+	Gallery []ProductMediaItem `json:"gallery"`
+}
+
+// ResolveProductMedia preserves legacy semantics until any live managed
+// reference exists. A managed primary with an empty gallery never falls back
+// to the legacy gallery. Detaching all references restores legacy behavior.
+func ResolveProductMedia(image string, gallery []string, managed *ManagedMedia) (string, []string) {
+	if managed == nil || (managed.Primary == nil && len(managed.Gallery) == 0) {
+		return image, gallery
+	}
+	if managed.Primary != nil {
+		image = managed.Primary.URL
+	}
+	gallery = make([]string, 0, len(managed.Gallery))
+	for _, item := range managed.Gallery {
+		gallery = append(gallery, item.URL)
+	}
+	return image, gallery
 }

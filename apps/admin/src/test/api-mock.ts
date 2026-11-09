@@ -21,11 +21,12 @@ export function mockApi(routes: Record<string, Responder | Responder[]> = {}) {
   const fetcher = vi.fn(async (input: RequestInfo | URL, init: RequestInit = {}) => {
     const url = String(input);
     const method = init.method ?? "GET";
-    const call: Call = { method, url, headers: new Headers(init.headers), body: typeof init.body === "string" ? JSON.parse(init.body) : undefined };
+    const call: Call = { method, url, headers: new Headers(init.headers), body: typeof init.body === "string" ? JSON.parse(init.body) : init.body };
     calls.push(call);
     const key = `${method} ${url.split("?")[0]}`;
     const queue = queues.get(key);
     if (!queue) {
+      if (key === "GET /api/admin/v1/media") return Response.json({ items: [], page: 1, totalPages: 0 });
       if (key === "GET /api/admin/v1/auth/session") return Response.json({ authenticated: true, staff: { ...testStaff, createdAt: "2026-10-01T00:00:00Z" }, expiresAt: "x", csrfToken: "csrf-1" });
       throw new Error(`unexpected request ${key}`);
     }

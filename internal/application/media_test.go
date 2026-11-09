@@ -169,10 +169,11 @@ func TestSetProductMediaValidatesBeforeTheStore(t *testing.T) {
 		value    domain.ProductMedia
 		fields   string
 	}{
-		"no revision":     {0, domain.ProductMedia{ProductID: "p01"}, "expectedRevision"},
-		"bad primary":     {1, domain.ProductMedia{ProductID: "p01", PrimaryID: "/assets/x.webp"}, "primaryId"},
-		"repeated":        {1, domain.ProductMedia{ProductID: "p01", GalleryIDs: []string{a, a}}, "galleryIds"},
-		"too many images": {1, domain.ProductMedia{ProductID: "p01", GalleryIDs: manyIDs(MaxGalleryImages + 1)}, "galleryIds"},
+		"no revision":      {0, domain.ProductMedia{ProductID: "p01"}, "expectedRevision"},
+		"bad primary":      {1, domain.ProductMedia{ProductID: "p01", PrimaryID: "/assets/x.webp"}, "primaryId"},
+		"primary repeated": {1, domain.ProductMedia{ProductID: "p01", PrimaryID: a, GalleryIDs: []string{a}}, "galleryIds"},
+		"repeated":         {1, domain.ProductMedia{ProductID: "p01", GalleryIDs: []string{a, a}}, "galleryIds"},
+		"too many images":  {1, domain.ProductMedia{ProductID: "p01", GalleryIDs: manyIDs(MaxGalleryImages + 1)}, "galleryIds"},
 	} {
 		_, err := library.SetProductMedia(context.Background(), mutation, tc.revision, tc.value)
 		if got := strings.Join(fieldNames(err), ","); got != tc.fields {
@@ -182,7 +183,7 @@ func TestSetProductMediaValidatesBeforeTheStore(t *testing.T) {
 	if len(store.set) != 0 {
 		t.Fatal("invalid input reached the store")
 	}
-	got, err := library.SetProductMedia(context.Background(), mutation, 3, domain.ProductMedia{ProductID: "p01", PrimaryID: a, GalleryIDs: []string{b, a}})
+	got, err := library.SetProductMedia(context.Background(), mutation, 3, domain.ProductMedia{ProductID: "p01", PrimaryID: a, GalleryIDs: []string{b}})
 	if err != nil || got.PrimaryID != a || len(store.set) != 1 {
 		t.Fatalf("%+v %v", got, err)
 	}

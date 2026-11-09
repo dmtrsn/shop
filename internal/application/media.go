@@ -13,7 +13,7 @@ import (
 )
 
 // Managed media actions (ADR 019). Reads are authorized as media.read.
-// product.media_update has no HTTP route yet: C2 exposes it.
+// Product media updates share the product revision.
 const (
 	MediaRead          = "media.read"
 	MediaUpload        = domain.AuditAction("media.upload")
@@ -193,7 +193,7 @@ func (m *Media) Open(ctx context.Context, id string) (domain.StoredMedia, io.Rea
 }
 
 // SetProductMedia replaces a product's managed primary image and gallery.
-// It is the C2 primitive; no route exposes it in C1.
+// All references are replaced atomically.
 func (m *Media) SetProductMedia(ctx context.Context, mutation domain.StaffMutation, expectedRevision int64, value domain.ProductMedia) (domain.ProductMedia, error) {
 	if err := requireAction(mutation, ProductMediaUpdate); err != nil {
 		return domain.ProductMedia{}, err
@@ -207,7 +207,7 @@ func (m *Media) SetProductMedia(ctx context.Context, mutation domain.StaffMutati
 	}
 	seen := map[string]bool{}
 	for _, id := range value.GalleryIDs {
-		if !media.IDPattern.MatchString(id) || seen[id] {
+		if !media.IDPattern.MatchString(id) || seen[id] || id == value.PrimaryID {
 			fields = append(fields, domain.FieldError{Field: "galleryIds", Message: "Изображения галереи должны быть из медиатеки и не повторяться"})
 			break
 		}

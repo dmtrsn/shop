@@ -110,9 +110,8 @@ describe("product editor", () => {
       renderEditor("p01");
       expect(await screen.findByLabelText("Цена, ₽")).toHaveValue("489,00");
       expect(screen.getByTestId("product-revision")).toHaveTextContent("7");
-      expect(screen.getByText("/assets/product-chocolate.webp")).toBeInTheDocument();
-      expect(screen.getByText(/управление изображениями будет добавлено отдельно/)).toBeInTheDocument();
-      expect(document.querySelector("input[type=file]")).toBeNull();
+      expect(screen.getByText(/Основное из прежнего каталога/)).toBeInTheDocument();
+      expect(screen.getByLabelText(/Загрузить изображение/)).toHaveAttribute("type", "file");
       await replace("Остаток", "30");
       expect(screen.getByText("Есть несохранённые изменения")).toBeInTheDocument();
       await userEvent.setup().click(screen.getByRole("button", { name: "Сохранить изменения" }));

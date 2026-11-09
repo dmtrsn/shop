@@ -3108,6 +3108,44 @@ components:
       schema:
         type: string
   schemas:
+    ProductMediaItem:
+      type: object
+      additionalProperties: false
+      required: [id, url, width, height, contentType, position]
+      properties:
+        id:
+          type: string
+          pattern: '^med_[0-9a-f]{32}$'
+        url:
+          type: string
+          pattern: '^/media/med_[0-9a-f]{32}$'
+        width:
+          type: integer
+          minimum: 1
+        height:
+          type: integer
+          minimum: 1
+        contentType:
+          type: string
+          enum: [image/jpeg, image/png]
+        position:
+          type: integer
+          minimum: 0
+    ManagedMedia:
+      type: object
+      additionalProperties: false
+      required: [primary, gallery]
+      properties:
+        primary:
+          type: object
+          nullable: true
+          allOf:
+          - $ref: '#/components/schemas/ProductMediaItem'
+        gallery:
+          type: array
+          maxItems: 20
+          items:
+            $ref: '#/components/schemas/ProductMediaItem'
     User:
       type: object
       properties:
@@ -3209,6 +3247,8 @@ components:
     Product:
       type: object
       properties:
+        managedMedia:
+          $ref: '#/components/schemas/ManagedMedia'
         id:
           type: string
         slug:
@@ -3303,7 +3343,8 @@ components:
       - quantityStep
       - createdAt
       additionalProperties: false
-      description: Prices are integer currency minor units (seed currency RUB). Optional zero/empty fields are omitted.
+      description: Current-product image/gallery resolve managed media with legacy fallback (ADR 020); managedMedia exposes public metadata. Order-item images remain independent snapshots.
+        Prices are integer currency minor units (seed currency RUB). Optional zero/empty fields are omitted.
         Nested entity productCount is normally zero, not the directory count. A discontinued repeat item uses this
         same shape with historical id/SKU/name/image and zero-value remaining fields, including empty nested entities,
         zero quantity rules and a year-0001 createdAt.

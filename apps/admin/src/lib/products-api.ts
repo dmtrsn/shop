@@ -5,7 +5,11 @@ import { adminRequest, isRecord, type ApiResult, type MutationAuth } from "./adm
 
 export type Reference = { id: string; name: string };
 
+export type MediaItem = { id: string; url: string; width: number; height: number; contentType: string; position: number };
+export type ManagedMedia = { primary: MediaItem | null; gallery: MediaItem[] };
+
 export type AdminProduct = {
+  managedMedia?: ManagedMedia;
   id: string;
   revision: number;
   archived: boolean;
@@ -106,6 +110,7 @@ export function parseProduct(body: unknown): AdminProduct | null {
     return null;
   }
   if (body.archivedAt !== undefined && typeof body.archivedAt !== "string") return null;
+  if (body.managedMedia !== undefined && !isManagedMedia(body.managedMedia)) return null;
   return body as unknown as AdminProduct;
 }
 
@@ -159,4 +164,14 @@ export function archiveProduct(id: string, expectedRevision: number, auth: Mutat
 
 export function restoreProduct(id: string, expectedRevision: number, auth: MutationAuth): Promise<ApiResult<AdminProduct>> {
   return adminRequest(`${productPath(id)}/restore`, parseProduct, { method: "POST", body: { expectedRevision }, auth });
+}
+
+export function isMediaItem(value: unknown): value is MediaItem {
+ return isRecord(value) && typeof value.id === "string" && /^med_[0-9a-f]{32}$/.test(value.id)
+  && value.url === `/media/${value.id}` && Number.isSafeInteger(value.width) && (value.width as number) > 0
+  && Number.isSafeInteger(value.height) && (value.height as number) > 0
+  && ["image/jpeg", "image/png"].includes(value.contentType as string) && Number.isSafeInteger(value.position);
+}
+function isManagedMedia(value: unknown): value is ManagedMedia {
+ return isRecord(value) && (value.primary === null || isMediaItem(value.primary)) && Array.isArray(value.gallery) && value.gallery.every(isMediaItem);
 }

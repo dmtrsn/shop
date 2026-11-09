@@ -178,6 +178,11 @@ func TestMediaRoutesAcceptOnlyTheStaffSession(t *testing.T) {
 		status       int
 	}{
 		"anonymous list":       {"GET", "/api/admin/v1/media", nil, 401},
+		"anonymous assign":     {"PUT", "/api/admin/v1/products/p01/media", nil, 401},
+		"customer assign":      {"PUT", "/api/admin/v1/products/p01/media", map[string]string{"Cookie": customerCookie}, 401},
+		"assign without CSRF":  {"PUT", "/api/admin/v1/products/p01/media", map[string]string{"Cookie": staffCookie, "Origin": adminOrigin}, 403},
+		"assign shop origin":   {"PUT", "/api/admin/v1/products/p01/media", map[string]string{"Cookie": staffCookie, "Origin": shopOrigin, "X-CSRF-Token": csrf}, 403},
+		"assign changed staff": {"PUT", "/api/admin/v1/products/p01/media", map[string]string{"Cookie": staffCookie, "Origin": adminOrigin, "X-CSRF-Token": csrf, expectedStaffHeader: "stf_" + strings.Repeat("0", 32)}, 409},
 		"customer list":        {"GET", "/api/admin/v1/media", map[string]string{"Cookie": customerCookie}, 401},
 		"customer upload":      {"POST", "/api/admin/v1/media", map[string]string{"Cookie": customerCookie, "Origin": adminOrigin, "Content-Type": contentType}, 401},
 		"bearer":               {"GET", "/api/admin/v1/media", map[string]string{"Cookie": staffCookie, "Authorization": "Bearer x"}, 401},

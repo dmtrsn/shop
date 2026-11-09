@@ -13,7 +13,10 @@ describe("storefront rewrites", () => {
         { source: "/migration.js", destination: "http://127.0.0.1:8080/migration.js", basePath: false },
         { source: "/styles.css", destination: "http://127.0.0.1:8080/styles.css", basePath: false },
       ],
-      afterFiles: [{ source: "/assets/:path*", destination: "http://127.0.0.1:8080/assets/:path*" }],
+      afterFiles: [
+        { source: "/assets/:path*", destination: "http://127.0.0.1:8080/assets/:path*" },
+        { source: "/media/:path*", destination: "http://127.0.0.1:8080/media/:path*" },
+      ],
       fallback: [{ source: "/api/:path*", destination: "http://127.0.0.1:8080/api/:path*" }],
     });
   });
@@ -41,7 +44,10 @@ describe("storefront rewrites", () => {
       getStorefrontRewrites({ NODE_ENV: "production", STOREFRONT_API_BASE_URL: "https://api.example.test" }),
     ).toEqual({
       beforeFiles: [],
-      afterFiles: [{ source: "/assets/:path*", destination: "https://api.example.test/assets/:path*" }],
+      afterFiles: [
+        { source: "/assets/:path*", destination: "https://api.example.test/assets/:path*" },
+        { source: "/media/:path*", destination: "https://api.example.test/media/:path*" },
+      ],
       fallback: [],
     });
   });

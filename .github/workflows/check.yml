@@ -205,6 +205,20 @@ jobs:
         run: docker compose -p sweetshop-edge-smoke --env-file .env.example up -d --no-deps --force-recreate --wait --wait-timeout 60 admin-edge
       - name: Staff sign-in rate limit through the admin edge (exhausts this runner's bucket)
         run: bash scripts/test-admin-auth-rate-limit.sh
+      # Last, because it changes the app's cookie mode: this is the only journey
+      # that signs a customer in through Chrome, and the shop edge is plain HTTP,
+      # where Chrome rejects the __Host- cookie of SESSION_COOKIE_SECURE=true.
+      - name: Recreate the app with non-Secure session cookies and both edges with fresh limiter zones for the media journey
+        env:
+          COMPOSE_PROFILES: mail,admin
+          EDGE_ROUTE_MAP: default
+          SESSION_COOKIE_SECURE: 'false'
+          STAFF_TRUSTED_ORIGINS: http://localhost:8081,https://localhost:8443
+        run: docker compose -p sweetshop-edge-smoke --env-file .env.example up -d --no-deps --force-recreate --wait --wait-timeout 120 app edge admin-edge
+      - name: Staff media journey in headless Chrome (upload, primary, gallery order, stale conflict, detach, reference-safe delete, order image snapshot, legacy fallback, audit rows)
+        env:
+          COMPOSE_PROJECT: sweetshop-edge-smoke
+        run: bash scripts/with-admin-tls-proxy.sh node scripts/test-admin-media-flow.mjs
       - name: Show service logs on failure
         if: failure()
         env:

@@ -1404,6 +1404,80 @@ paths:
           $ref: '#/components/responses/InternalError'
         '503':
           $ref: '#/components/responses/StorageUnavailable'
+  /api/admin/v1/products/{product}/media:
+    parameters:
+    - $ref: '#/components/parameters/Product'
+    put:
+      operationId: setProductMedia
+      summary: Replace managed primary and ordered gallery
+      description: >-
+        Requires a staff session, trusted Origin, CSRF and the expected staff identity.
+        Atomically checks expectedRevision, validates live assets, replaces every managed reference,
+        increments the product revision once and emits one product.media_update audit event.
+        Archived products may be edited. Legacy image/gallery columns are untouched.
+        primaryId may be null; galleryIds must be unique, at most 20, and exclude primaryId.
+        Stale revisions return 409 stale_revision without any writes or audit event.
+      parameters:
+      - $ref: '#/components/parameters/CSRFToken'
+      - $ref: '#/components/parameters/ExpectedStaffID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [expectedRevision, primaryId, galleryIds]
+              properties:
+                expectedRevision:
+                  type: integer
+                  format: int64
+                  minimum: 1
+                primaryId:
+                  type: string
+                  nullable: true
+                  pattern: '^med_[0-9a-f]{32}$'
+                galleryIds:
+                  type: array
+                  maxItems: 20
+                  uniqueItems: true
+                  items:
+                    type: string
+                    pattern: '^med_[0-9a-f]{32}$'
+      responses:
+        '200':
+          description: Exact committed state and revision
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [revision, productId, galleryIds]
+                properties:
+                  revision:
+                    type: integer
+                    format: int64
+                    minimum: 2
+                  productId:
+                    type: string
+                  primaryId:
+                    type: string
+                  galleryIds:
+                    type: array
+                    items:
+                      type: string
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/CSRFFailed'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/RevisionConflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '500':
+          $ref: '#/components/responses/InternalError'
   /api/admin/v1/media/{media}:
     parameters:
     - $ref: '#/components/parameters/Media'
@@ -1438,7 +1512,7 @@ paths:
         Deletes an unreferenced asset: the row is tombstoned (its ID is never reused) together with the audit
         event media.delete, /media/{id} answers 404 from then on, and the file is removed after the commit. If
         that removal fails the deletion still stands and `shopctl media verify --apply` removes the leftover
-        later. An asset any product references is 409 reference_conflict with error.references.products, and
+        later. An asset referenced by products or historical order snapshots is 409 reference_conflict with safe counts error.references.products and error.references.orders, and
         nothing changes; detach it first. Copies already held by browsers or proxies are not purged. There is no
         request body and no replacement of an asset's bytes.
       parameters:
@@ -1885,6 +1959,44 @@ components:
           schema:
             $ref: '#/components/schemas/Error'
   schemas:
+    ProductMediaItem:
+      type: object
+      additionalProperties: false
+      required: [id, url, width, height, contentType, position]
+      properties:
+        id:
+          type: string
+          pattern: '^med_[0-9a-f]{32}$'
+        url:
+          type: string
+          pattern: '^/media/med_[0-9a-f]{32}$'
+        width:
+          type: integer
+          minimum: 1
+        height:
+          type: integer
+          minimum: 1
+        contentType:
+          type: string
+          enum: [image/jpeg, image/png]
+        position:
+          type: integer
+          minimum: 0
+    ManagedMedia:
+      type: object
+      additionalProperties: false
+      required: [primary, gallery]
+      properties:
+        primary:
+          type: object
+          nullable: true
+          allOf:
+          - $ref: '#/components/schemas/ProductMediaItem'
+        gallery:
+          type: array
+          maxItems: 20
+          items:
+            $ref: '#/components/schemas/ProductMediaItem'
     StaffLoginInput:
       type: object
       required:
@@ -2256,6 +2368,8 @@ components:
       - updatedAt
       additionalProperties: false
       properties:
+        managedMedia:
+          $ref: '#/components/schemas/ManagedMedia'
         id:
           type: string
         revision:
@@ -3010,6 +3124,10 @@ components:
       - productCount
       additionalProperties: false
       properties:
+        orderCount:
+          type: integer
+          minimum: 0
+          description: Number of historical orders retaining this image.
         id:
           type: string
           pattern: '^med_[0-9a-f]{32}$'
@@ -3245,6 +3363,10 @@ components:
               - categories
               additionalProperties: false
               properties:
+                orders:
+                  type: integer
+                  minimum: 0
+                  description: Historical orders retaining this image. No order details are exposed.
                 products:
                   type: integer
                   minimum: 0

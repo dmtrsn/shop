@@ -45,6 +45,17 @@ const product: Product = {
 };
 
 describe("ProductDetail", () => {
+  it("renders managed primary and gallery in server order without adding legacy images", async () => {
+    const image = "/media/med_" + "a".repeat(32);
+    const gallery = ["/media/med_" + "c".repeat(32), "/media/med_" + "b".repeat(32)];
+    const { container } = render(<ProductDetail product={{ ...product, image, gallery }} />);
+    expect(screen.getByRole("img", { name: product.name })).toHaveAttribute("src", image);
+    const thumbnails = screen.getByRole("group", { name: "Фотографии товара" }).querySelectorAll("img");
+    expect([...thumbnails].map((img) => img.getAttribute("src"))).toEqual([image, ...gallery]);
+    await userEvent.setup().click(screen.getByRole("button", { name: "Показать фото 2 из 3" }));
+    expect(screen.getByRole("img", { name: product.name })).toHaveAttribute("src", gallery[0]);
+    expect(container.querySelector('img[src^="/assets/"]')).toBeNull();
+  });
   it("renders real product identity, price, stock, and local quantity rules", async () => {
     const user = userEvent.setup();
     render(<ProductDetail product={product} />);

@@ -72,6 +72,10 @@ from_go state || fail "staff session state did not come from Go"
 json state '"authenticated":false'
 call products GET "$admin/api/admin/v1/products"
 expect 401 "anonymous product list" products
+call product-media PUT "$admin/api/admin/v1/products/p01/media" --header "Origin: $admin" --header 'Content-Type: application/json' --data '{"expectedRevision":1,"primaryId":null,"galleryIds":[]}'
+expect 401 "anonymous product media" product-media
+call shop-product-media PUT "$shop/api/admin/v1/products/p01/media" --header "Origin: $shop" --header 'Content-Type: application/json' --data '{}'
+expect 404 "shop product media" shop-product-media
 call options GET "$admin/api/admin/v1/catalog-options"
 expect 401 "anonymous catalog options" options
 call orders GET "$admin/api/admin/v1/orders"

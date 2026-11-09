@@ -2,6 +2,8 @@
 
 Status: Accepted for Phase C (slice C1). Date: 2026-10-24. Builds on ADR 012 (audit) and ADR 013 (product revisions). C2 connects it to the product editor; C3 migrates and retires legacy media.
 
+> C2 extends the C1 decisions below: [ADR 020](020-admin-product-media.md) adds the editor/API, prohibits primary/gallery duplication, resolves customer media and protects order snapshots.
+
 ## Context: legacy media inventory
 
 Before C1 no image was ever uploaded. Every image is a file shipped with the code:

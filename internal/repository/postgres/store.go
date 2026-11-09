@@ -206,7 +206,7 @@ const productColumns = `
 	p.rating,p.reviews_count,p.stock,p.minimum_quantity,p.quantity_step,p.featured,p.created_at,
 	c.id,c.slug,c.name,c.description,COALESCE(c.parent_id,''),c.icon,
 	m.id,m.slug,m.name,m.country,m.description,m.logo,
-	b.id,b.slug,b.name,b.manufacturer_id,m.name,b.description,b.logo,p.archived_at IS NOT NULL`
+	b.id,b.slug,b.name,b.manufacturer_id,m.name,b.description,b.logo,p.archived_at IS NOT NULL,` + managedMediaColumn
 
 const productJoins = ` FROM products p JOIN categories c ON c.id=p.category_id JOIN manufacturers m ON m.id=p.manufacturer_id JOIN brands b ON b.id=p.brand_id `
 
@@ -220,11 +220,12 @@ func scanProduct(row scanner) (domain.Product, error) {
 		&p.Rating, &p.ReviewsCount, &p.Stock, &p.MinimumQuantity, &p.QuantityStep, &p.Featured, &p.CreatedAt,
 		&p.Category.ID, &p.Category.Slug, &p.Category.Name, &p.Category.Description, &p.Category.ParentID, &p.Category.Icon,
 		&p.Manufacturer.ID, &p.Manufacturer.Slug, &p.Manufacturer.Name, &p.Manufacturer.Country, &p.Manufacturer.Description, &p.Manufacturer.Logo,
-		&p.Brand.ID, &p.Brand.Slug, &p.Brand.Name, &p.Brand.ManufacturerID, &p.Brand.Manufacturer, &p.Brand.Description, &p.Brand.Logo, &p.Archived,
+		&p.Brand.ID, &p.Brand.Slug, &p.Brand.Name, &p.Brand.ManufacturerID, &p.Brand.Manufacturer, &p.Brand.Description, &p.Brand.Logo, &p.Archived, &p.ManagedMedia,
 	)
 	if err != nil {
 		return domain.Product{}, err
 	}
+	p.Image, p.Gallery = domain.ResolveProductMedia(p.Image, p.Gallery, p.ManagedMedia)
 	if p.Gallery == nil {
 		p.Gallery = []string{}
 	}

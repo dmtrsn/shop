@@ -156,7 +156,7 @@ func RunAdmin(t *testing.T, handler http.Handler, email, password string, orders
 		"listManufacturers", "createManufacturer", "getManufacturer", "updateManufacturer", "archiveManufacturer", "restoreManufacturer",
 		"listBrands", "createBrand", "getBrand", "updateBrand", "archiveBrand", "restoreBrand",
 		"listCollections", "createCollection", "getCollection", "updateCollection", "archiveCollection", "restoreCollection",
-		"listMedia", "uploadMedia", "getMedia", "deleteMedia"} {
+		"listMedia", "uploadMedia", "getMedia", "deleteMedia", "setProductMedia"} {
 		if !covered[operation] {
 			t.Errorf("operation %s not covered", operation)
 		}
@@ -406,6 +406,20 @@ func runAdminMedia(t *testing.T, send adminSend, errorCode func(map[string]any) 
 	if got, _ := send("GET", "/api/admin/v1/media/"+id, "", 200, read); got["sha256"] != created["sha256"] {
 		t.Fatal("media read")
 	}
+
+	product, _ := send("GET", "/api/admin/v1/products/p01", "", 200, read)
+	revision := int64(product["revision"].(float64))
+	mediaBody := func(rev int64, primary string) string {
+		return `{"expectedRevision":` + strconv.FormatInt(rev, 10) + `,"primaryId":` + primary + `,"galleryIds":[]}`
+	}
+	set, _ := send("PUT", "/api/admin/v1/products/p01/media", mediaBody(revision, `"`+id+`"`), 200, write("application/json"))
+	if set["revision"].(float64) != float64(revision+1) {
+		t.Fatal("media revision")
+	}
+	send("GET", "/api/admin/v1/products/p01", "", 200, read)
+	send("PUT", "/api/admin/v1/products/p01/media", mediaBody(revision, "null"), 409, write("application/json"))
+	send("DELETE", "/api/admin/v1/media/"+id, "", 409, write("application/json"))
+	send("PUT", "/api/admin/v1/products/p01/media", mediaBody(revision+1, "null"), 200, write("application/json"))
 	send("DELETE", "/api/admin/v1/media/"+id, "", 204, map[string]string{"Cookie": cookie, "Origin": AdminTrustedOrigin, "X-CSRF-Token": csrf})
 	if result, _ := send("DELETE", "/api/admin/v1/media/"+id, "", 404, map[string]string{"Cookie": cookie, "Origin": AdminTrustedOrigin, "X-CSRF-Token": csrf}); errorCode(result) != "not_found" {
 		t.Fatal("deleted twice")

@@ -27,11 +27,12 @@ import (
 // refuse. No path locks a product after an asset, so no cycle forms.
 
 const adminMediaColumns = `m.id,m.content_type,m.size_bytes,m.width,m.height,m.sha256,m.created_at,
-	(SELECT count(DISTINCT pm.product_id) FROM product_media pm WHERE pm.media_id=m.id)`
+	(SELECT count(DISTINCT pm.product_id) FROM product_media pm WHERE pm.media_id=m.id),
+ (SELECT count(DISTINCT oi.order_id) FROM order_items oi WHERE oi.image='/media/'||m.id AND oi.image LIKE '/media/%')`
 
 func scanMediaAsset(row scanner) (domain.MediaAsset, error) {
 	var asset domain.MediaAsset
-	err := row.Scan(&asset.ID, &asset.ContentType, &asset.SizeBytes, &asset.Width, &asset.Height, &asset.SHA256, &asset.CreatedAt, &asset.ProductCount)
+	err := row.Scan(&asset.ID, &asset.ContentType, &asset.SizeBytes, &asset.Width, &asset.Height, &asset.SHA256, &asset.CreatedAt, &asset.ProductCount, &asset.OrderCount)
 	asset.CreatedAt = asset.CreatedAt.UTC()
 	asset.URL = "/media/" + asset.ID
 	return asset, err
@@ -123,7 +124,10 @@ func (s *Store) DeleteMediaAsset(ctx context.Context, mutation domain.StaffMutat
 		if err := tx.QueryRow(ctx, `SELECT count(DISTINCT product_id) FROM product_media WHERE media_id=$1`, id).Scan(&conflict.Products); err != nil {
 			return domain.AuditTarget{}, fmt.Errorf("count media references: %w", err)
 		}
-		if conflict.Products > 0 {
+		if err := tx.QueryRow(ctx, `SELECT count(DISTINCT order_id) FROM order_items WHERE image=$1 AND image LIKE '/media/%'`, "/media/"+id).Scan(&conflict.Orders); err != nil {
+			return domain.AuditTarget{}, fmt.Errorf("count order media references: %w", err)
+		}
+		if conflict.Products > 0 || conflict.Orders > 0 {
 			return domain.AuditTarget{}, &conflict
 		}
 		if _, err := tx.Exec(ctx, `UPDATE media_assets SET deleted_at=now() WHERE id=$1`, id); err != nil {
@@ -252,3 +256,13 @@ func (s *Store) SetProductMedia(ctx context.Context, mutation domain.StaffMutati
 	}
 	return result, nil
 }
+
+// The correlated read runs in the same statement/snapshot as the product and
+// revision. No N+1 queries or torn revision/media pairs on admin reads.
+const managedMediaColumn = `(SELECT jsonb_build_object(
+ 'primary', (jsonb_agg(image) FILTER (WHERE role='primary'))->0,
+ 'gallery', COALESCE(jsonb_agg(image ORDER BY position) FILTER (WHERE role='gallery'),'[]'::jsonb))
+ FROM (SELECT pm.role,pm.position,jsonb_build_object('id',m.id,'url','/media/'||m.id,
+ 'width',m.width,'height',m.height,'contentType',m.content_type,'position',pm.position) AS image
+ FROM product_media pm JOIN media_assets m ON m.id=pm.media_id
+ WHERE pm.product_id=p.id AND m.deleted_at IS NULL) images HAVING count(*)>0)`

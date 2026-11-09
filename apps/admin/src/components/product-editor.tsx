@@ -28,6 +28,7 @@ import {
   type CatalogOption,
   type CatalogOptions,
 } from "@/lib/products-api";
+import { ProductMediaEditor } from "./product-media-editor";
 import { useStaffApi } from "./use-staff-api";
 import { useUnsavedChanges } from "./use-unsaved-changes";
 import styles from "./admin-pages.module.css";
@@ -69,8 +70,10 @@ export function ProductEditor({ productId, created = false }: { productId?: stri
   const conflictRef = useRef<HTMLDivElement>(null);
   const confirmRef = useRef<HTMLHeadingElement>(null);
 
+  const [mediaDirty, setMediaDirty] = useState(false);
+  const [mediaBusy, setMediaBusy] = useState(false);
   const dirty = !sameForm(form, baseline);
-  useUnsavedChanges(dirty);
+  useUnsavedChanges(dirty || mediaDirty);
 
   const adopt = useCallback((next: AdminProduct) => {
     const values = formFromProduct(next);
@@ -119,7 +122,7 @@ export function ProductEditor({ productId, created = false }: { productId?: stri
 
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (busy || conflict) return;
+    if (busy || conflict || mediaDirty || mediaBusy) return;
     setNotice(null);
     const check = payloadFromForm(form);
     if (!check.ok) {
@@ -312,7 +315,7 @@ export function ProductEditor({ productId, created = false }: { productId?: stri
       ) : null}
 
       <form className={styles.form} noValidate onSubmit={save}>
-        <fieldset>
+        <fieldset disabled={mediaDirty || mediaBusy || busy !== null}>
           <legend>Основное</legend>
           {text("name", { required: true, maxLength: 200, wide: true })}
           {text("shortName", { maxLength: 100 })}
@@ -320,7 +323,7 @@ export function ProductEditor({ productId, created = false }: { productId?: stri
           {text("sku", { required: true, maxLength: 64 })}
           {area("description")}
         </fieldset>
-        <fieldset>
+        <fieldset disabled={mediaDirty || mediaBusy || busy !== null}>
           <legend>Цена и наличие</legend>
           {text("price", { required: true, inputMode: "decimal", hint: "В рублях: 199 или 199,90" })}
           {text("oldPrice", { inputMode: "decimal", hint: "Пусто — без скидки. Иначе больше текущей цены" })}
@@ -331,7 +334,7 @@ export function ProductEditor({ productId, created = false }: { productId?: stri
           {text("weightGrams", { inputMode: "numeric" })}
           {text("shelfLifeDays", { inputMode: "numeric" })}
         </fieldset>
-        <fieldset>
+        <fieldset disabled={mediaDirty || mediaBusy || busy !== null}>
           <legend>Каталог</legend>
           <Field error={errors.categoryId} field="categoryId">
             <select
@@ -425,14 +428,18 @@ export function ProductEditor({ productId, created = false }: { productId?: stri
             {fieldLabels.featured}
           </label>
         </fieldset>
-        <fieldset>
+        <fieldset disabled={mediaDirty || mediaBusy || busy !== null}>
           <legend>Состав</legend>
           {area("ingredients")}
           {area("nutrition")}
         </fieldset>
-        {product ? <Media product={product} /> : null}
+        {product ? <ProductMediaEditor key={`${product.id}:${product.revision}`} product={product}
+          disabled={busy !== null || conflict !== null || dirty} onDirty={setMediaDirty} onBusy={setMediaBusy}
+          onStale={() => { setConflict("save"); requestAnimationFrame(() => conflictRef.current?.focus()); }}
+          onSaved={(revision, managedMedia) => { setProduct({ ...product, revision, managedMedia }); setNotice({ tone: "success", text: `Изображения сохранены. Ревизия ${revision}.` }); }}
+        /> : <p className={styles.muted}>Сначала создайте товар, затем добавьте изображения.</p>}
         <div className={styles.formActions}>
-          <button className={styles.primaryButton} disabled={busy !== null || conflict !== null} type="submit">
+          <button className={styles.primaryButton} disabled={busy !== null || conflict !== null || mediaDirty || mediaBusy} type="submit">
             {busy === "save" ? "Сохраняем…" : product ? "Сохранить изменения" : "Создать товар"}
           </button>
           {dirty ? <span className={styles.muted}>Есть несохранённые изменения</span> : null}
@@ -445,7 +452,7 @@ export function ProductEditor({ productId, created = false }: { productId?: stri
           {product.archived ? (
             <>
               <p>Товар в архиве. Вернуть его в каталог магазина можно в любой момент.</p>
-              <button className={styles.secondaryAction} disabled={busy !== null || conflict !== null || dirty} onClick={() => changeArchive(false)} type="button">
+              <button className={styles.secondaryAction} disabled={busy !== null || conflict !== null || dirty || mediaDirty || mediaBusy} onClick={() => changeArchive(false)} type="button">
                 {busy === "restore" ? "Восстанавливаем…" : "Вернуть в продажу"}
               </button>
             </>
@@ -469,7 +476,7 @@ export function ProductEditor({ productId, created = false }: { productId?: stri
               <p>{archiveExplanation}</p>
               <button
                 className={styles.secondaryAction}
-                disabled={busy !== null || conflict !== null || dirty}
+                disabled={busy !== null || conflict !== null || dirty || mediaDirty || mediaBusy}
                 onClick={() => {
                   setConfirmArchive(true);
                   requestAnimationFrame(() => confirmRef.current?.focus());
@@ -503,27 +510,6 @@ function Field({ field, error, hint, wide, children }: { field: FormField; error
         </p>
       ) : null}
     </div>
-  );
-}
-
-function Media({ product }: { product: AdminProduct }) {
-  const paths = [product.image, ...product.gallery.filter((path) => path !== product.image)].filter(Boolean);
-  return (
-    <section aria-labelledby="product-media" className={styles.media}>
-      <h2 id="product-media">Изображения</h2>
-      {paths.length ? (
-        <ul>
-          {paths.map((path) => (
-            <li key={path}>
-              <code>{path}</code>
-            </li>
-          ))}
-        </ul>
-      ) : (
-        <p>Изображений нет.</p>
-      )}
-      <p className={styles.muted}>Только просмотр: управление изображениями будет добавлено отдельно.</p>
-    </section>
   );
 }
 

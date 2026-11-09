@@ -74,6 +74,7 @@ func (s *Server) serveMedia(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) registerStaffMediaRoutes(mux *http.ServeMux) {
+	mux.Handle("PUT /api/admin/v1/products/{product}/media", s.staffAuth(http.HandlerFunc(s.staffSetProductMedia)))
 	mux.Handle("GET /api/admin/v1/media", s.staffAuth(http.HandlerFunc(s.staffListMedia)))
 	mux.Handle("POST /api/admin/v1/media", s.staffAuth(http.HandlerFunc(s.staffUploadMedia)))
 	mux.Handle("GET /api/admin/v1/media/{media}", s.staffAuth(http.HandlerFunc(s.staffMediaAsset)))
@@ -204,4 +205,41 @@ func uploadReadError(err error) error {
 		return domain.ErrMediaTooLarge
 	}
 	return uploadFieldError("Не удалось прочитать загрузку")
+}
+
+// Return the exact committed revision, never a separate read that could adopt
+// another writer's revision while the editor retains its older form fields.
+func (s *Server) staffSetProductMedia(w http.ResponseWriter, r *http.Request) {
+	mutation, err := s.staffMutation(r, application.ProductMediaUpdate)
+	if err != nil {
+		s.writeError(w, r, err)
+		return
+	}
+	var body struct {
+		ExpectedRevision int64    `json:"expectedRevision"`
+		PrimaryID        *string  `json:"primaryId"`
+		GalleryIDs       []string `json:"galleryIds"`
+	}
+	if err := decodeCompleteNullable(w, r, &body, []string{"expectedRevision", "primaryId", "galleryIds"}, []string{"primaryId"}); err != nil {
+		s.writeError(w, r, err)
+		return
+	}
+	primary := ""
+	if body.PrimaryID != nil {
+		primary = *body.PrimaryID
+		if primary == "" {
+			s.writeError(w, r, &domain.ValidationError{Fields: []domain.FieldError{{Field: "primaryId", Message: "Укажите изображение из медиатеки или null"}}})
+			return
+		}
+	}
+	result, err := s.media.SetProductMedia(r.Context(), mutation, body.ExpectedRevision, domain.ProductMedia{
+		ProductID: r.PathValue("product"), PrimaryID: primary, GalleryIDs: body.GalleryIDs})
+	if err != nil {
+		s.writeError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, struct {
+		Revision int64 `json:"revision"`
+		domain.ProductMedia
+	}{body.ExpectedRevision + 1, result})
 }

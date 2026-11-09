@@ -110,6 +110,8 @@ export function parseProduct(value: unknown): Product {
     currency,
     unit: requiredString(value, "unit"),
     weightGrams: optionalInteger(value, "weightGrams"),
+    // Go resolves managed media once for all current-product consumers.
+    // Order-item images use their separate immutable snapshot DTO.
     image: requiredString(value, "image"),
     gallery: stringArray(value, "gallery"),
     category,

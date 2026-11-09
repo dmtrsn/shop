@@ -45,6 +45,6 @@ type RewriteRule = { source: string; destination: string };
 export function getAdminRewrites(environment: AdminEnvironment = process.env): { fallback: RewriteRule[] } {
   if (environment.NODE_ENV !== "development") return { fallback: [] };
   return {
-    fallback: [{ source: "/api/admin/:path*", destination: `${getAdminApiBaseUrl(environment)}/api/admin/:path*` }],
+    fallback: [{ source: "/api/admin/:path*", destination: `${getAdminApiBaseUrl(environment)}/api/admin/:path*` }, { source: "/media/:path*", destination: `${getAdminApiBaseUrl(environment)}/media/:path*` }],
   };
 }

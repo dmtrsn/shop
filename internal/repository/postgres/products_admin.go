@@ -36,7 +36,7 @@ const adminProductColumns = `
 	COALESCE((SELECT array_agg(co.id ORDER BY co.sort_order,co.name,co.id) FROM collection_products cp JOIN collections co ON co.id=cp.collection_id WHERE cp.product_id=p.id),'{}'),
 	COALESCE((SELECT array_agg(co.name ORDER BY co.sort_order,co.name,co.id) FROM collection_products cp JOIN collections co ON co.id=cp.collection_id WHERE cp.product_id=p.id),'{}'),
 	p.series,p.tags,p.badges,p.ingredients,p.nutrition,p.shelf_life_days,p.rating,p.reviews_count,p.stock,
-	p.minimum_quantity,p.quantity_step,p.featured,p.created_at,p.updated_at`
+	p.minimum_quantity,p.quantity_step,p.featured,p.created_at,p.updated_at,` + managedMediaColumn
 
 func scanAdminProduct(row scanner) (domain.AdminProduct, error) {
 	var p domain.AdminProduct
@@ -45,7 +45,7 @@ func scanAdminProduct(row scanner) (domain.AdminProduct, error) {
 	err := row.Scan(&p.ID, &p.Revision, &archived, &p.Slug, &p.SKU, &p.Name, &p.ShortName, &p.Description, &p.PriceMinor, &p.OldPriceMinor,
 		&p.Currency, &p.Unit, &p.WeightGrams, &p.Image, &p.Gallery, &p.Category.ID, &p.Category.Name, &p.Manufacturer.ID, &p.Manufacturer.Name,
 		&p.Brand.ID, &p.Brand.Name, &collectionIDs, &collectionNames, &p.Series, &p.Tags, &p.Badges, &p.Ingredients, &p.Nutrition,
-		&p.ShelfLifeDays, &p.Rating, &p.ReviewsCount, &p.Stock, &p.MinimumQuantity, &p.QuantityStep, &p.Featured, &p.CreatedAt, &p.UpdatedAt)
+		&p.ShelfLifeDays, &p.Rating, &p.ReviewsCount, &p.Stock, &p.MinimumQuantity, &p.QuantityStep, &p.Featured, &p.CreatedAt, &p.UpdatedAt, &p.ManagedMedia)
 	if err != nil {
 		return domain.AdminProduct{}, err
 	}

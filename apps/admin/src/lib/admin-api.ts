@@ -6,13 +6,13 @@
 export type FieldError = { field: string; message: string };
 
 /** What still uses a dictionary entry that cannot be archived (ADR 018). */
-export type References = { products: number; brands: number; categories: number };
+export type References = { products: number; brands: number; categories: number; orders?: number };
 
 export type ApiFailure =
   | { kind: "validation"; fields: FieldError[] }
   | { kind: "reference_conflict"; references: References }
   | {
-      kind: "stale_revision" | "invalid_transition" | "invalid_hierarchy" | "not_found" | "conflict" | "unauthorized" | "csrf" | "staff_changed" | "unavailable";
+      kind: "media_too_large" | "unsupported_media_type" | "storage_unavailable" | "stale_revision" | "invalid_transition" | "invalid_hierarchy" | "not_found" | "conflict" | "unauthorized" | "csrf" | "staff_changed" | "unavailable";
     }
   | { kind: "failed"; requestId?: string };
 
@@ -22,6 +22,9 @@ export type ApiResult<T> = { ok: true; data: T } | { ok: false; error: ApiFailur
 export type MutationAuth = { csrfToken: string; staffId: string };
 
 export const failureMessages: Record<ApiFailure["kind"], string> = {
+  media_too_large: "Файл больше 10 МБ. Выберите изображение меньшего размера.",
+  unsupported_media_type: "Поддерживаются JPEG, PNG и WebP без анимации.",
+  storage_unavailable: "Хранилище изображений недоступно. Повторите загрузку позже.",
   validation: "Проверьте выделенные поля.",
   stale_revision: "Запись была изменена другим сотрудником. Изменения не сохранены.",
   invalid_transition: "Это действие недоступно в текущем состоянии. Загрузите актуальную версию.",
@@ -56,6 +59,9 @@ function failure(status: number, body: unknown): ApiFailure {
       )
     : [];
   switch (error.code) {
+    case "media_too_large": return { kind: "media_too_large" };
+    case "unsupported_media_type": return { kind: "unsupported_media_type" };
+    case "storage_unavailable": return { kind: "storage_unavailable" };
     case "validation_error":
       return { kind: "validation", fields: fields.map(({ field, message }) => ({ field, message })) };
     case "stale_revision":
@@ -67,7 +73,7 @@ function failure(status: number, body: unknown): ApiFailure {
     case "reference_conflict": {
       const counts = isRecord(error.references) ? error.references : {};
       const count = (key: string) => (Number.isSafeInteger(counts[key]) && (counts[key] as number) >= 0 ? (counts[key] as number) : 0);
-      return { kind: "reference_conflict", references: { products: count("products"), brands: count("brands"), categories: count("categories") } };
+      return { kind: "reference_conflict", references: { products: count("products"), brands: count("brands"), categories: count("categories"), ...(counts.orders !== undefined ? { orders: count("orders") } : {}) } };
     }
     case "not_found":
       return { kind: "not_found" };
@@ -86,7 +92,7 @@ function failure(status: number, body: unknown): ApiFailure {
 }
 
 export type RequestOptions = {
-  method?: "GET" | "POST" | "PUT";
+  method?: "GET" | "POST" | "PUT" | "DELETE";
   body?: unknown;
   auth?: MutationAuth;
   signal?: AbortSignal;
@@ -100,7 +106,7 @@ export type RequestOptions = {
  */
 export async function adminRequest<T>(path: string, parse: (body: unknown) => T | null, options: RequestOptions = {}): Promise<ApiResult<T>> {
   const headers: Record<string, string> = { Accept: "application/json" };
-  if (options.body !== undefined) headers["Content-Type"] = "application/json";
+  if (options.body !== undefined && !(options.body instanceof FormData)) headers["Content-Type"] = "application/json";
   if (options.auth) {
     headers["X-CSRF-Token"] = options.auth.csrfToken;
     headers["X-Expected-Staff-ID"] = options.auth.staffId;
@@ -112,7 +118,7 @@ export async function adminRequest<T>(path: string, parse: (body: unknown) => T 
       credentials: "same-origin",
       cache: "no-store",
       headers,
-      body: options.body === undefined ? undefined : JSON.stringify(options.body),
+      body: options.body === undefined ? undefined : options.body instanceof FormData ? options.body : JSON.stringify(options.body),
       signal: options.signal,
     });
   } catch {
