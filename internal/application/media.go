@@ -38,11 +38,21 @@ type MediaStore interface {
 	// MediaAsset and LiveMedia return ErrNotFound for unknown and deleted assets.
 	MediaAsset(ctx context.Context, id string) (domain.MediaAsset, error)
 	LiveMedia(ctx context.Context, id string) (domain.StoredMedia, error)
+	// LiveMediaThumbnail returns the current thumbnail of a live asset, and
+	// ErrNotFound for an unknown or deleted asset or one with no thumbnail.
+	LiveMediaThumbnail(ctx context.Context, id string) (domain.MediaThumbnail, error)
 	// DeleteMediaAsset tombstones an unreferenced asset with its audit event:
 	// ErrNotFound, or *ReferenceConflictError while products reference it.
 	DeleteMediaAsset(ctx context.Context, mutation domain.StaffMutation, id string) error
 	// MediaRows lists every row, ID to deleted, for reconciliation.
 	MediaRows(ctx context.Context) (map[string]bool, error)
+	// MediaThumbnailStates lists every asset with its thumbnail, for reconciliation.
+	MediaThumbnailStates(ctx context.Context) ([]domain.MediaThumbnailState, error)
+	// LiveMediaThumbnailStates pages through live assets in ID order.
+	LiveMediaThumbnailStates(ctx context.Context, after string, limit int) ([]domain.MediaThumbnailState, error)
+	// SaveMediaThumbnail records a live asset's current thumbnail, or returns
+	// ErrNotFound when the asset is gone or deleted.
+	SaveMediaThumbnail(ctx context.Context, id string, thumbnail domain.MediaThumbnail) error
 	ProductMedia(ctx context.Context, productID string) (domain.ProductMedia, error)
 	// SetProductMedia replaces a product's managed images under the product
 	// revision: ErrNotFound, ErrStaleRevision, or a ValidationError for a
@@ -124,8 +134,8 @@ func (m *Media) register(ctx context.Context, mutation domain.StaffMutation, nor
 			m.discardFiles(id)
 			return domain.MediaAsset{}, domain.ErrStorageUnavailable
 		}
-		row = &domain.MediaThumbnail{Recipe: thumbnail.Recipe, ContentType: thumbnail.ContentType,
-			SizeBytes: int64(len(thumbnail.Data)), Width: thumbnail.Width, Height: thumbnail.Height, SHA256: thumbnail.SHA256}
+		saved := thumbnailRow(thumbnail)
+		row = &saved
 	}
 	asset, err := m.store.CreateMediaAsset(ctx, mutation, domain.MediaAsset{
 		ID: id, ContentType: normalized.ContentType, SizeBytes: int64(len(normalized.Data)),
@@ -136,6 +146,11 @@ func (m *Media) register(ctx context.Context, mutation domain.StaffMutation, nor
 		return domain.MediaAsset{}, err
 	}
 	return asset, nil
+}
+
+func thumbnailRow(thumbnail media.Thumbnail) domain.MediaThumbnail {
+	return domain.MediaThumbnail{Recipe: thumbnail.Recipe, ContentType: thumbnail.ContentType,
+		SizeBytes: int64(len(thumbnail.Data)), Width: thumbnail.Width, Height: thumbnail.Height, SHA256: thumbnail.SHA256}
 }
 
 // discardFiles removes the files of an asset that was never registered.
@@ -254,6 +269,38 @@ func (m *Media) Open(ctx context.Context, id string) (domain.StoredMedia, io.Rea
 	return stored, file, nil
 }
 
+// OpenThumbnail returns one thumbnail for public delivery, only while its
+// parent is live and sum is the digest its row names now (ADR 022). The file
+// alone proves nothing: an older binary's delete can leave it and its row
+// behind, and a regenerated thumbnail's old file stays until reconciliation.
+func (m *Media) OpenThumbnail(ctx context.Context, id, sum string) (domain.MediaThumbnail, io.ReadSeekCloser, error) {
+	if !media.IDPattern.MatchString(id) || !media.ThumbnailDigestPattern.MatchString(sum) {
+		return domain.MediaThumbnail{}, nil, domain.ErrNotFound
+	}
+	thumbnail, err := m.store.LiveMediaThumbnail(ctx, id)
+	if err != nil {
+		return domain.MediaThumbnail{}, nil, err
+	}
+	if thumbnail.SHA256 != sum {
+		return domain.MediaThumbnail{}, nil, domain.ErrNotFound
+	}
+	file, size, err := m.files.OpenThumbnail(id, sum)
+	if errors.Is(err, media.ErrNotStored) {
+		m.logger.Error("media thumbnail file missing", "media", id)
+		return domain.MediaThumbnail{}, nil, domain.ErrNotFound
+	}
+	if err != nil {
+		m.logger.Error("media thumbnail read failed", "media", id, "error", err)
+		return domain.MediaThumbnail{}, nil, domain.ErrStorageUnavailable
+	}
+	if size != thumbnail.SizeBytes {
+		file.Close()
+		m.logger.Error("media thumbnail size differs from its metadata", "media", id)
+		return domain.MediaThumbnail{}, nil, domain.ErrNotFound
+	}
+	return thumbnail, file, nil
+}
+
 // SetProductMedia replaces a product's managed primary image and gallery.
 // All references are replaced atomically.
 func (m *Media) SetProductMedia(ctx context.Context, mutation domain.StaffMutation, expectedRevision int64, value domain.ProductMedia) (domain.ProductMedia, error) {
@@ -290,5 +337,5 @@ func (m *Media) ProductMedia(ctx context.Context, productID string) (domain.Prod
 
 // Reconcile compares the store with the metadata; see media.Reconcile.
 func (m *Media) Reconcile(ctx context.Context, grace time.Duration, apply bool) (media.Report, error) {
-	return media.Reconcile(ctx, m.files, m.store.MediaRows, time.Now(), grace, apply)
+	return media.Reconcile(ctx, m.files, m.store.MediaRows, m.store.MediaThumbnailStates, time.Now(), grace, apply)
 }

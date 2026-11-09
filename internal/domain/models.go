@@ -214,6 +214,8 @@ type SearchSuggestion struct {
 	Title    string `json:"title"`
 	Subtitle string `json:"subtitle,omitempty"`
 	Image    string `json:"image,omitempty"`
+	// Thumbnail is the derived copy of a managed primary image, absent otherwise.
+	Thumbnail string `json:"thumbnail,omitempty"`
 }
 
 type CartItem struct {

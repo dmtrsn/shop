@@ -208,9 +208,6 @@ func TestUploadPersistsExactlyOneThumbnailWithItsMetadata(t *testing.T) {
 		t.Fatalf("upload: %d %s", ex.Code, ex.Body.String())
 	}
 	id := ex.body["id"].(string)
-	if _, leaked := ex.body["thumbnailUrl"]; leaked {
-		t.Fatalf("P2.1 must not expose thumbnails: %v", ex.body)
-	}
 	if trail := d.auditTrail(t); len(trail) != 1 || trail[0].action != "media.upload" {
 		t.Fatalf("audit %+v", trail)
 	}
@@ -242,6 +239,9 @@ func TestUploadPersistsExactlyOneThumbnailWithItsMetadata(t *testing.T) {
 	}
 	if d.number(t, "SELECT count(*) FROM media_thumbnails") != 1 {
 		t.Fatal("expected exactly one thumbnail row")
+	}
+	if ex.body["thumbnailUrl"] != "/media/"+id+"/thumbnail/"+digest {
+		t.Fatalf("thumbnail url %v", ex.body["thumbnailUrl"])
 	}
 	if public := serve(handler, "GET", "/media/"+id, "", nil); public.Code != 200 || !bytes.Equal(public.Body.Bytes(), original) {
 		t.Fatalf("public original: %d", public.Code)

@@ -31,6 +31,8 @@ type MediaAsset struct {
 	CreatedAt   time.Time `json:"createdAt"`
 	// URL is the public delivery path, /media/{id}.
 	URL string `json:"url"`
+	// ThumbnailURL is the asset's derived image, absent when it has none.
+	ThumbnailURL string `json:"thumbnailUrl,omitempty"`
 	// ProductCount counts products that reference the asset.
 	ProductCount int `json:"productCount"`
 	OrderCount   int `json:"orderCount"`
@@ -45,6 +47,16 @@ type MediaThumbnail struct {
 	Width       int
 	Height      int
 	SHA256      string
+}
+
+// MediaThumbnailState is one asset as thumbnail backfill and reconciliation
+// see it. Thumbnail is nil for an asset without a row.
+type MediaThumbnailState struct {
+	Asset     StoredMedia
+	Width     int
+	Height    int
+	Deleted   bool
+	Thumbnail *MediaThumbnail
 }
 
 // MediaPage is one page of live assets, newest first.
@@ -83,12 +95,14 @@ type ProductMedia struct {
 
 // ProductMediaItem contains only public, immutable image metadata.
 type ProductMediaItem struct {
-	ID          string `json:"id"`
-	URL         string `json:"url"`
-	Width       int    `json:"width"`
-	Height      int    `json:"height"`
-	ContentType string `json:"contentType"`
-	Position    int    `json:"position"`
+	ID  string `json:"id"`
+	URL string `json:"url"`
+	// ThumbnailURL is the image's derived copy, absent when it has none.
+	ThumbnailURL string `json:"thumbnailUrl,omitempty"`
+	Width        int    `json:"width"`
+	Height       int    `json:"height"`
+	ContentType  string `json:"contentType"`
+	Position     int    `json:"position"`
 }
 
 type ManagedMedia struct {

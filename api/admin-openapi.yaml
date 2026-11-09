@@ -1970,6 +1970,11 @@ components:
         url:
           type: string
           pattern: '^/media/med_[0-9a-f]{32}$'
+        thumbnailUrl:
+          type: string
+          pattern: '^/media/med_[0-9a-f]{32}/thumbnail/[0-9a-f]{64}$'
+          description: Immutable URL of a smaller derived copy. Absent when the image has none, so clients keep url
+            as the fallback.
         width:
           type: integer
           minimum: 1
@@ -3161,6 +3166,11 @@ components:
         url:
           type: string
           description: Public delivery path, /media/{id}, served by the shop and admin hosts.
+        thumbnailUrl:
+          type: string
+          pattern: '^/media/med_[0-9a-f]{32}/thumbnail/[0-9a-f]{64}$'
+          description: Immutable URL of a smaller derived copy. Absent when the asset has none, so clients keep url
+            as the fallback.
         productCount:
           type: integer
           minimum: 0

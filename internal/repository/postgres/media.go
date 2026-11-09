@@ -19,6 +19,7 @@ import (
 //	delete           staff row → asset row FOR UPDATE → count product_media
 //	product media    staff row → product FOR UPDATE → asset rows FOR SHARE (ID order)
 //	                 → replace product_media rows
+//	thumbnail save   asset row FOR SHARE → upsert its thumbnail row
 //
 // Delete's row lock conflicts with the share lock (and the foreign key's key
 // share) an attachment takes. Whichever commits first decides: a delete that
@@ -28,11 +29,12 @@ import (
 
 const adminMediaColumns = `m.id,m.content_type,m.size_bytes,m.width,m.height,m.sha256,m.created_at,
 	(SELECT count(DISTINCT pm.product_id) FROM product_media pm WHERE pm.media_id=m.id),
- (SELECT count(DISTINCT oi.order_id) FROM order_items oi WHERE oi.image='/media/'||m.id AND oi.image LIKE '/media/%')`
+ (SELECT count(DISTINCT oi.order_id) FROM order_items oi WHERE oi.image='/media/'||m.id AND oi.image LIKE '/media/%'),
+ COALESCE((SELECT '/media/'||t.media_id||'/thumbnail/'||t.sha256 FROM media_thumbnails t WHERE t.media_id=m.id),'')`
 
 func scanMediaAsset(row scanner) (domain.MediaAsset, error) {
 	var asset domain.MediaAsset
-	err := row.Scan(&asset.ID, &asset.ContentType, &asset.SizeBytes, &asset.Width, &asset.Height, &asset.SHA256, &asset.CreatedAt, &asset.ProductCount, &asset.OrderCount)
+	err := row.Scan(&asset.ID, &asset.ContentType, &asset.SizeBytes, &asset.Width, &asset.Height, &asset.SHA256, &asset.CreatedAt, &asset.ProductCount, &asset.OrderCount, &asset.ThumbnailURL)
 	asset.CreatedAt = asset.CreatedAt.UTC()
 	asset.URL = "/media/" + asset.ID
 	return asset, err
@@ -114,6 +116,82 @@ func (s *Store) LiveMedia(ctx context.Context, id string) (domain.StoredMedia, e
 		return domain.StoredMedia{}, fmt.Errorf("load live media: %w", err)
 	}
 	return stored, nil
+}
+
+// LiveMediaThumbnail reads a thumbnail only through its live parent, so a row
+// an older binary's delete left behind is never served.
+func (s *Store) LiveMediaThumbnail(ctx context.Context, id string) (domain.MediaThumbnail, error) {
+	var thumbnail domain.MediaThumbnail
+	err := s.pool.QueryRow(ctx, `SELECT t.recipe,t.content_type,t.size_bytes,t.width,t.height,t.sha256
+		FROM media_thumbnails t JOIN media_assets m ON m.id=t.media_id WHERE t.media_id=$1 AND m.deleted_at IS NULL`, id).
+		Scan(&thumbnail.Recipe, &thumbnail.ContentType, &thumbnail.SizeBytes, &thumbnail.Width, &thumbnail.Height, &thumbnail.SHA256)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.MediaThumbnail{}, domain.ErrNotFound
+	}
+	if err != nil {
+		return domain.MediaThumbnail{}, fmt.Errorf("load live media thumbnail: %w", err)
+	}
+	return thumbnail, nil
+}
+
+const thumbnailStateQuery = `SELECT m.id,m.content_type,m.size_bytes,m.sha256,m.width,m.height,m.deleted_at IS NOT NULL,
+	t.media_id IS NOT NULL,COALESCE(t.recipe,''),COALESCE(t.content_type,''),COALESCE(t.size_bytes,0),
+	COALESCE(t.width,0),COALESCE(t.height,0),COALESCE(t.sha256,'')
+	FROM media_assets m LEFT JOIN media_thumbnails t ON t.media_id=m.id `
+
+func (s *Store) thumbnailStates(ctx context.Context, conditions string, args ...any) ([]domain.MediaThumbnailState, error) {
+	rows, err := s.pool.Query(ctx, thumbnailStateQuery+conditions, args...)
+	if err != nil {
+		return nil, fmt.Errorf("read media thumbnail states: %w", err)
+	}
+	defer rows.Close()
+	result := []domain.MediaThumbnailState{}
+	for rows.Next() {
+		var state domain.MediaThumbnailState
+		var thumbnail domain.MediaThumbnail
+		var hasThumbnail bool
+		if err := rows.Scan(&state.Asset.ID, &state.Asset.ContentType, &state.Asset.SizeBytes, &state.Asset.SHA256, &state.Width, &state.Height, &state.Deleted,
+			&hasThumbnail, &thumbnail.Recipe, &thumbnail.ContentType, &thumbnail.SizeBytes, &thumbnail.Width, &thumbnail.Height, &thumbnail.SHA256); err != nil {
+			return nil, fmt.Errorf("scan media thumbnail state: %w", err)
+		}
+		if hasThumbnail {
+			state.Thumbnail = &thumbnail
+		}
+		result = append(result, state)
+	}
+	return result, rows.Err()
+}
+
+// LiveMediaThumbnailStates returns up to limit live assets after the given ID,
+// in ID order, so a backfill never holds a cursor while it works.
+func (s *Store) LiveMediaThumbnailStates(ctx context.Context, after string, limit int) ([]domain.MediaThumbnailState, error) {
+	return s.thumbnailStates(ctx, `WHERE m.deleted_at IS NULL AND m.id>$1 ORDER BY m.id LIMIT $2`, after, limit)
+}
+
+// MediaThumbnailStates returns every asset, for reconciliation.
+func (s *Store) MediaThumbnailStates(ctx context.Context) ([]domain.MediaThumbnailState, error) {
+	return s.thumbnailStates(ctx, ``)
+}
+
+// SaveMediaThumbnail records the current thumbnail of a live asset, replacing
+// any earlier row. It is one statement, so the lock on the parent lasts only
+// as long as the upsert: the share lock conflicts with a delete's FOR UPDATE,
+// and a delete that commits first leaves no row to lock. It writes no audit
+// event and no product revision: a derivation is not a staff mutation.
+func (s *Store) SaveMediaThumbnail(ctx context.Context, id string, thumbnail domain.MediaThumbnail) error {
+	tag, err := s.pool.Exec(ctx, `WITH parent AS (SELECT id FROM media_assets WHERE id=$1 AND deleted_at IS NULL FOR SHARE)
+		INSERT INTO media_thumbnails(media_id,recipe,content_type,size_bytes,width,height,sha256)
+		SELECT parent.id,$2,$3,$4,$5,$6,$7 FROM parent
+		ON CONFLICT (media_id) DO UPDATE SET recipe=EXCLUDED.recipe,content_type=EXCLUDED.content_type,size_bytes=EXCLUDED.size_bytes,
+			width=EXCLUDED.width,height=EXCLUDED.height,sha256=EXCLUDED.sha256,created_at=now()`,
+		id, thumbnail.Recipe, thumbnail.ContentType, thumbnail.SizeBytes, thumbnail.Width, thumbnail.Height, thumbnail.SHA256)
+	if err != nil {
+		return fmt.Errorf("save media thumbnail: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return domain.ErrNotFound
+	}
+	return nil
 }
 
 func (s *Store) DeleteMediaAsset(ctx context.Context, mutation domain.StaffMutation, id string) error {
@@ -284,6 +362,8 @@ const managedMediaColumn = `(SELECT jsonb_build_object(
  'primary', (jsonb_agg(image) FILTER (WHERE role='primary'))->0,
  'gallery', COALESCE(jsonb_agg(image ORDER BY position) FILTER (WHERE role='gallery'),'[]'::jsonb))
  FROM (SELECT pm.role,pm.position,jsonb_build_object('id',m.id,'url','/media/'||m.id,
+ 'thumbnailUrl','/media/'||t.media_id||'/thumbnail/'||t.sha256,
  'width',m.width,'height',m.height,'contentType',m.content_type,'position',pm.position) AS image
  FROM product_media pm JOIN media_assets m ON m.id=pm.media_id
+ LEFT JOIN media_thumbnails t ON t.media_id=m.id
  WHERE pm.product_id=p.id AND m.deleted_at IS NULL) images HAVING count(*)>0)`

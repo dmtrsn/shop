@@ -9,6 +9,7 @@
 //	shopctl email test --to ADDRESS
 //	shopctl media verify [--grace=24h] [--apply]
 //	shopctl media migrate-legacy [--assets-dir=web/assets] [--apply --staff-email=E]
+//	shopctl media thumbnails [--apply] [--limit=N] [--timeout=30m]
 //
 // Configuration follows the server: DATABASE_URL (required), MIGRATIONS_DIR
 // (default "migrations") and APP_MODE (production, development or demo).
@@ -58,6 +59,7 @@ const usage = `Usage:
   shopctl email test --to ADDRESS [--timeout=30s]       send one SMTP test message
   shopctl media verify [--grace=24h] [--apply]           compare MEDIA_ROOT with media rows
   shopctl media migrate-legacy [--apply --staff-email E] report or migrate legacy product images
+  shopctl media thumbnails [--apply] [--limit=N]         report or generate product image thumbnails
 
 Environment: DATABASE_URL (required), MIGRATIONS_DIR (default migrations),
 APP_MODE (production, development or demo; default production), MEDIA_ROOT

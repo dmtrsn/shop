@@ -3119,6 +3119,11 @@ components:
         url:
           type: string
           pattern: '^/media/med_[0-9a-f]{32}$'
+        thumbnailUrl:
+          type: string
+          pattern: '^/media/med_[0-9a-f]{32}/thumbnail/[0-9a-f]{64}$'
+          description: Immutable URL of a smaller derived copy. Absent when the image has none, so clients keep url
+            as the fallback.
         width:
           type: integer
           minimum: 1
@@ -3497,6 +3502,10 @@ components:
           type: string
         image:
           type: string
+        thumbnail:
+          type: string
+          description: Immutable URL of a smaller derived copy of a managed image. Absent for legacy images and for
+            images that have none, so clients keep image as the fallback.
       required:
       - type
       - id

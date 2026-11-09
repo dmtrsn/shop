@@ -30,6 +30,13 @@ func TestUsageAndConfigurationExitCodes(t *testing.T) {
 		{"legacy unknown flag", []string{"media", "migrate-legacy", "--force"}, nil, exitUsage},
 		{"legacy extra argument", []string{"media", "migrate-legacy", "now"}, nil, exitUsage},
 		{"legacy missing assets dir", []string{"media", "migrate-legacy", "--assets-dir", "/does/not/exist"}, map[string]string{"DATABASE_URL": "postgres://localhost/db"}, exitUsage},
+		{"thumbnails help", []string{"media", "thumbnails", "-h"}, nil, exitOK},
+		{"thumbnails unknown flag", []string{"media", "thumbnails", "--staff-email", "a@b.c"}, nil, exitUsage},
+		{"thumbnails extra argument", []string{"media", "thumbnails", "now"}, nil, exitUsage},
+		{"thumbnails negative limit", []string{"media", "thumbnails", "--limit=-1"}, map[string]string{"DATABASE_URL": "postgres://localhost/db"}, exitUsage},
+		{"thumbnails zero timeout", []string{"media", "thumbnails", "--timeout=0"}, map[string]string{"DATABASE_URL": "postgres://localhost/db"}, exitUsage},
+		{"thumbnails missing DSN", []string{"media", "thumbnails"}, map[string]string{"DATABASE_URL": " "}, exitUsage},
+		{"thumbnails relative root", []string{"media", "thumbnails"}, map[string]string{"DATABASE_URL": "postgres://localhost/db", "MEDIA_ROOT": "media"}, exitUsage},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv("APP_MODE", "")

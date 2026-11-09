@@ -438,7 +438,11 @@ func (s *Store) Suggestions(ctx context.Context, query string, limit int) ([]dom
 	}
 	result := make([]domain.SearchSuggestion, 0, limit)
 	for _, p := range page.Items {
-		result = append(result, domain.SearchSuggestion{Type: "product", ID: p.ID, Slug: p.Slug, Title: p.Name, Subtitle: p.Manufacturer.Name + " · " + p.Unit, Image: p.Image})
+		suggestion := domain.SearchSuggestion{Type: "product", ID: p.ID, Slug: p.Slug, Title: p.Name, Subtitle: p.Manufacturer.Name + " · " + p.Unit, Image: p.Image}
+		if p.ManagedMedia != nil && p.ManagedMedia.Primary != nil {
+			suggestion.Thumbnail = p.ManagedMedia.Primary.ThumbnailURL
+		}
+		result = append(result, suggestion)
 	}
 	remaining := limit - len(result)
 	if remaining <= 0 {

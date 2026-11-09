@@ -42,6 +42,7 @@ func (s *Server) registerMediaRoutes(mux *http.ServeMux) {
 	mux.Handle("/media", notFound)
 	if s.media != nil {
 		mux.HandleFunc("/media/{media}", s.serveMedia)
+		mux.HandleFunc("/media/{media}/thumbnail/{sha256}", s.serveMediaThumbnail)
 	}
 }
 
@@ -50,10 +51,7 @@ func (s *Server) registerMediaRoutes(mux *http.ServeMux) {
 // deleted asset is 404 here at once, but copies already cached elsewhere
 // live until they expire (ADR 019).
 func (s *Server) serveMedia(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet && r.Method != http.MethodHead {
-		w.Header().Set("Allow", "GET, HEAD")
-		w.Header().Set("Cache-Control", "no-store")
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	if !allowMediaRead(w, r) {
 		return
 	}
 	stored, file, err := s.media.Open(r.Context(), r.PathValue("media"))
@@ -63,9 +61,40 @@ func (s *Server) serveMedia(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer file.Close()
+	writeImmutableMedia(w, r, stored.ContentType, stored.SHA256, file)
+}
+
+// serveMediaThumbnail delivers the current thumbnail of a live asset under
+// its digest (ADR 022). Any other digest is 404, never a redirect: a URL names
+// one set of bytes for good, or nothing.
+func (s *Server) serveMediaThumbnail(w http.ResponseWriter, r *http.Request) {
+	if !allowMediaRead(w, r) {
+		return
+	}
+	thumbnail, file, err := s.media.OpenThumbnail(r.Context(), r.PathValue("media"), r.PathValue("sha256"))
+	if err != nil {
+		w.Header().Set("Cache-Control", "no-store")
+		s.writeError(w, r, err)
+		return
+	}
+	defer file.Close()
+	writeImmutableMedia(w, r, thumbnail.ContentType, thumbnail.SHA256, file)
+}
+
+func allowMediaRead(w http.ResponseWriter, r *http.Request) bool {
+	if r.Method == http.MethodGet || r.Method == http.MethodHead {
+		return true
+	}
+	w.Header().Set("Allow", "GET, HEAD")
+	w.Header().Set("Cache-Control", "no-store")
+	http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	return false
+}
+
+func writeImmutableMedia(w http.ResponseWriter, r *http.Request, contentType, digest string, file io.ReadSeeker) {
 	header := w.Header()
-	header.Set("Content-Type", stored.ContentType)
-	header.Set("ETag", `"`+stored.SHA256+`"`)
+	header.Set("Content-Type", contentType)
+	header.Set("ETag", `"`+digest+`"`)
 	header.Set("Cache-Control", "public, max-age=31536000, immutable")
 	header.Set("Content-Security-Policy", "default-src 'none'; sandbox")
 	// ServeContent answers HEAD, If-None-Match (304) and ranges, and keeps

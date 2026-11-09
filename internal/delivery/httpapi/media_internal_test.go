@@ -15,6 +15,7 @@ import (
 	"net/textproto"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -31,21 +32,26 @@ type testMediaStore struct {
 	rows       map[string]domain.MediaAsset
 	deleted    map[string]bool
 	references map[string]int
+	thumbnails map[string]*domain.MediaThumbnail
 	createErr  error
 	mutations  []domain.StaffMutation
 }
 
 func newTestMediaStore() *testMediaStore {
-	return &testMediaStore{rows: map[string]domain.MediaAsset{}, deleted: map[string]bool{}, references: map[string]int{}}
+	return &testMediaStore{rows: map[string]domain.MediaAsset{}, deleted: map[string]bool{}, references: map[string]int{}, thumbnails: map[string]*domain.MediaThumbnail{}}
 }
 
-func (s *testMediaStore) CreateMediaAsset(_ context.Context, m domain.StaffMutation, asset domain.MediaAsset, _ *domain.MediaThumbnail) (domain.MediaAsset, error) {
+func (s *testMediaStore) CreateMediaAsset(_ context.Context, m domain.StaffMutation, asset domain.MediaAsset, thumbnail *domain.MediaThumbnail) (domain.MediaAsset, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.createErr != nil {
 		return domain.MediaAsset{}, s.createErr
 	}
 	asset.CreatedAt, asset.URL = time.Now().UTC(), "/media/"+asset.ID
+	if thumbnail != nil {
+		s.thumbnails[asset.ID] = thumbnail
+		asset.ThumbnailURL = "/media/" + asset.ID + "/thumbnail/" + thumbnail.SHA256
+	}
 	s.rows[asset.ID] = asset
 	s.mutations = append(s.mutations, m)
 	return asset, nil
@@ -77,6 +83,28 @@ func (s *testMediaStore) MediaAsset(_ context.Context, id string) (domain.MediaA
 func (s *testMediaStore) LiveMedia(ctx context.Context, id string) (domain.StoredMedia, error) {
 	asset, err := s.MediaAsset(ctx, id)
 	return domain.StoredMedia{ID: asset.ID, ContentType: asset.ContentType, SizeBytes: asset.SizeBytes, SHA256: asset.SHA256}, err
+}
+
+func (s *testMediaStore) LiveMediaThumbnail(_ context.Context, id string) (domain.MediaThumbnail, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	thumbnail := s.thumbnails[id]
+	if _, ok := s.rows[id]; !ok || s.deleted[id] || thumbnail == nil {
+		return domain.MediaThumbnail{}, domain.ErrNotFound
+	}
+	return *thumbnail, nil
+}
+
+func (s *testMediaStore) MediaThumbnailStates(context.Context) ([]domain.MediaThumbnailState, error) {
+	return nil, nil
+}
+
+func (s *testMediaStore) LiveMediaThumbnailStates(context.Context, string, int) ([]domain.MediaThumbnailState, error) {
+	return nil, nil
+}
+
+func (s *testMediaStore) SaveMediaThumbnail(context.Context, string, domain.MediaThumbnail) error {
+	return nil
 }
 
 func (s *testMediaStore) DeleteMediaAsset(_ context.Context, m domain.StaffMutation, id string) error {
@@ -376,7 +404,8 @@ func TestMediaDeleteRefusesReferencedAssetsAndMissingFilesAre404(t *testing.T) {
 
 func TestMediaRouteShapesNeverReachTheStaticFallback(t *testing.T) {
 	handler, _, _ := mediaHandler(t, newTestMediaStore())
-	for _, path := range []string{"/media", "/media/", "/media/unknown", "/media/med_" + strings.Repeat("0", 32), "/media/med_" + strings.Repeat("0", 32) + "/x", "/media/MED_" + strings.Repeat("0", 32)} {
+	for _, path := range []string{"/media", "/media/", "/media/unknown", "/media/med_" + strings.Repeat("0", 32), "/media/med_" + strings.Repeat("0", 32) + "/x", "/media/MED_" + strings.Repeat("0", 32),
+		"/media/med_" + strings.Repeat("0", 32) + "/thumbnail/" + strings.Repeat("0", 64), "/media/med_" + strings.Repeat("0", 32) + "/thumbnail", "/media/med_" + strings.Repeat("0", 32) + "/thumbnail/" + strings.Repeat("0", 64) + "/x"} {
 		rec := call(handler, "GET", path, "", nil)
 		if rec.Code != 404 || strings.Contains(rec.Body.String(), "legacy") {
 			t.Errorf("%s: %d %s", path, rec.Code, rec.Body.String())
@@ -391,5 +420,122 @@ func TestMediaRouteShapesNeverReachTheStaticFallback(t *testing.T) {
 	}
 	if rec := call(plain, "GET", "/catalog", "", nil); rec.Code != 200 || !strings.Contains(rec.Body.String(), "legacy") {
 		t.Fatal("the legacy fallback changed")
+	}
+}
+
+func TestThumbnailRouteServesOnlyTheCurrentDigestOfALiveParent(t *testing.T) {
+	store := newTestMediaStore()
+	handler, _, root := mediaHandler(t, store)
+	staffCookie, csrf := staffLogin(t, handler, true)
+	headers := map[string]string{"Cookie": staffCookie, "Origin": adminOrigin, "X-CSRF-Token": csrf}
+	body, contentType := multipartBody(t, uploadPart{"file", "a.png", "image/png", testPNG(t, 900, 600, 255)})
+	rec := upload(handler, headers, body, contentType)
+	if rec.Code != 201 {
+		t.Fatalf("upload: %d %s", rec.Code, rec.Body.String())
+	}
+	var asset domain.MediaAsset
+	_ = json.Unmarshal(rec.Body.Bytes(), &asset)
+	row := store.thumbnails[asset.ID]
+	if row == nil || asset.ThumbnailURL != "/media/"+asset.ID+"/thumbnail/"+row.SHA256 {
+		t.Fatalf("asset %+v row %+v", asset, row)
+	}
+	thumbnailPath := filepath.Join(root, "thumbnails", asset.ID[4:6], asset.ID, row.SHA256)
+	stored, err := os.ReadFile(thumbnailPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	get := call(handler, "GET", asset.ThumbnailURL, "", nil)
+	h := get.Header()
+	if get.Code != 200 || !bytes.Equal(get.Body.Bytes(), stored) || h.Get("Content-Type") != row.ContentType || h.Get("Content-Length") != strconv.Itoa(len(stored)) ||
+		h.Get("ETag") != `"`+row.SHA256+`"` || h.Get("Cache-Control") != "public, max-age=31536000, immutable" || h.Get("X-Content-Type-Options") != "nosniff" ||
+		h.Get("Content-Security-Policy") != "default-src 'none'; sandbox" {
+		t.Fatalf("GET %d %v", get.Code, h)
+	}
+	if head := call(handler, "HEAD", asset.ThumbnailURL, "", nil); head.Code != 200 || head.Body.Len() != 0 || head.Header().Get("ETag") != h.Get("ETag") ||
+		head.Header().Get("Content-Length") != h.Get("Content-Length") || head.Header().Get("Cache-Control") != h.Get("Cache-Control") {
+		t.Fatalf("HEAD %d %v", head.Code, head.Header())
+	}
+	if again := call(handler, "GET", asset.ThumbnailURL, "", map[string]string{"If-None-Match": h.Get("ETag")}); again.Code != 304 || again.Body.Len() != 0 {
+		t.Fatalf("conditional GET %d", again.Code)
+	}
+	for _, method := range []string{"POST", "PUT", "DELETE", "PATCH"} {
+		if rec := call(handler, method, asset.ThumbnailURL, "", nil); rec.Code != 405 || rec.Header().Get("Allow") != "GET, HEAD" || rec.Header().Get("Cache-Control") != "no-store" {
+			t.Fatalf("%s %d %v", method, rec.Code, rec.Header())
+		}
+	}
+
+	refused := func(name, path string) {
+		t.Helper()
+		rec := call(handler, "GET", path, "", nil)
+		if rec.Code != 404 || rec.Header().Get("Cache-Control") != "no-store" || rec.Header().Get("Location") != "" || strings.Contains(rec.Body.String(), root) || strings.Contains(rec.Body.String(), "legacy") {
+			t.Fatalf("%s: %d %v %s", name, rec.Code, rec.Header(), rec.Body.String())
+		}
+	}
+	unknown := "med_" + strings.Repeat("1", 32)
+	refused("malformed id", "/media/not-an-id/thumbnail/"+row.SHA256)
+	refused("malformed digest", "/media/"+asset.ID+"/thumbnail/xyz")
+	refused("uppercase digest", "/media/"+asset.ID+"/thumbnail/"+strings.ToUpper(row.SHA256))
+	refused("traversal digest", "/media/"+asset.ID+"/thumbnail/..%2F..%2Fobjects")
+	refused("unknown asset", "/media/"+unknown+"/thumbnail/"+row.SHA256)
+	refused("wrong digest", "/media/"+asset.ID+"/thumbnail/"+strings.Repeat("a", 64))
+
+	// A live asset with no row: the file alone authorizes nothing.
+	saved := store.thumbnails[asset.ID]
+	delete(store.thumbnails, asset.ID)
+	refused("missing row", asset.ThumbnailURL)
+	store.thumbnails[asset.ID] = saved
+
+	// A stale digest is not redirected to the current one, even with its file.
+	stale := strings.Repeat("b", 64)
+	if err := os.WriteFile(filepath.Join(filepath.Dir(thumbnailPath), stale), []byte("old"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	refused("stale digest with a file", "/media/"+asset.ID+"/thumbnail/"+stale)
+
+	// A row whose file vanished or shrank is 404 and names no path.
+	if err := os.Truncate(thumbnailPath, 1); err != nil {
+		t.Fatal(err)
+	}
+	refused("wrong size", asset.ThumbnailURL)
+	if err := os.Remove(thumbnailPath); err != nil {
+		t.Fatal(err)
+	}
+	refused("missing file", asset.ThumbnailURL)
+	if err := os.WriteFile(thumbnailPath, stored, 0o640); err != nil {
+		t.Fatal(err)
+	}
+	if rec := call(handler, "GET", asset.ThumbnailURL, "", nil); rec.Code != 200 {
+		t.Fatalf("restored %d", rec.Code)
+	}
+
+	// An older binary's delete leaves the row and file; the tombstone decides.
+	store.deleted[asset.ID] = true
+	refused("tombstoned parent", asset.ThumbnailURL)
+	if !store.deleted[asset.ID] || store.thumbnails[asset.ID] == nil {
+		t.Fatal("the route changed state")
+	}
+}
+
+// The original is not derived from, and does not depend on, its thumbnail.
+func TestOriginalMediaIsIndependentOfItsThumbnail(t *testing.T) {
+	store := newTestMediaStore()
+	handler, _, root := mediaHandler(t, store)
+	staffCookie, csrf := staffLogin(t, handler, true)
+	body, contentType := multipartBody(t, uploadPart{"file", "a.png", "image/png", testPNG(t, 900, 600, 255)})
+	var asset domain.MediaAsset
+	_ = json.Unmarshal(upload(handler, map[string]string{"Cookie": staffCookie, "Origin": adminOrigin, "X-CSRF-Token": csrf}, body, contentType).Body.Bytes(), &asset)
+	if err := os.RemoveAll(filepath.Join(root, "thumbnails", asset.ID[4:6], asset.ID)); err != nil {
+		t.Fatal(err)
+	}
+	original := call(handler, "GET", asset.URL, "", nil)
+	if original.Code != 200 || original.Header().Get("ETag") != `"`+asset.SHA256+`"` || int64(original.Body.Len()) != asset.SizeBytes {
+		t.Fatalf("original %d %v", original.Code, original.Header())
+	}
+	if rec := call(handler, "HEAD", asset.URL, "", nil); rec.Code != 200 || rec.Body.Len() != 0 {
+		t.Fatalf("HEAD %d", rec.Code)
+	}
+	if rec := call(handler, "GET", asset.ThumbnailURL, "", nil); rec.Code != 404 {
+		t.Fatalf("thumbnail %d", rec.Code)
 	}
 }

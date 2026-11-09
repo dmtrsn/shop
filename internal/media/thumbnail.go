@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"image"
 	"image/jpeg"
 	"image/png"
+	"io"
 
 	"golang.org/x/image/draw"
 )
@@ -35,6 +37,31 @@ type Thumbnail struct {
 	Width       int
 	Height      int
 	SHA256      string
+}
+
+// ErrThumbnailDamaged: a stored thumbnail differs from its metadata.
+var ErrThumbnailDamaged = errors.New("thumbnail differs from its metadata")
+
+// VerifyThumbnail proves one stored thumbnail has its recorded size and digest.
+// It returns ErrNotStored for no file, ErrThumbnailDamaged for different bytes,
+// and ErrStorage when the file could not be read.
+func VerifyThumbnail(store Store, id, sum string, size int64) error {
+	file, stored, err := store.OpenThumbnail(id, sum)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	if stored != size {
+		return ErrThumbnailDamaged
+	}
+	digest := sha256.New()
+	if _, err := io.Copy(digest, file); err != nil {
+		return fmt.Errorf("%w: read thumbnail: %v", ErrStorage, err)
+	}
+	if hex.EncodeToString(digest.Sum(nil)) != sum {
+		return ErrThumbnailDamaged
+	}
+	return nil
 }
 
 // DeriveThumbnail derives the thumbnail of a normalized original. It reports

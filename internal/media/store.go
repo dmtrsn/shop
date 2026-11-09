@@ -53,8 +53,18 @@ type Store interface {
 	// PutThumbnail stores a thumbnail of id under its digest. It never
 	// overwrites an existing thumbnail.
 	PutThumbnail(id, sum string, data []byte) error
+	// ReplaceThumbnail stores a thumbnail of id under its digest, atomically
+	// replacing a file already there. A digest names one content, so this
+	// repairs a damaged file and leaves an intact one as it was.
+	ReplaceThumbnail(id, sum string, data []byte) error
+	// OpenThumbnail returns one thumbnail for reading and its size.
+	OpenThumbnail(id, sum string) (io.ReadSeekCloser, int64, error)
 	// RemoveThumbnails deletes every thumbnail of id; none is not an error.
 	RemoveThumbnails(id string) error
+	// RemoveThumbnail deletes one thumbnail; a missing file is not an error.
+	RemoveThumbnail(id, sum string) error
+	// Thumbnails lists every stored thumbnail.
+	Thumbnails() ([]ThumbnailFile, error)
 }
 
 // Object is one entry of the store as reconciliation sees it.
@@ -64,6 +74,13 @@ type Object struct {
 	// Name is the entry's path relative to the root, for operator reports.
 	Name     string
 	Temp     bool
+	Modified time.Time
+}
+
+// ThumbnailFile is one stored thumbnail as reconciliation sees it.
+type ThumbnailFile struct {
+	ID       string
+	SHA256   string
 	Modified time.Time
 }
 
@@ -85,7 +102,9 @@ const (
 	fileMode      = 0o640
 )
 
-var thumbnailDigestPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
+// ThumbnailDigestPattern is the lowercase SHA-256 that names a thumbnail, in
+// its file name and in its URL.
+var ThumbnailDigestPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
 // FileStore keeps managed media in a directory the process owns.
 type FileStore struct {
@@ -171,15 +190,33 @@ func (s *FileStore) thumbnailDir(id string) (string, error) {
 	return filepath.Join(s.root, thumbnailsDir, id[4:6], id), nil
 }
 
-func (s *FileStore) PutThumbnail(id, sum string, data []byte) error {
+// thumbnailPath is the only way a thumbnail file path is formed.
+func (s *FileStore) thumbnailPath(id, sum string) (string, error) {
 	dir, err := s.thumbnailDir(id)
-	if err != nil || !thumbnailDigestPattern.MatchString(sum) {
+	if err != nil || !ThumbnailDigestPattern.MatchString(sum) {
+		return "", ErrNotStored
+	}
+	return filepath.Join(dir, sum), nil
+}
+
+func (s *FileStore) PutThumbnail(id, sum string, data []byte) error {
+	return s.writeThumbnail(id, sum, data, os.Link)
+}
+
+func (s *FileStore) ReplaceThumbnail(id, sum string, data []byte) error {
+	return s.writeThumbnail(id, sum, data, os.Rename)
+}
+
+func (s *FileStore) writeThumbnail(id, sum string, data []byte, place func(oldpath, newpath string) error) error {
+	target, err := s.thumbnailPath(id, sum)
+	if err != nil {
 		return fmt.Errorf("%w: invalid thumbnail name", ErrStorage)
 	}
+	dir := filepath.Dir(target)
 	if err := os.MkdirAll(dir, dirMode); err != nil {
 		return fmt.Errorf("%w: create thumbnail directory: %v", ErrStorage, err)
 	}
-	if err := s.publish(filepath.Join(dir, sum), data); err != nil {
+	if err := s.write(target, data, place); err != nil {
 		return err
 	}
 	// The per-asset directory is new, so its own entry must reach the disk too.
@@ -200,7 +237,14 @@ func (s *FileStore) RemoveThumbnails(id string) error {
 }
 
 // publish durably writes data to a temporary file and links it to target.
+// A hard link fails if the target exists, so an ID is never overwritten.
 func (s *FileStore) publish(target string, data []byte) error {
+	return s.write(target, data, os.Link)
+}
+
+// write durably writes data to a temporary file and places it at target; the
+// finished file appears under its final name complete or not at all.
+func (s *FileStore) write(target string, data []byte, place func(oldpath, newpath string) error) error {
 	temp, err := os.CreateTemp(filepath.Join(s.root, tmpDir), tmpPrefix)
 	if err != nil {
 		return fmt.Errorf("%w: create temporary file: %v", ErrStorage, err)
@@ -215,9 +259,7 @@ func (s *FileStore) publish(target string, data []byte) error {
 	if err := temp.Close(); err != nil {
 		return fmt.Errorf("%w: close: %v", ErrStorage, err)
 	}
-	// A hard link fails if the target exists, so an ID is never overwritten;
-	// the finished file appears under its final name complete or not at all.
-	if err := os.Link(temp.Name(), target); err != nil {
+	if err := place(temp.Name(), target); err != nil {
 		return fmt.Errorf("%w: publish object: %v", ErrStorage, err)
 	}
 	syncDir(filepath.Dir(target))
@@ -246,6 +288,18 @@ func (s *FileStore) Open(id string) (io.ReadSeekCloser, int64, error) {
 	if err != nil {
 		return nil, 0, ErrNotStored
 	}
+	return openRegular(target)
+}
+
+func (s *FileStore) OpenThumbnail(id, sum string) (io.ReadSeekCloser, int64, error) {
+	target, err := s.thumbnailPath(id, sum)
+	if err != nil {
+		return nil, 0, ErrNotStored
+	}
+	return openRegular(target)
+}
+
+func openRegular(target string) (io.ReadSeekCloser, int64, error) {
 	file, err := os.Open(target)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, 0, ErrNotStored
@@ -259,6 +313,20 @@ func (s *FileStore) Open(id string) (io.ReadSeekCloser, int64, error) {
 		return nil, 0, fmt.Errorf("%w: stat object", ErrStorage)
 	}
 	return file, info.Size(), nil
+}
+
+// RemoveThumbnail deletes one file and then the asset's directory if that
+// emptied it. A directory that still holds a file simply stays.
+func (s *FileStore) RemoveThumbnail(id, sum string) error {
+	target, err := s.thumbnailPath(id, sum)
+	if err != nil {
+		return nil
+	}
+	if err := os.Remove(target); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("%w: remove thumbnail: %v", ErrStorage, err)
+	}
+	_ = os.Remove(filepath.Dir(target))
+	return nil
 }
 
 func (s *FileStore) Remove(id string) error {
@@ -311,6 +379,55 @@ func (s *FileStore) Objects() ([]Object, error) {
 		}
 		if info, err := entry.Info(); err == nil {
 			result = append(result, Object{Name: filepath.Join(tmpDir, entry.Name()), Temp: true, Modified: info.ModTime()})
+		}
+	}
+	return result, nil
+}
+
+// Thumbnails lists files whose names and placement match the layout exactly.
+// As with Objects, anything else in the tree is never listed and so can never
+// be removed. A tree that does not exist yet, as on a root last opened by a
+// binary from before thumbnails, holds none; a directory removed while it is
+// being listed is equally none.
+func (s *FileStore) Thumbnails() ([]ThumbnailFile, error) {
+	result := []ThumbnailFile{}
+	base := filepath.Join(s.root, thumbnailsDir)
+	list := func(path string) ([]fs.DirEntry, error) {
+		entries, err := os.ReadDir(path)
+		if err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return nil, fmt.Errorf("%w: list thumbnails: %v", ErrStorage, err)
+		}
+		return entries, nil
+	}
+	shards, err := list(base)
+	if err != nil {
+		return nil, err
+	}
+	for _, shard := range shards {
+		if !shard.IsDir() || len(shard.Name()) != 2 {
+			continue
+		}
+		assets, err := list(filepath.Join(base, shard.Name()))
+		if err != nil {
+			return nil, err
+		}
+		for _, asset := range assets {
+			id := asset.Name()
+			if !asset.IsDir() || !IDPattern.MatchString(id) || id[4:6] != shard.Name() {
+				continue
+			}
+			files, err := list(filepath.Join(base, shard.Name(), id))
+			if err != nil {
+				return nil, err
+			}
+			for _, file := range files {
+				if !file.Type().IsRegular() || !ThumbnailDigestPattern.MatchString(file.Name()) {
+					continue
+				}
+				if info, err := file.Info(); err == nil {
+					result = append(result, ThumbnailFile{ID: id, SHA256: file.Name(), Modified: info.ModTime()})
+				}
+			}
 		}
 	}
 	return result, nil

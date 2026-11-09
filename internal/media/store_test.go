@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"sweetshop/internal/domain"
 )
 
 func newStore(t *testing.T) (*FileStore, string) {
@@ -24,6 +26,8 @@ func newStore(t *testing.T) (*FileStore, string) {
 	}
 	return store, root
 }
+
+func noThumbnailRows(context.Context) ([]domain.MediaThumbnailState, error) { return nil, nil }
 
 func mustID(t *testing.T) string {
 	t.Helper()
@@ -142,11 +146,11 @@ func TestThumbnailsLiveOutsideObjects(t *testing.T) {
 	if err != nil || len(objects) != 1 || objects[0].ID != id {
 		t.Fatalf("objects %+v %v", objects, err)
 	}
-	// Reconciliation, also in older binaries, never sees a thumbnail.
+	// With no thumbnail rows at all, reconciliation will not remove one.
 	old := time.Now().Add(-48 * time.Hour)
 	_ = os.Chtimes(path, old, old)
 	rows := func(context.Context) (map[string]bool, error) { return map[string]bool{id: false}, nil }
-	if _, err := Reconcile(context.Background(), store, rows, time.Now(), time.Hour, true); err != nil {
+	if _, err := Reconcile(context.Background(), store, rows, noThumbnailRows, time.Now(), time.Hour, true); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(path); err != nil {
@@ -286,7 +290,7 @@ func TestReconcileClassifiesAndRemovesOnlyOwnedLeftovers(t *testing.T) {
 		return map[string]bool{healthy: false, deleted: true, missing: false}, nil
 	}
 
-	report, err := Reconcile(context.Background(), store, rows, now, 24*time.Hour, false)
+	report, err := Reconcile(context.Background(), store, rows, noThumbnailRows, now, 24*time.Hour, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -314,10 +318,10 @@ func TestReconcileClassifiesAndRemovesOnlyOwnedLeftovers(t *testing.T) {
 		}
 	}
 
-	if _, err := Reconcile(context.Background(), store, rows, now, time.Minute, true); err == nil {
+	if _, err := Reconcile(context.Background(), store, rows, noThumbnailRows, now, time.Minute, true); err == nil {
 		t.Fatal("apply with a short grace period")
 	}
-	report, err = Reconcile(context.Background(), store, rows, now, 24*time.Hour, true)
+	report, err = Reconcile(context.Background(), store, rows, noThumbnailRows, now, 24*time.Hour, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -343,7 +347,7 @@ func TestReconcileKeepsOrphansWhenTheDatabaseLooksWrong(t *testing.T) {
 	old := time.Now().Add(-48 * time.Hour)
 	_ = os.Chtimes(filepath.Join(root, "objects", id[4:6], id), old, old)
 	empty := func(context.Context) (map[string]bool, error) { return map[string]bool{}, nil }
-	report, err := Reconcile(context.Background(), store, empty, time.Now(), 24*time.Hour, true)
+	report, err := Reconcile(context.Background(), store, empty, noThumbnailRows, time.Now(), 24*time.Hour, true)
 	if err != nil || report.Refused == "" || len(report.Removed) != 0 {
 		t.Fatalf("%+v %v", report, err)
 	}
