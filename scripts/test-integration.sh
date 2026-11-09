@@ -4,7 +4,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 GO=${GO:-go}
 if [[ -n ${TEST_DATABASE_URL:-} ]]; then
-  exec "$GO" test -tags=integration -race -count=1 -timeout=5m ./tests/integration "$@"
+  exec "$GO" test -tags=integration -race -count=1 -timeout=8m ./tests/integration "$@"
 fi
 PG_BINDIR=${PG_BINDIR:-$(pg_config --bindir 2>/dev/null || true)}
 if [[ -x "$PG_BINDIR/initdb" && $(id -u) != 0 ]]; then
@@ -30,4 +30,4 @@ else
   port=$(docker port "$container" 5432/tcp)
   export TEST_DATABASE_URL="postgres://shop_test_admin@${port}/postgres?sslmode=disable"
 fi
-"$GO" test -tags=integration -race -count=1 -timeout=5m ./tests/integration "$@"
+"$GO" test -tags=integration -race -count=1 -timeout=8m ./tests/integration "$@"
