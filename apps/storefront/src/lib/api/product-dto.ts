@@ -20,6 +20,8 @@ export type Product = {
   weightGrams?: number;
   image: string;
   gallery: string[];
+  /** Original URL -> smaller derived copy (ADR 022); read only through thumbnailFor. */
+  thumbnails?: Record<string, string>;
   category: ProductEntity;
   manufacturer: ProductEntity & { country: string };
   brand: ProductEntity & { manufacturerId: string; manufacturer: string };
@@ -89,6 +91,32 @@ function entity(value: unknown, key: string): ProductEntity & Record<string, unk
   };
 }
 
+// managedMedia is only a presentation hint here: image and gallery are already
+// resolved by Go. A missing or malformed entry costs the thumbnail, never the
+// product, so mixed-version backends keep rendering originals.
+function parseThumbnails(value: unknown): Record<string, string> | undefined {
+  if (!isRecord(value)) return undefined;
+  const thumbnails: Record<string, string> = {};
+  for (const item of [value.primary, ...(Array.isArray(value.gallery) ? value.gallery : [])]) {
+    if (!isRecord(item)) continue;
+    const { url, thumbnailUrl } = item;
+    if (typeof url === "string" && url && typeof thumbnailUrl === "string" && thumbnailUrl) {
+      thumbnails[url] = thumbnailUrl;
+    }
+  }
+  return Object.keys(thumbnails).length ? thumbnails : undefined;
+}
+
+/**
+ * The thumbnail of one of the product's current image URLs, if Go reported one.
+ * Small surfaces try it before the original; large images and order snapshots
+ * never call this.
+ */
+export function thumbnailFor(product: Pick<Product, "thumbnails">, url: string): string | undefined {
+  const thumbnails = product.thumbnails;
+  return thumbnails && Object.hasOwn(thumbnails, url) ? thumbnails[url] : undefined;
+}
+
 export function parseProduct(value: unknown): Product {
   if (!isRecord(value)) throw new Error("product must be an object");
 
@@ -114,6 +142,7 @@ export function parseProduct(value: unknown): Product {
     // Order-item images use their separate immutable snapshot DTO.
     image: requiredString(value, "image"),
     gallery: stringArray(value, "gallery"),
+    thumbnails: parseThumbnails(value.managedMedia),
     category,
     manufacturer: {
       id: manufacturer.id,

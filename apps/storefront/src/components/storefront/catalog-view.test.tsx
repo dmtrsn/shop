@@ -85,6 +85,17 @@ describe("CatalogView", () => {
     expect(screen.getByRole("link", { name: "Открыть" })).toHaveAttribute("href", `/products/${product.slug}`);
   });
 
+  it("draws comfortable and compact images from the managed thumbnail", () => {
+    const image = "/media/med_" + "a".repeat(32);
+    const thumbnail = `${image}/thumbnail/${"f".repeat(64)}`;
+    const managed = { ...product, image, thumbnails: { [image]: thumbnail } };
+    for (const view of ["comfortable", "compact"]) {
+      const { unmount } = render(<CatalogView data={data([managed])} state={parseCatalogState({ view })} />);
+      expect(screen.getByRole("img", { name: product.name })).toHaveAttribute("src", thumbnail);
+      unmount();
+    }
+  });
+
   it("distinguishes a valid empty result and offers a filter reset", () => {
     render(<CatalogView data={data([], { total: 0, totalPages: 0 })} state={parseCatalogState({ q: "нет такого", stock: "1" })} />);
 

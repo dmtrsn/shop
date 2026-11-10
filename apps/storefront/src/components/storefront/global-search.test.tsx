@@ -101,6 +101,25 @@ describe("GlobalSearch", () => {
     expect(screen.getByRole("status")).toHaveTextContent("4 подсказки");
   });
 
+  it("draws product suggestions from the thumbnail, then the original, then a neutral square", async () => {
+    const image = "/media/med_" + "a".repeat(32);
+    const thumbnail = `${image}/thumbnail/${"f".repeat(64)}`;
+    const { user } = setup();
+    await user.type(screen.getByRole("combobox", { name: "Поиск по магазину" }), "шо");
+    await debounce();
+    await settle(ok([{ ...product, image, thumbnail }, { ...product, id: "p03" }, category]));
+
+    const [managed, legacy] = within(screen.getByRole("group", { name: "Товары" })).getAllByRole("option");
+    expect(managed.querySelector("img")).toHaveAttribute("src", thumbnail);
+    expect(legacy.querySelector("img")).toHaveAttribute("src", product.image);
+    fireEvent.error(managed.querySelector("img")!);
+    expect(managed.querySelector("img")).toHaveAttribute("src", image);
+    fireEvent.error(managed.querySelector("img")!);
+    expect(managed.querySelector("img")).toBeNull();
+    expect(managed.querySelector("span[aria-hidden=true]")).toBeInTheDocument();
+    expect(pending).toHaveLength(1);
+  });
+
   it("debounces requests and starts only at two code points", async () => {
     const { user } = setup();
     const input = screen.getByRole("combobox");

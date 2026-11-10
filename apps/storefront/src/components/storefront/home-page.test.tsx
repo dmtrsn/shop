@@ -152,6 +152,20 @@ describe("HomePage", () => {
     expect(container.querySelector('img[src="/assets/hero-confectionery.webp"]')).toBeNull();
   });
 
+  it("draws product cards from managed thumbnails while the hero stays the brand asset", () => {
+    const image = "/media/med_" + "a".repeat(32);
+    const thumbnail = `${image}/thumbnail/${"f".repeat(64)}`;
+    const data = ready();
+    if (data.collection.status === "ready" && data.collection.data) {
+      data.collection.data.products = [product("p01", { image, thumbnails: { [image]: thumbnail } }), product("p03", { image: "/assets/product-chocolate.webp" })];
+    }
+    const { container } = render(<HomePage data={data} />);
+
+    expect(screen.getByRole("img", { name: "Товар p01" })).toHaveAttribute("src", thumbnail);
+    expect(screen.getByRole("img", { name: "Товар p03" })).toHaveAttribute("src", "/assets/product-chocolate.webp");
+    expect(container.querySelector('section[aria-labelledby="home-title"] img')).toHaveAttribute("src", "/brand/hero-confectionery.webp");
+  });
+
   it("uses the neutral fallback for a missing product image and no photo for a collection without image", () => {
     render(<HomePage data={ready()} />);
 

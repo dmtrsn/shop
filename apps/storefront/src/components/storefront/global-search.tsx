@@ -26,6 +26,7 @@ import {
 } from "@/lib/search-suggestions";
 
 import styles from "./global-search.module.css";
+import { useImageFallback } from "./use-image-fallback";
 
 export const SUGGESTION_DEBOUNCE_MS = 160;
 
@@ -74,6 +75,14 @@ function Highlighted({ query, text }: { query: string; text: string }) {
       {text.slice(end)}
     </>
   );
+}
+
+// Thumbnail, then the original from the Go asset host, then the neutral square.
+function SuggestionImage({ suggestion }: { suggestion: SearchSuggestion }) {
+  const { src, ref, onError } = useImageFallback([suggestion.thumbnail, suggestion.image]);
+  return src
+    ? <img alt="" className={styles.thumbnail} loading="lazy" onError={onError} ref={ref} src={src} />
+    : <span aria-hidden="true" className={styles.thumbnail} />;
 }
 
 export function GlobalSearch({ className }: { className?: string }) {
@@ -341,14 +350,7 @@ export function GlobalSearch({ className }: { className?: string }) {
                 const index = optionIndex++;
                 return (
                   <li key={`${suggestion.type}-${suggestion.id}`} {...optionProps(index)}>
-                    {suggestion.type === "product" ? (
-                      suggestion.image ? (
-                        // Suggestion images come from the Go asset host; see CatalogProductImage.
-                        <img alt="" className={styles.thumbnail} loading="lazy" src={suggestion.image} />
-                      ) : (
-                        <span aria-hidden="true" className={styles.thumbnail} />
-                      )
-                    ) : null}
+                    {suggestion.type === "product" ? <SuggestionImage suggestion={suggestion} /> : null}
                     <span className={styles.optionText}>
                       {group.rowLabel ? <span className={styles.rowLabel}>{group.rowLabel}</span> : null}
                       <span className={styles.title}>

@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Product } from "@/lib/api/product-dto";
 import { cartItem, cartResponse } from "@/test/cart-fixtures";
-import { deferred, favoriteProduct, jsonResponse, sessionResponse } from "@/test/favorites-fixtures";
+import { deferred, favoriteProduct, jsonResponse, managedProduct, sessionResponse } from "@/test/favorites-fixtures";
 import { PrivateProviders } from "@/test/private-providers";
 
 import { CartControl } from "./cart-control";
@@ -129,6 +129,18 @@ describe("/cart list", () => {
     expect(screen.getAllByRole("heading", { level: 2 }).map((heading) => heading.textContent))
       .toEqual(expect.arrayContaining([expect.stringContaining("Мастерская"), expect.stringContaining("Артель")]));
     expect(container.querySelector("a button, a input, button a, button button, label button")).toBeNull();
+    expect(requests()).toEqual(["GET /api/auth/session", "GET /api/cart"]);
+  });
+
+  it("draws line images from the current product thumbnail without extra requests, else the original", async () => {
+    const managed = managedProduct("p01");
+    const { container } = await openCart(cartResponse({ ...cartItem("p01"), product: managed.product }, { ...cartItem("p02"), product: favoriteProduct("p02", { image: "/assets/p02.webp" }) }));
+    // The row image sits in an aria-hidden pointer shortcut, so query it by row.
+    const image = (id: string) => container.querySelector(`[data-cart-row="${id}"] img`);
+    expect(image("p01")).toHaveAttribute("src", managed.thumbnail);
+    expect(image("p02")).toHaveAttribute("src", "/assets/p02.webp");
+    fireEvent.error(image("p01")!);
+    expect(image("p01")).toHaveAttribute("src", managed.image);
     expect(requests()).toEqual(["GET /api/auth/session", "GET /api/cart"]);
   });
 

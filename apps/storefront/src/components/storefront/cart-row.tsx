@@ -3,6 +3,7 @@
 import Link from "next/link";
 
 import type { CartItem } from "@/lib/api/cart";
+import { thumbnailFor } from "@/lib/api/product-dto";
 import { TrashIcon } from "@/components/ui/icons";
 import { formatMoney } from "@/lib/money";
 
@@ -35,7 +36,7 @@ export function CartRow({ item }: { item: CartItem }) {
       </label>
       {/* The name link is the accessible product link; the image is a pointer shortcut. */}
       <Link aria-hidden="true" className={styles.image} href={href} tabIndex={-1}>
-        <CatalogProductImage image={product.image} name={product.name} />
+        <CatalogProductImage image={product.image} name={product.name} thumbnail={thumbnailFor(product, product.image)} />
       </Link>
       <div className={styles.identity}>
         <h3><Link href={href}>{product.name}</Link></h3>

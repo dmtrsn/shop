@@ -4,10 +4,11 @@ import type { ReactNode } from "react";
 import { Container } from "@/components/ui/container";
 import { Panel } from "@/components/ui/panel";
 import type { Product } from "@/lib/api/product";
+import { thumbnailFor } from "@/lib/api/product-dto";
 import { categoryUrl } from "@/lib/category-tree";
 
 import { ProductBadges } from "./product-badges";
-import { ProductGallery } from "./product-gallery";
+import { ProductGallery, type GalleryImage } from "./product-gallery";
 import { ProductOffer } from "./product-offer";
 import { ProductPurchase } from "./product-purchase";
 import styles from "./product-detail.module.css";
@@ -16,8 +17,9 @@ type ProductDetailProps = {
   product: Product;
 };
 
-function productImages(product: Product): string[] {
-  return Array.from(new Set([product.image, ...product.gallery].filter(Boolean)));
+function productImages(product: Product): GalleryImage[] {
+  return Array.from(new Set([product.image, ...product.gallery].filter(Boolean)))
+    .map((src) => ({ src, thumbnail: thumbnailFor(product, src) }));
 }
 
 export function ProductDetail({ product }: ProductDetailProps) {

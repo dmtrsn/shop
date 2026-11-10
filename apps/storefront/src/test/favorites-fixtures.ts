@@ -12,6 +12,14 @@ export function favoriteProduct(id = "p01", overrides: Partial<Product> = {}): P
   };
 }
 
+// Go's wire shape for a managed product whose primary image has a thumbnail (ADR 022).
+export function managedProduct(id = "p01", digit = "a") {
+  const image = "/media/med_" + digit.repeat(32);
+  const thumbnail = `${image}/thumbnail/${"f".repeat(64)}`;
+  const primary = { id: image.slice(7), url: image, thumbnailUrl: thumbnail, width: 1200, height: 1200, contentType: "image/jpeg", position: 0 };
+  return { image, thumbnail, product: { ...favoriteProduct(id, { image }), managedMedia: { primary, gallery: [] } } };
+}
+
 export function favoriteResponse(...items: Product[]): Favorites {
   const groups: Favorites["groups"] = [];
   for (const product of items) {

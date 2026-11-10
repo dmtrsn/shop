@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { deferred, favoriteProduct, favoriteResponse, jsonResponse, sessionResponse } from "@/test/favorites-fixtures";
+import { deferred, favoriteProduct, favoriteResponse, jsonResponse, managedProduct, sessionResponse } from "@/test/favorites-fixtures";
 import { cartResponse } from "@/test/cart-fixtures";
 import { FavoriteButton } from "./favorite-button";
 import { FavoritesProvider, type FavoritesRouteSession } from "@/test/private-providers";
@@ -72,6 +72,12 @@ describe("favorites route states and list", () => {
     expect(titles.map((h) => h.textContent)).toEqual([p2.name, p1.name]);
     expect(screen.getByRole("link", { name: p2.name })).toHaveAttribute("href", `/products/${p2.slug}`);
     expect(screen.getAllByText("Нет в наличии").length).toBeGreaterThan(0);
+    expect(fetcher.mock.calls.map(([path]) => path)).toEqual(["/api/auth/session", "/api/favorites"]);
+  });
+  it("draws cards from the managed thumbnail without extra requests", async () => {
+    const managed = managedProduct("one");
+    respond(sessionResponse()); respond(favoriteResponse(managed.product, p2)); page();
+    expect(await screen.findByRole("img", { name: p1.name })).toHaveAttribute("src", managed.thumbnail);
     expect(fetcher.mock.calls.map(([path]) => path)).toEqual(["/api/auth/session", "/api/favorites"]);
   });
   it("recovers keyboard focus to the next card and then the heading when empty", async () => {

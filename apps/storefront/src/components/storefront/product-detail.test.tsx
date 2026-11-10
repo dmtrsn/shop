@@ -56,6 +56,39 @@ describe("ProductDetail", () => {
     expect(screen.getByRole("img", { name: product.name })).toHaveAttribute("src", gallery[0]);
     expect(container.querySelector('img[src^="/assets/"]')).toBeNull();
   });
+  it("keeps the main image original and high priority while gallery controls draw thumbnails", async () => {
+    const [image, second] = ["a", "c"].map((digit) => "/media/med_" + digit.repeat(32));
+    const thumb = (url: string) => `${url}/thumbnail/${"f".repeat(64)}`;
+    render(<ProductDetail product={{ ...product, image, gallery: [second], thumbnails: { [image]: thumb(image), [second]: thumb(second) } }} />);
+
+    const main = screen.getByRole("img", { name: product.name });
+    expect(main).toHaveAttribute("src", image);
+    expect(main).toHaveAttribute("fetchpriority", "high");
+    expect(main).not.toHaveAttribute("loading");
+    const controls = screen.getByRole("group", { name: "Фотографии товара" }).querySelectorAll("img");
+    expect([...controls].map((img) => img.getAttribute("src"))).toEqual([thumb(image), thumb(second)]);
+    expect([...controls].every((img) => img.getAttribute("loading") === "lazy")).toBe(true);
+
+    await userEvent.setup().click(screen.getByRole("button", { name: "Показать фото 2 из 2" }));
+    expect(screen.getByRole("img", { name: product.name })).toHaveAttribute("src", second);
+    expect(screen.getByRole("button", { name: "Показать фото 2 из 2" })).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("falls back from a broken gallery thumbnail to the original, then to the empty control", () => {
+    const [image, second] = ["a", "c"].map((digit) => "/media/med_" + digit.repeat(32));
+    const thumbnail = `${second}/thumbnail/${"f".repeat(64)}`;
+    render(<ProductDetail product={{ ...product, image, gallery: [second], thumbnails: { [second]: thumbnail } }} />);
+
+    const control = screen.getByRole("button", { name: "Показать фото 2 из 2" });
+    fireEvent.error(control.querySelector("img")!);
+    expect(control.querySelector("img")).toHaveAttribute("src", second);
+    fireEvent.error(control.querySelector("img")!);
+    expect(control.querySelector("img")).toBeNull();
+    expect(control).toHaveAccessibleName("Показать фото 2 из 2");
+    // The main image is independent of its control's fallback.
+    expect(screen.getByRole("img", { name: product.name })).toHaveAttribute("src", image);
+  });
+
   it("renders real product identity, price, stock, and local quantity rules", async () => {
     const user = userEvent.setup();
     render(<ProductDetail product={product} />);

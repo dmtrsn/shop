@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { ProductApiError } from "./product";
 import { getProduct, parseProduct } from "./product";
+import { thumbnailFor } from "./product-dto";
 
 const productResponse = {
   id: "p01",
@@ -52,6 +53,36 @@ describe("product API boundary", () => {
     expect(parseProduct(productResponse).image).toBe(productResponse.image);
     expect(parseProduct(productResponse).gallery).toEqual(productResponse.gallery);
   });
+  it("maps managed originals to their thumbnails and keeps every other URL on its original", () => {
+    const [a, b, c] = ["a", "b", "c"].map((digit) => "/media/med_" + digit.repeat(32));
+    const thumb = (url: string) => `${url}/thumbnail/${"f".repeat(64)}`;
+    const item = (url: string, position: number, thumbnail = true) => ({
+      id: url.slice(7), url, width: 1200, height: 1200, contentType: "image/jpeg", position,
+      ...(thumbnail ? { thumbnailUrl: thumb(url) } : {}),
+    });
+    const product = parseProduct({
+      ...productResponse, image: a, gallery: [b, c],
+      managedMedia: { primary: item(a, 0), gallery: [item(b, 1), item(c, 2, false)] },
+    });
+
+    expect(thumbnailFor(product, a)).toBe(thumb(a));
+    expect(thumbnailFor(product, b)).toBe(thumb(b));
+    // Managed without a thumbnail, and legacy, have none: callers keep the original.
+    expect(thumbnailFor(product, c)).toBeUndefined();
+    const legacy = parseProduct(productResponse);
+    expect(legacy.thumbnails).toBeUndefined();
+    expect(thumbnailFor(legacy, legacy.image)).toBeUndefined();
+    expect(thumbnailFor(product, "constructor")).toBeUndefined();
+  });
+
+  it("treats malformed managed media as a missing hint instead of rejecting the product", () => {
+    for (const managedMedia of [null, "x", { primary: "x", gallery: "x" }, { primary: { url: 1, thumbnailUrl: "/t" }, gallery: [null, { url: "/media/a" }] }]) {
+      const product = parseProduct({ ...productResponse, managedMedia });
+      expect(product.image).toBe(productResponse.image);
+      expect(product.thumbnails).toBeUndefined();
+    }
+  });
+
   it("parses and maps the authoritative response without retaining unrelated fields", () => {
     const product = parseProduct(productResponse);
 

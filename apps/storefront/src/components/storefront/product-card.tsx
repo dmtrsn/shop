@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import type { Product } from "@/lib/api/product";
+import { thumbnailFor } from "@/lib/api/product-dto";
 
 import { CartControl } from "./cart-control";
 import { CatalogProductImage } from "./catalog-product-image";
@@ -25,7 +26,7 @@ function ProductMedia({ product }: { product: Product }) {
       className={styles.productMedia}
       href={`/products/${product.slug}`}
     >
-      <CatalogProductImage image={product.image} name={product.name} />
+      <CatalogProductImage image={product.image} name={product.name} thumbnail={thumbnailFor(product, product.image)} />
       <ProductBadges badges={product.badges} className={styles.badges} />
     </Link>
   );

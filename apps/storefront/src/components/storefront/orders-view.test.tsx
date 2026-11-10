@@ -186,6 +186,15 @@ describe("order presentation", () => {
     expect(failed.closest("section")?.className).not.toMatch(/emptyState/);
   });
 
+  it("renders a managed snapshot image exactly as stored, never a thumbnail", async () => {
+    const image = "/media/med_" + "a".repeat(32);
+    respond(sessionResponse());
+    respond(orderResponse({ items: [{ ...orderItem("p01", 1), image }] }));
+    const { container } = render(<Tree detail />);
+    await screen.findByRole("heading", { level: 1, name: "Заказ #10484" });
+    expect([...container.querySelectorAll("img")].map((img) => img.getAttribute("src"))).toEqual([image]);
+  });
+
   it("detail rows keep the historical snapshot: name, SKU, quantity, prices and snapshot image only", async () => {
     respond(sessionResponse());
     respond(orderResponse({ status: "delivered", statusLabel: "Доставлен", deliveredAt: "2026-10-05T10:00:00Z",

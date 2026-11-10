@@ -103,6 +103,15 @@ describe("suggestion BFF route", () => {
     expect(init?.signal?.aborted).toBe(true);
   });
 
+  it("passes a managed thumbnail through next to its original image", async () => {
+    const image = "/media/med_" + "a".repeat(32);
+    const item = { type: "product", id: "p01", slug: "p", title: "Шоколад", image, thumbnail: `${image}/thumbnail/${"f".repeat(64)}` };
+    upstream.mockResolvedValue(upstreamJson({ items: [item] }));
+
+    await expect((await suggest("шоколад")).json()).resolves.toEqual({ items: [item] });
+    expect(upstream).toHaveBeenCalledTimes(1);
+  });
+
   it("keeps Go's 422 verdict when upstream still rejects the query", async () => {
     upstream.mockResolvedValue(upstreamJson({ error: { code: "validation_error" } }, 422, "go-422"));
 

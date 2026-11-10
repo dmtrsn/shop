@@ -5,7 +5,7 @@ const { replace, navigation } = vi.hoisted(() => ({ replace: vi.fn(), navigation
 vi.mock("next/navigation", () => ({ useRouter: () => ({ replace }), usePathname: () => navigation.path }));
 import type { BrowserSessionStore, RouteSession } from "@/lib/api/browser-session";
 import { cartItem, cartResponse } from "@/test/cart-fixtures";
-import { deferred, favoriteProduct, jsonResponse, sessionResponse } from "@/test/favorites-fixtures";
+import { deferred, favoriteProduct, jsonResponse, managedProduct, sessionResponse } from "@/test/favorites-fixtures";
 import { repeatLine, repeatPreview, repeatResult } from "@/test/repeat-fixtures";
 import { PrivateProviders } from "@/test/private-providers";
 import { repeatBody, repeatDrafts } from "@/lib/repeat-review";
@@ -68,6 +68,11 @@ describe("repeat review", () => {
     expect(screen.getByText(/Текущего предложения/)).toBeInTheDocument();
     expect(screen.getByRole("checkbox", { name: /gone/ })).toBeDisabled();
     expect(screen.getByText(/Сервер проверит их суммарное/)).toBeInTheDocument();
+  });
+  it("previews the historical line image even when the current product has a thumbnail", async () => {
+    const managed = managedProduct("p01");
+    const { container } = await ready(repeatPreview(repeatLine(1, "p01", { image: managed.image, product: managed.product })));
+    expect([...container.querySelectorAll("img")].map((img) => img.getAttribute("src"))).toEqual([managed.image]);
   });
   it("all unavailable and all excluded never send a commit", async () => {
     await ready(repeatPreview(repeatLine(1, "p01", { status: "unavailable", suggestedQuantity: 0, proposedQuantity: 0 })));

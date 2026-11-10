@@ -16,6 +16,8 @@ export type SearchSuggestion = {
   title: string;
   subtitle?: string;
   image?: string;
+  /** Smaller copy of a managed image (ADR 022); image stays the fallback. */
+  thumbnail?: string;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -63,6 +65,7 @@ export function parseSuggestions(value: unknown): SearchSuggestion[] {
       title: requiredString(item, "title"),
       subtitle: optionalString(item, "subtitle"),
       image: optionalString(item, "image"),
+      thumbnail: optionalString(item, "thumbnail"),
     });
   }
   return result;

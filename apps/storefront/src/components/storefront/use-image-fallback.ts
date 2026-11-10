@@ -1,0 +1,24 @@
+import { useEffect, useRef, useState } from "react";
+
+/**
+ * Tries each distinct non-empty source in order. A load error moves to the next
+ * one, and after the last `src` is undefined, so the caller shows its
+ * placeholder. Small surfaces pass [thumbnail, original]: a missing thumbnail
+ * file or stale metadata still shows the original (ADR 022).
+ */
+export function useImageFallback(sources: ReadonlyArray<string | undefined>) {
+  const candidates = [...new Set(sources.filter((source): source is string => Boolean(source)))];
+  const [failures, setFailures] = useState(0);
+  const ref = useRef<HTMLImageElement>(null);
+  const src = candidates[failures];
+  // Relative to the failing source, so a repeated error event cannot skip the next one.
+  const onError = () => setFailures((current) => Math.max(current, failures + 1));
+
+  // A server-rendered image can fail before hydration attaches onError.
+  useEffect(() => {
+    const element = ref.current;
+    if (element?.complete && element.naturalWidth === 0) onError();
+  }, [src]);
+
+  return { src, ref, onError };
+}

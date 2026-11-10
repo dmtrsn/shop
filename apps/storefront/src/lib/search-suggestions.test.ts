@@ -24,6 +24,14 @@ describe("search suggestion boundary", () => {
     ]);
   });
 
+  it("keeps an optional thumbnail beside the original image", () => {
+    const image = "/media/med_" + "a".repeat(32);
+    const thumbnail = `${image}/thumbnail/${"f".repeat(64)}`;
+    const [item] = parseSuggestions({ items: [{ type: "product", id: "p01", slug: "p", title: "Шоколад", image, thumbnail }] });
+    expect(item).toMatchObject({ image, thumbnail });
+    expect(() => parseSuggestions({ items: [{ type: "product", id: "p01", slug: "p", title: "Шоколад", thumbnail: 1 }] })).toThrow("thumbnail");
+  });
+
   it("rejects malformed envelopes and known items", () => {
     expect(() => parseSuggestions([])).toThrow();
     expect(() => parseSuggestions({ items: [{ type: "product", id: "p01", title: "x" }] })).toThrow("slug");

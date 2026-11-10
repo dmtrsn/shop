@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import { favoriteProduct } from "@/test/favorites-fixtures";
 
-import { ProductCard } from "./product-card";
+import { CompactProductCard, ProductCard } from "./product-card";
 
 const product = favoriteProduct("p01", {
   slug: "dark-chocolate",
@@ -61,5 +61,26 @@ describe("ProductCard", () => {
     expect(add.closest("a")).toBeNull();
     // Initial state while the private providers settle: busy, never a fake count.
     expect(add).toHaveAttribute("aria-busy", "true");
+  });
+
+  it("draws comfortable and compact images from the managed thumbnail, else the original", () => {
+    const image = "/media/med_" + "a".repeat(32);
+    const thumbnail = `${image}/thumbnail/${"f".repeat(64)}`;
+    const managed = { ...product, image, thumbnails: { [image]: thumbnail } };
+    const name = { name: "Тёмный шоколад 70%" };
+
+    const { unmount } = render(<ProductCard product={managed} />);
+    expect(screen.getByRole("img", name)).toHaveAttribute("src", thumbnail);
+    unmount();
+    render(<CompactProductCard product={managed} />);
+    expect(screen.getByRole("img", name)).toHaveAttribute("src", thumbnail);
+  });
+
+  it("keeps legacy and thumbnail-less managed images on their original URL", () => {
+    for (const image of ["/assets/p.webp", "/media/med_" + "b".repeat(32)]) {
+      const { unmount } = render(<ProductCard product={{ ...product, image }} />);
+      expect(screen.getByRole("img", { name: "Тёмный шоколад 70%" })).toHaveAttribute("src", image);
+      unmount();
+    }
   });
 });
