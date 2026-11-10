@@ -5,7 +5,7 @@ import { adminRequest, isRecord, type ApiResult, type MutationAuth } from "./adm
 
 export type Reference = { id: string; name: string };
 
-export type MediaItem = { id: string; url: string; width: number; height: number; contentType: string; position: number };
+export type MediaItem = { id: string; url: string; thumbnailUrl?: string; width: number; height: number; contentType: string; position: number };
 export type ManagedMedia = { primary: MediaItem | null; gallery: MediaItem[] };
 
 export type AdminProduct = {
@@ -173,6 +173,12 @@ export function isMediaItem(value: unknown): value is MediaItem {
   && value.url === `/media/${value.id}` && Number.isSafeInteger(value.width) && (value.width as number) > 0
   && Number.isSafeInteger(value.height) && (value.height as number) > 0
   && ["image/jpeg", "image/png"].includes(value.contentType as string) && Number.isSafeInteger(value.position);
+}
+// A thumbnail is presentation only (ADR 022): a missing or malformed
+// thumbnailUrl costs the thumbnail, never the product, and url stays the fallback.
+export function thumbnailOf(item: MediaItem): string | undefined {
+  const value: unknown = item.thumbnailUrl;
+  return typeof value === "string" && new RegExp(`^/media/${item.id}/thumbnail/[0-9a-f]{64}$`).test(value) ? value : undefined;
 }
 function isManagedMedia(value: unknown): value is ManagedMedia {
  return isRecord(value) && (value.primary === null || isMediaItem(value.primary)) && Array.isArray(value.gallery) && value.gallery.every(isMediaItem);

@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 const router = { replace: vi.fn(), refresh: vi.fn() };
@@ -9,6 +9,7 @@ import { StaffSessionProvider } from "./staff-session";
 
 const asset = (letter: string) => ({ id: `med_${letter.repeat(32)}`, url: `/media/med_${letter.repeat(32)}`, width: 40, height: 30, contentType: "image/jpeg", position: 0, productCount: 0, orderCount: 0 });
 const a = asset("a"), b = asset("b"), c = asset("c");
+const withThumbnail = <T extends { url: string }>(item: T) => ({ ...item, thumbnailUrl: `${item.url}/thumbnail/${"e".repeat(64)}` });
 const path = "/api/admin/v1/products/p01";
 function setup(routes: Parameters<typeof mockApi>[0] = {}, managed = false) {
   const api = mockApi({
@@ -62,6 +63,64 @@ describe("product media editor", () => {
     await user.click(screen.getByRole("button", { name: "Сохранить изображения" }));
     await screen.findByText("Изображения сохранены. Ревизия 8.");
     expect(api.called(`PUT ${path}/media`)[0].body).toEqual({ expectedRevision: 7, primaryId: uploaded.id, galleryIds: [c.id,b.id] });
+  });
+
+  it("previews thumbnails, falls back per image to the original and saves media IDs only", async () => {
+    const [ta, tb] = [withThumbnail(a), withThumbnail(b)];
+    const api = setup({
+      [`GET ${path}`]: json(product({ managedMedia: { primary: ta, gallery: [tb, c] } })),
+      "GET /api/admin/v1/media": json({ items: [ta, tb, c], page: 1, totalPages: 1 }),
+      [`PUT ${path}/media`]: json({ revision: 8 }),
+    });
+    const user = userEvent.setup();
+    const primaryImage = () => within(screen.getByTestId("media-primary")).getByRole("img");
+    const galleryImages = () => within(screen.getByRole("list", { name: "Галерея товара" })).getAllByRole("img");
+    await waitFor(() => expect(primaryImage()).toHaveAttribute("src", ta.thumbnailUrl));
+    expect(galleryImages().map((image) => image.getAttribute("src"))).toEqual([tb.thumbnailUrl, c.url]);
+    expect((await candidate(a.id)).getByRole("img")).toHaveAttribute("src", ta.thumbnailUrl);
+    expect((await candidate(c.id)).getByRole("img")).toHaveAttribute("src", c.url);
+
+    // A missing thumbnail file falls back to the original; a failing original stays put with its alt text.
+    fireEvent.error(primaryImage());
+    expect(primaryImage()).toHaveAttribute("src", a.url);
+    fireEvent.error(primaryImage());
+    expect(primaryImage()).toHaveAttribute("src", a.url);
+    expect(primaryImage()).toHaveAccessibleName("Основное изображение: Тёмный шоколад");
+    expect((await candidate(a.id)).getByRole("img")).toHaveAttribute("src", ta.thumbnailUrl);
+    expect(api.calls.filter((call) => call.method !== "GET")).toHaveLength(0);
+
+    // Identity follows the asset, not the displayed URL or a neighbour's failure.
+    await user.click(screen.getByRole("button", { name: "Фото 2: вверх" }));
+    expect(galleryImages().map((image) => image.getAttribute("src"))).toEqual([c.url, tb.thumbnailUrl]);
+    await user.click(within(screen.getByRole("list", { name: "Галерея товара" })).getAllByRole("button", { name: "Сделать основным" })[1]);
+    expect(primaryImage()).toHaveAttribute("src", tb.thumbnailUrl);
+    await user.click(screen.getByRole("button", { name: "Сохранить изображения" }));
+    await screen.findByText("Изображения сохранены. Ревизия 8.");
+    expect(api.called(`PUT ${path}/media`)[0].body).toEqual({ expectedRevision: 7, primaryId: b.id, galleryIds: [c.id] });
+  });
+
+  it("ignores a thumbnailUrl that is not this asset's own and keeps the original", async () => {
+    const foreign = { ...a, thumbnailUrl: `${b.url}/thumbnail/${"e".repeat(64)}` };
+    setup({ [`GET ${path}`]: json(product({ managedMedia: { primary: foreign, gallery: [] } })), "GET /api/admin/v1/media": json({ items: [{ ...c, thumbnailUrl: "https://example.test/x.jpg" }], page: 1, totalPages: 1 }) });
+    await waitFor(() => expect(within(screen.getByTestId("media-primary")).getByRole("img")).toHaveAttribute("src", a.url));
+    expect((await candidate(c.id)).getByRole("img")).toHaveAttribute("src", c.url);
+  });
+
+  it("previews a fresh upload's thumbnail without a reload and keeps its ID in the selection", async () => {
+    const uploaded = withThumbnail(asset("d"));
+    const api = setup({ "POST /api/admin/v1/media": json(uploaded, 201), [`PUT ${path}/media`]: json({ revision: 8 }) });
+    const user = userEvent.setup();
+    await user.upload(await screen.findByLabelText(/Загрузить изображение/), new File(["image bytes"], "photo.jpg", { type: "image/jpeg" }));
+    const row = await candidate(uploaded.id);
+    expect(row.getByRole("img")).toHaveAttribute("src", uploaded.thumbnailUrl);
+    expect(api.called("GET /api/admin/v1/media")).toHaveLength(1);
+    fireEvent.error(row.getByRole("img"));
+    expect(row.getByRole("img")).toHaveAttribute("src", uploaded.url);
+    await user.click(row.getByRole("button", { name: "Основное" }));
+    expect(within(screen.getByTestId("media-primary")).getByRole("img")).toHaveAttribute("src", uploaded.thumbnailUrl);
+    await user.click(screen.getByRole("button", { name: "Сохранить изображения" }));
+    await screen.findByText("Изображения сохранены. Ревизия 8.");
+    expect(api.called(`PUT ${path}/media`)[0].body).toEqual({ expectedRevision: 7, primaryId: uploaded.id, galleryIds: [] });
   });
 
   it("preserves selections on save failure and explicitly reloads after a stale revision", async () => {

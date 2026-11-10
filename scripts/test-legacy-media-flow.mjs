@@ -161,7 +161,7 @@ try {
 
   // 6–8: admin shows migrated media, reorder reaches the storefront.
   await openProduct(staff, "c3-legacy");
-  await staff.waitFor("managed primary preview", `!!document.querySelector('[data-testid=media-primary] img[src="/media/${primary}"]')`);
+  await staff.waitFor("managed primary preview", loaded(`[data-testid=media-primary] img[src="${smallImage(sql, primary)}"]`));
   assert(!(await staff.evaluate(text("/assets/"))), "admin still shows a legacy path");
   await staff.click('button[aria-label="Фото 2: вверх"]');
   await saveMedia(staff);

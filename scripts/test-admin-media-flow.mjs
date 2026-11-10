@@ -6,7 +6,7 @@ import { execFileSync } from "node:child_process";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { launchChrome, Page } from "./lib/admin-chrome.mjs";
-import { assertProductGallery } from "./lib/storefront-media.mjs";
+import { assertProductGallery, smallImage } from "./lib/storefront-media.mjs";
 
 const admin = process.env.ADMIN_ORIGIN ?? "https://localhost:8443";
 const shop = process.env.SHOP_ORIGIN ?? "http://127.0.0.1:8080";
@@ -52,7 +52,8 @@ async function upload(page, filename) {
   await page.waitFor("upload preview", `[...document.querySelectorAll('[aria-label="Доступные изображения"] [data-media-id]')].some(e=>!${q(oldIds)}.includes(e.dataset.mediaId)) && !${text("Загружаем изображение…")}`);
   // Query only identifiers; no user/customer data enters the browser logs.
   const id = sql("SELECT id FROM media_assets ORDER BY created_at DESC,id LIMIT 1");
-  await page.waitFor("new uploaded candidate", `!!${candidate(id)} && ${candidate(id)}.querySelector('img').naturalWidth > 0`);
+  // The admin preview is the thumbnail when the upload derived one (ADR 022).
+  await page.waitFor("new uploaded candidate", `!!${candidate(id)} && ${candidate(id)}.querySelector('img').getAttribute('src') === ${q(smallImage(sql, id))} && ${candidate(id)}.querySelector('img').naturalWidth > 0`);
   assert(Number(sql("SELECT count(*) FROM media_assets")) === Number(before) + 1, "upload did not create exactly one asset");
   return id;
 }

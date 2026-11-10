@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { failureMessages, type ApiFailure, type References } from "@/lib/admin-api";
 import { deleteMedia, listMedia, MAX_UPLOAD_BYTES, saveProductMedia, uploadMedia, type MediaAsset } from "@/lib/media-api";
-import type { AdminProduct, ManagedMedia, MediaItem } from "@/lib/products-api";
+import { thumbnailOf, type AdminProduct, type ManagedMedia, type MediaItem } from "@/lib/products-api";
 import { useStaffApi } from "./use-staff-api";
 import styles from "./admin-pages.module.css";
 
@@ -21,6 +21,15 @@ function referenceConflictMessage({ products, orders = 0 }: References) {
   if (products > 0) return `Удаление заблокировано: файл используется в товарах (товаров — ${products}). Сначала отсоедините его от этих товаров и сохраните изменения.`;
   if (orders > 0) return `Удаление заблокировано: файл хранится в истории заказов (заказов — ${orders}), поэтому его нельзя удалить.`;
   return "Удаление заблокировано: файл всё ещё используется.";
+}
+
+// Draws the thumbnail and, if it fails to load, the original; a failing original
+// keeps the alt text as before. The displayed URL never feeds selection or saves.
+function MediaPreview({ item, alt }: { item: MediaItem; alt: string }) {
+  const thumbnail = thumbnailOf(item);
+  const [failed, setFailed] = useState<string>();
+  const src = thumbnail && thumbnail !== failed ? thumbnail : item.url;
+  return <img alt={alt} src={src} width={128} height={128} onError={() => { if (src !== item.url) setFailed(src); }} />;
 }
 
 export function ProductMediaEditor({ product, disabled, onDirty, onBusy, onStale, onSaved }: Props) {
@@ -98,7 +107,7 @@ export function ProductMediaEditor({ product, disabled, onDirty, onBusy, onStale
   const legacyImage = product.legacyMediaRetired ? "" : product.image;
   const legacyGallery = product.legacyMediaRetired ? [] : product.gallery;
   const candidates = [...new Map([...uploaded, ...assets].map((item) => [item.id, item])).values()];
-  const preview = (item: MediaItem, label: string) => <img alt={`${label}: ${product.name}`} src={item.url} width={128} height={128} />;
+  const preview = (item: MediaItem, label: string) => <MediaPreview key={item.id} item={item} alt={`${label}: ${product.name}`} />;
   return (
     <section aria-labelledby="product-media" className={styles.mediaEditor}>
       <h2 id="product-media">Изображения</h2>
