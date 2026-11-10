@@ -12,6 +12,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { rm } from "node:fs/promises";
 import { resolve } from "node:path";
 import { launchChrome, Page } from "./lib/admin-chrome.mjs";
+import { assertProductGallery, smallImage } from "./lib/storefront-media.mjs";
 
 const admin = process.env.ADMIN_ORIGIN ?? "https://localhost:8443";
 const shop = process.env.SHOP_ORIGIN ?? "http://127.0.0.1:8080";
@@ -69,10 +70,7 @@ async function saveMedia(page) {
 }
 async function storefront(page, slug, primary, gallery) {
   await navigate(page, `${shop}/products/${slug}`);
-  await page.waitFor("the managed primary", loaded(`main img[src="/media/${primary}"]`));
-  const thumbnails = await page.evaluate(`[...document.querySelectorAll('[aria-label="Фотографии товара"] img')].map(i=>i.getAttribute('src'))`);
-  const expected = gallery.length ? [primary, ...gallery].map((id) => `/media/${id}`) : [];
-  assert(JSON.stringify(thumbnails) === JSON.stringify(expected), `gallery order ${JSON.stringify(thumbnails)}`);
+  await assertProductGallery(page, sql, primary, gallery);
 }
 
 const fixture = (id, name, image, gallery) => `
@@ -147,11 +145,11 @@ try {
   await navigate(customer, `${shop}/products/c3-empty`);
   await customer.waitFor("the no-image placeholder", text("Изображение товара пока недоступно"));
   await navigate(customer, `${shop}/search?q=${encodeURIComponent("Проба C3 легаси")}`);
-  await customer.waitFor("search result image", loaded(`img[src="/media/${primary}"]`));
+  await customer.waitFor("search result image", loaded(`main article img[src="${smallImage(sql, primary)}"]`));
   const added = await customer.evaluate(`fetch("/api/auth/session").then(r=>r.json()).then(s=>fetch("/api/favorites/c3-legacy",{method:"PUT",headers:{"X-CSRF-Token":s.csrfToken}})).then(r=>r.status)`);
   assert(added === 200, `favorite: ${added}`);
   await navigate(customer, `${shop}/favorites`);
-  await customer.waitFor("favorite image", loaded(`img[src="/media/${primary}"]`));
+  await customer.waitFor("favorite image", loaded(`main article img[src="${smallImage(sql, primary)}"]`));
   sql(`DELETE FROM cart_items WHERE user_id=(SELECT id FROM users WHERE lower(email)=lower('${customerEmail.replaceAll("'", "''")}'))`);
   await navigate(customer, `${shop}/products/c3-legacy`);
   const add = `document.querySelector('button[aria-label^="Добавить в корзину:"]')`;
@@ -159,7 +157,7 @@ try {
   await customer.click('button[aria-label^="Добавить в корзину:"]');
   await customer.waitFor("cart added", text("Перейти в корзину"));
   await navigate(customer, `${shop}/cart`);
-  await customer.waitFor("cart image", loaded(`img[src="/media/${primary}"]`));
+  await customer.waitFor("cart image", loaded(`[data-cart-row="c3-legacy"] img[src="${smallImage(sql, primary)}"]`));
 
   // 6–8: admin shows migrated media, reorder reaches the storefront.
   await openProduct(staff, "c3-legacy");

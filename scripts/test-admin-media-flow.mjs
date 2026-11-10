@@ -6,6 +6,7 @@ import { execFileSync } from "node:child_process";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { launchChrome, Page } from "./lib/admin-chrome.mjs";
+import { assertProductGallery } from "./lib/storefront-media.mjs";
 
 const admin = process.env.ADMIN_ORIGIN ?? "https://localhost:8443";
 const shop = process.env.SHOP_ORIGIN ?? "http://127.0.0.1:8080";
@@ -57,12 +58,7 @@ async function upload(page, filename) {
 }
 async function storefront(page, primary, gallery) {
   await navigate(page,`${shop}/products/dark-chocolate-sea-salt`);
-  await page.waitFor("storefront managed primary", `!!document.querySelector('main img[src="/media/${primary}"]') && document.querySelector('main img[src="/media/${primary}"]').naturalWidth > 0`);
-  await page.waitFor("hydrated storefront gallery", `(() => { const image = document.querySelector('main img[src="/media/${primary}"]'); return !!image && image.getClientRects().length > 0 && Object.keys(image).some(key=>key.startsWith('__reactProps')); })()`);
-  const thumbnails = await page.evaluate(`[...document.querySelectorAll('[aria-label="Фотографии товара"] img')].map(i=>i.getAttribute('src'))`);
-  // A single image renders no thumbnail strip.
-  const expected = gallery.length ? [primary,...gallery].map(id=>`/media/${id}`) : [];
-  assert(JSON.stringify(thumbnails) === JSON.stringify(expected), `gallery order ${JSON.stringify(thumbnails)}`);
+  await assertProductGallery(page, sql, primary, gallery);
 }
 
 const chrome = await launchChrome();
