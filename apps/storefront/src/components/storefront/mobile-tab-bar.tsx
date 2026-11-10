@@ -11,7 +11,7 @@ import styles from "./mobile-tab-bar.module.css";
 const catalogSections = ["/catalog", "/categories", "/collections", "/manufacturers", "/products", "/search"];
 
 const tabs = [
-  { href: "/", label: "Главная", Icon: HomeIcon, prefetch: undefined, match: (path: string) => path === "/" },
+  { href: "/", label: "Главная", Icon: HomeIcon, prefetch: false, match: (path: string) => path === "/" },
   { href: "/catalog", label: "Каталог", Icon: GridIcon, prefetch: undefined,
     match: (path: string) => catalogSections.some((section) => path === section || path.startsWith(`${section}/`)) },
   { href: "/favorites", label: "Избранное", Icon: HeartIcon, prefetch: false, match: (path: string) => path === "/favorites" },

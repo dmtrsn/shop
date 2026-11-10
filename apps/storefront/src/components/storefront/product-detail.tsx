@@ -7,6 +7,7 @@ import type { Product } from "@/lib/api/product";
 import { thumbnailFor } from "@/lib/api/product-dto";
 import { categoryUrl } from "@/lib/category-tree";
 
+import { HomeLink } from "./home-link";
 import { ProductBadges } from "./product-badges";
 import { ProductGallery, type GalleryImage } from "./product-gallery";
 import { ProductOffer } from "./product-offer";
@@ -41,7 +42,7 @@ export function ProductDetail({ product }: ProductDetailProps) {
     <main className={styles.main} id="main-content">
       <Container>
         <nav aria-label="Хлебные крошки" className={styles.breadcrumbs}>
-          <Link href="/">Главная</Link>
+          <HomeLink>Главная</HomeLink>
           <span aria-hidden="true">/</span>
           <span aria-current="page">{product.name}</span>
         </nav>

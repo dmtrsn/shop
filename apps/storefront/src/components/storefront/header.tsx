@@ -5,6 +5,7 @@ import { Container } from "@/components/ui/container";
 import { BagIcon, GridIcon, HeartIcon, ReceiptIcon, UserIcon } from "@/components/ui/icons";
 import { LogoMark } from "@/components/ui/logo-mark";
 
+import { HomeLink } from "./home-link";
 import { GlobalSearch } from "./global-search";
 import styles from "./header.module.css";
 
@@ -22,9 +23,9 @@ export function StorefrontHeader() {
   return (
     <header className={styles.header}>
       <Container className={styles.bar}>
-        <Link aria-label="Слой — на главную" className={styles.logo} href="/">
+        <HomeLink aria-label="Слой — на главную" className={styles.logo}>
           <LogoMark wordmark />
-        </Link>
+        </HomeLink>
         <ButtonLink className={styles.catalog} href="/catalog">
           <GridIcon />
           Каталог

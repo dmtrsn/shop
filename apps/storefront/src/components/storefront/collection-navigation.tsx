@@ -4,6 +4,7 @@ import { Container } from "@/components/ui/container";
 import type { Collection, CollectionPageData } from "@/lib/api/collection";
 import { productCountText } from "@/lib/plural";
 
+import { HomeLink } from "./home-link";
 import { CatalogProductImage } from "./catalog-product-image";
 import { ProductCard } from "./product-card";
 import styles from "./collection-navigation.module.css";
@@ -26,7 +27,7 @@ export function CollectionsPage({ collections }: { collections: Collection[] }) 
     <main className={styles.main} id="main-content">
       <Container className={styles.container}>
         <nav aria-label="Хлебные крошки" className={styles.breadcrumbs}>
-          <Link href="/">Главная</Link>
+          <HomeLink>Главная</HomeLink>
           <span aria-hidden="true">/</span>
           <span aria-current="page">Подборки</span>
         </nav>
@@ -83,7 +84,7 @@ export function CollectionPage({ data }: { data: CollectionPageData }) {
     <main className={styles.main} id="main-content">
       <Container className={styles.container}>
         <nav aria-label="Хлебные крошки" className={styles.breadcrumbs}>
-          <Link href="/">Главная</Link>
+          <HomeLink>Главная</HomeLink>
           <span aria-hidden="true">/</span>
           <Link href="/collections">Подборки</Link>
           <span aria-hidden="true">/</span>

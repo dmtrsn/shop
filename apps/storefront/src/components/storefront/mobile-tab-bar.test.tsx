@@ -16,7 +16,7 @@ describe("MobileTabBar", () => {
   it("has five real, labelled destinations; private ones are not prefetched", () => {
     render(<MobileTabBar />);
     expect(tabs().map((link) => [link.textContent, link.getAttribute("href"), link.getAttribute("data-prefetch")])).toEqual([
-      ["Главная", "/", "undefined"],
+      ["Главная", "/", "false"],
       ["Каталог", "/catalog", "undefined"],
       ["Избранное", "/favorites", "false"],
       ["Корзина", "/cart", "false"],

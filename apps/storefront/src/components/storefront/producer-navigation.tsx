@@ -5,6 +5,7 @@ import type { ManufacturerPageData } from "@/lib/api/producer";
 import { productCountText } from "@/lib/plural";
 import { producerCatalogUrl } from "@/lib/producer-navigation";
 
+import { HomeLink } from "./home-link";
 import { ManufacturerDirectory } from "./manufacturer-directory";
 import styles from "./producer-navigation.module.css";
 
@@ -21,7 +22,7 @@ export function ManufacturersPage({
     <main className={styles.main} id="main-content">
       <Container className={styles.container}>
         <nav aria-label="Хлебные крошки" className={styles.breadcrumbs}>
-          <Link href="/">Главная</Link>
+          <HomeLink>Главная</HomeLink>
           <span aria-hidden="true">/</span>
           <span aria-current="page">Производители</span>
         </nav>
@@ -54,7 +55,7 @@ export function ManufacturerPage({ data }: { data: ManufacturerPageData }) {
     <main className={styles.main} id="main-content">
       <Container className={styles.detailContainer}>
         <nav aria-label="Хлебные крошки" className={styles.breadcrumbs}>
-          <Link href="/">Главная</Link>
+          <HomeLink>Главная</HomeLink>
           <span aria-hidden="true">/</span>
           <Link href="/manufacturers">Производители</Link>
           <span aria-hidden="true">/</span>

@@ -19,6 +19,7 @@ import {
   rootOf,
 } from "@/lib/category-tree";
 
+import { HomeLink } from "./home-link";
 import { CatalogFilterForm } from "./catalog-filter-form";
 import { CompactProductCard, ProductCard } from "./product-card";
 import styles from "./catalog.module.css";
@@ -184,7 +185,7 @@ export function CatalogView({ data, state }: CatalogViewProps) {
     <main className={styles.main} id="main-content">
       <Container className={styles.container}>
         <nav aria-label="Хлебные крошки" className={styles.breadcrumbs}>
-          <Link href="/">Главная</Link><span aria-hidden="true">/</span>
+          <HomeLink>Главная</HomeLink><span aria-hidden="true">/</span>
           {categoryNode ? (
             <>
               <Link href="/catalog">Каталог</Link>

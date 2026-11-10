@@ -26,7 +26,7 @@ export function RouteError({ title, children, reset, link, digest }: {
         <UnavailableState
           actions={reset || link ? <>
             {reset ? <Button onClick={reset} variant="secondary">Повторить</Button> : null}
-            {link ? <ButtonLink href={link.href} prefetch={link.prefetch} variant="tertiary">{link.label}</ButtonLink> : null}
+            {link ? <ButtonLink href={link.href} prefetch={link.href === "/" ? false : link.prefetch} variant="tertiary">{link.label}</ButtonLink> : null}
           </> : undefined}
           level={1}
           role="alert"
@@ -47,7 +47,7 @@ export function RouteNotFound({ title, children, links }: { title: string; child
       <Container>
         <EmptyState
           actions={links.map((link, index) => (
-            <ButtonLink href={link.href} key={link.href} prefetch={link.prefetch} variant={index === 0 ? "primary" : "secondary"}>{link.label}</ButtonLink>
+            <ButtonLink href={link.href} key={link.href} prefetch={link.href === "/" ? false : link.prefetch} variant={index === 0 ? "primary" : "secondary"}>{link.label}</ButtonLink>
           ))}
           icon={<SearchIcon />}
           level={1}

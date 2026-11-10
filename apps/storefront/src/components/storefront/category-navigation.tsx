@@ -10,6 +10,7 @@ import {
   categoryUrl,
 } from "@/lib/category-tree";
 
+import { HomeLink } from "./home-link";
 import styles from "./category-navigation.module.css";
 
 export const DIRECTORY_CHILD_LIMIT = 8;
@@ -40,7 +41,7 @@ export function CategoriesPage({ categories }: { categories: Category[] }) {
     <main className={styles.main} id="main-content">
       <Container className={styles.container}>
         <nav aria-label="Хлебные крошки" className={styles.breadcrumbs}>
-          <Link href="/">Главная</Link>
+          <HomeLink>Главная</HomeLink>
           <span aria-hidden="true">/</span>
           <span aria-current="page">Категории</span>
         </nav>
@@ -150,7 +151,7 @@ export function CategoryPage({ data }: { data: CategoryPageData }) {
     <main className={styles.main} id="main-content">
       <Container className={styles.detailContainer}>
         <nav aria-label="Хлебные крошки" className={styles.breadcrumbs}>
-          <Link href="/">Главная</Link>
+          <HomeLink>Главная</HomeLink>
           <span aria-hidden="true">/</span>
           <Link href="/categories">Категории</Link>
           {ancestors.map((ancestor) => (

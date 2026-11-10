@@ -3,6 +3,7 @@ import Link from "next/link";
 import { Container } from "@/components/ui/container";
 import { LogoMark } from "@/components/ui/logo-mark";
 
+import { HomeLink } from "./home-link";
 import styles from "./site-footer.module.css";
 
 // Only real storefront routes. No contact, delivery, legal or VAT claims: the
@@ -33,9 +34,9 @@ export function SiteFooter() {
     <footer className={styles.footer}>
       <Container className={styles.grid}>
         <div className={styles.brand}>
-          <Link aria-label="Слой — на главную" className={styles.logo} href="/">
+          <HomeLink aria-label="Слой — на главную" className={styles.logo}>
             <LogoMark tone="inverse" wordmark />
-          </Link>
+          </HomeLink>
           <p>
             Магазин кондитерских изделий: шоколад, конфеты, печенье, пастила, мармелад и подарочные
             наборы от разных производителей.

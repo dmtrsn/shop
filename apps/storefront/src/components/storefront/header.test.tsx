@@ -20,9 +20,11 @@ describe("StorefrontHeader", () => {
     render(<StorefrontHeader />);
     const logo = screen.getByRole("link", { name: "Слой — на главную" });
     expect(logo).toHaveAttribute("href", "/");
+    expect(logo).toHaveAttribute("data-prefetch", "false");
     expect(logo.querySelector("svg")).toHaveAttribute("viewBox", "0 0 42 42");
     expect(logo).toHaveTextContent("слой");
     expect(screen.getByRole("link", { name: "Каталог" })).toHaveAttribute("href", "/catalog");
+    expect(screen.getByRole("link", { name: "Каталог" })).toHaveAttribute("data-prefetch", "undefined");
     expect(screen.getAllByRole("search")).toHaveLength(1);
     expect(screen.getByRole("search")).toHaveAttribute("action", "/catalog");
     expect(screen.getByRole("combobox", { name: "Поиск по магазину" })).toBeInTheDocument();

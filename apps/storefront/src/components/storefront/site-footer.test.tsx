@@ -15,7 +15,7 @@ describe("SiteFooter", () => {
     render(<SiteFooter />);
     const links = screen.getAllByRole("link").map((link) => [link.getAttribute("aria-label") ?? link.textContent, link.getAttribute("href"), link.getAttribute("data-prefetch")]);
     expect(links).toEqual([
-      ["Слой — на главную", "/", "undefined"],
+      ["Слой — на главную", "/", "false"],
       ["Все товары", "/catalog", "undefined"],
       ["Категории", "/categories", "undefined"],
       ["Производители", "/manufacturers", "undefined"],
