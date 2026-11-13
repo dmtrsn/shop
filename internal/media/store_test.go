@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -115,6 +117,143 @@ func TestPutStoresImmutableObjectsUnderTheirIDOnly(t *testing.T) {
 	}
 	if err := store.Remove(id); err != nil {
 		t.Fatalf("second remove: %v", err)
+	}
+}
+
+func TestSyncDirReturnsOpenFailure(t *testing.T) {
+	if err := syncDir(filepath.Join(t.TempDir(), "missing")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("directory open failure: %v", err)
+	}
+}
+
+func TestSyncDirReturnsSyncFailureAndCloses(t *testing.T) {
+	dir, err := os.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := dir.Close(); err != nil {
+		t.Fatal(err)
+	}
+	// A closed directory handle deterministically fails Sync and Close on any
+	// supported OS, without relying on permissions or a special mount.
+	err = syncDirWithOpen(dir.Name(), func(string) (*os.File, error) { return dir, nil })
+	var pathErr *os.PathError
+	if !errors.Is(err, os.ErrClosed) || !errors.As(err, &pathErr) || pathErr.Op != "sync" {
+		t.Fatalf("directory Sync failure was lost: %v", err)
+	}
+	if !strings.Contains(err.Error(), "close ") {
+		t.Fatalf("directory Close failure was lost: %v", err)
+	}
+}
+
+func TestSyncDirSucceeds(t *testing.T) {
+	if err := syncDir(t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestPublicationSyncsParentDirectoriesIncludingExistingOnes(t *testing.T) {
+	for _, kind := range []string{"original", "thumbnail", "replacement"} {
+		t.Run(kind, func(t *testing.T) {
+			store, root := newStore(t)
+			id := "med_" + strings.Repeat("a", 32)
+			var got []string
+			store.syncDirectory = func(path string) error {
+				got = append(got, path)
+				return syncDir(path)
+			}
+			for _, suffix := range []string{"b", "c"} {
+				got = nil
+				var err error
+				var want []string
+				switch kind {
+				case "original":
+					// A new ID in the same shard exercises both new and existing shards.
+					err = store.Put(id[:len(id)-1]+suffix, []byte("original"))
+					want = []string{filepath.Join(root, objectsDir, "aa"), filepath.Join(root, objectsDir)}
+				case "thumbnail", "replacement":
+					sum := strings.Repeat(suffix, 64)
+					if kind == "thumbnail" {
+						err = store.PutThumbnail(id, sum, []byte("thumbnail"))
+					} else {
+						err = store.ReplaceThumbnail(id, sum, []byte("thumbnail"))
+					}
+					want = []string{filepath.Join(root, thumbnailsDir, "aa", id), filepath.Join(root, thumbnailsDir, "aa"), filepath.Join(root, thumbnailsDir)}
+				}
+				if err != nil || !reflect.DeepEqual(got, want) {
+					t.Fatalf("syncs %v, want %v; publication: %v", got, want, err)
+				}
+			}
+		})
+	}
+}
+
+func TestPublicationSyncFailuresRetainRecoverableFiles(t *testing.T) {
+	for _, tc := range []struct {
+		kind string
+		step int
+	}{
+		{"original", 1}, {"original", 2},
+		{"thumbnail", 1}, {"thumbnail", 2}, {"thumbnail", 3},
+		{"replacement", 1}, {"replacement", 2}, {"replacement", 3},
+	} {
+		t.Run(fmt.Sprintf("%s/sync-%d", tc.kind, tc.step), func(t *testing.T) {
+			store, root := newStore(t)
+			id, data := mustID(t), []byte("recoverable bytes")
+			sum := digestOf(data)
+			target := filepath.Join(root, objectsDir, id[4:6], id)
+			if tc.kind != "original" {
+				target = filepath.Join(root, thumbnailsDir, id[4:6], id, sum)
+			}
+			if tc.kind == "replacement" {
+				if err := store.PutThumbnail(id, sum, []byte("damaged")); err != nil {
+					t.Fatal(err)
+				}
+			}
+			injected := errors.New("injected directory sync failure")
+			calls := 0
+			store.syncDirectory = func(path string) error {
+				calls++
+				if calls == tc.step {
+					return injected
+				}
+				return syncDir(path)
+			}
+			var err error
+			switch tc.kind {
+			case "original":
+				err = store.Put(id, data)
+			case "thumbnail":
+				err = store.PutThumbnail(id, sum, data)
+			case "replacement":
+				err = store.ReplaceThumbnail(id, sum, data)
+			}
+			if !errors.Is(err, ErrStorage) || !errors.Is(err, injected) {
+				t.Fatalf("publication must report sync failure: %v", err)
+			}
+			if got, err := os.ReadFile(target); err != nil || !bytes.Equal(got, data) {
+				t.Fatalf("published bytes must survive sync failure: %q, %v", got, err)
+			}
+			if temps, err := os.ReadDir(filepath.Join(root, tmpDir)); err != nil || len(temps) != 0 {
+				t.Fatalf("temporary files: %v, %v", temps, err)
+			}
+			// Reconciliation sees the final name as a young orphan, then as an
+			// old orphan. It remains available rather than being destroyed here.
+			for _, old := range []bool{false, true} {
+				if old {
+					age(t, target, 48*time.Hour)
+				}
+				report, err := Reconcile(context.Background(), store, staticRows(), noThumbnailRows, time.Now(), time.Hour, false)
+				if err != nil {
+					t.Fatal(err)
+				}
+				youngCount := len(report.YoungOrphans) + len(report.YoungOrphanThumbnails)
+				oldCount := len(report.Orphans) + len(report.OrphanThumbnails)
+				if (!old && (youngCount != 1 || oldCount != 0)) || (old && (oldCount != 1 || youngCount != 0)) {
+					t.Fatalf("leftover not detected (old=%v): %+v", old, report)
+				}
+			}
+		})
 	}
 }
 

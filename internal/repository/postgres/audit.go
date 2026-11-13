@@ -45,8 +45,9 @@ func (t StaffTx) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row 
 //  3. the audit event is inserted;
 //  4. the transaction commits.
 //
-// Any error, from work, the audit insert or the commit, leaves neither the
-// mutation nor the event. The returned event carries the database time.
+// Work and audit insert failures roll back both writes. A commit error may
+// mean a lost acknowledgement: both writes may already be durable. The
+// returned event carries the database time on success.
 func (s *Store) InStaffMutation(ctx context.Context, mutation domain.StaffMutation, work func(context.Context, StaffTx) (domain.AuditTarget, error)) (domain.StaffAuditEvent, error) {
 	if !mutation.Valid() {
 		return domain.StaffAuditEvent{}, errors.New("staff mutation: an authorized staff mutation is required")

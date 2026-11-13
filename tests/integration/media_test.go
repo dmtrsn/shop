@@ -4,6 +4,7 @@ package integration_test
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"image"
@@ -124,7 +125,7 @@ func TestMediaUploadRegistersOneAssetAndAuditEventAndServesTheStoredBytes(t *tes
 	}
 }
 
-func TestRefusedUploadsWriteNothing(t *testing.T) {
+func TestRefusedUploadsWriteNothingBeforeRegistration(t *testing.T) {
 	d := newDatabase(t, true)
 	handler := d.staffServer(t, nil)
 	login := d.signedInStaff(t, handler)
@@ -148,13 +149,14 @@ func TestRefusedUploadsWriteNothing(t *testing.T) {
 	if ex := uploadAs(t, handler, login, valid); ex.Code != 401 {
 		t.Fatalf("disabled staff upload: %d", ex.Code)
 	}
+	assertNoObjects(t, d)
 	if _, err := d.mediaLibrary(t).Upload(d.ctx, mutationAs(t, domain.StaffUser{ID: login.id}, application.MediaUpload), valid); !errors.Is(err, domain.ErrAuditActorInactive) {
 		t.Fatalf("disabled actor: %v", err)
 	}
 	if d.number(t, "SELECT count(*) FROM media_assets") != 0 || len(d.auditTrail(t)) != 0 {
 		t.Fatal("a refused upload was registered")
 	}
-	assertNoObjects(t, d)
+	assertUnregisteredUploadFiles(t, d, 0)
 }
 
 func assertNoObjects(t *testing.T, d *database) {
@@ -167,7 +169,7 @@ func assertNoObjects(t *testing.T, d *database) {
 	}
 }
 
-func TestUploadWhoseAuditFailsLeavesNoLiveAssetAndNoBytes(t *testing.T) {
+func TestUploadWhoseAuditFailsRollsBackMetadataAndRetainsBytes(t *testing.T) {
 	d := newDatabase(t, true)
 	handler := d.staffServer(t, nil)
 	login := d.signedInStaff(t, handler)
@@ -179,7 +181,73 @@ func TestUploadWhoseAuditFailsLeavesNoLiveAssetAndNoBytes(t *testing.T) {
 	if d.number(t, "SELECT count(*) FROM media_assets") != 0 || len(d.auditTrail(t)) != 0 {
 		t.Fatal("an asset committed without its audit event")
 	}
-	assertNoObjects(t, d)
+	assertUnregisteredUploadFiles(t, d, 0)
+}
+
+// Even known rollback causes in these tests travel through a port that does
+// not distinguish them from unknown commit outcomes. Keep conservative files.
+func assertUnregisteredUploadFiles(t *testing.T, d *database, wantThumbnails int) {
+	t.Helper()
+	if d.number(t, "SELECT count(*) FROM media_assets") != 0 ||
+		d.number(t, "SELECT count(*) FROM media_thumbnails") != 0 || len(d.auditTrail(t)) != 0 {
+		t.Fatal("failed transaction left metadata or audit")
+	}
+	files, err := media.OpenFileStoreReadOnly(d.mediaRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	objects, err := files.Objects()
+	if err != nil || len(objects) != 1 || objects[0].Temp {
+		t.Fatalf("retained originals: %+v, %v", objects, err)
+	}
+	thumbnails, err := files.Thumbnails()
+	if err != nil || len(thumbnails) != wantThumbnails {
+		t.Fatalf("retained thumbnails: %+v, %v", thumbnails, err)
+	}
+	report, err := d.mediaLibrary(t).Reconcile(d.ctx, time.Hour, true)
+	if err != nil || len(report.YoungOrphans) != 1 || len(report.YoungOrphanThumbnails) != wantThumbnails || len(report.Removed) != 0 || report.Problems() {
+		t.Fatalf("young leftovers must survive reconciliation: %+v, %v", report, err)
+	}
+}
+
+type persistedThenErrorMediaStore struct {
+	application.MediaStore
+	err error
+}
+
+func (s persistedThenErrorMediaStore) CreateMediaAsset(ctx context.Context, mutation domain.StaffMutation, asset domain.MediaAsset, thumbnail *domain.MediaThumbnail) (domain.MediaAsset, error) {
+	if _, err := s.MediaStore.CreateMediaAsset(ctx, mutation, asset, thumbnail); err != nil {
+		return domain.MediaAsset{}, err
+	}
+	// The real PostgreSQL metadata/audit transaction committed before the
+	// simulated acknowledgement error reaches the application.
+	return domain.MediaAsset{}, s.err
+}
+
+func TestPersistedUploadThenErrorKeepsLiveFilesHealthy(t *testing.T) {
+	d := newDatabase(t, true)
+	staff := d.auditStaff(t, "a@example.com")
+	d.mediaLibrary(t) // Prepare the real temporary media root.
+	files, err := media.OpenFileStore(d.mediaRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lostAck := errors.New("commit acknowledgement lost")
+	library := application.NewMedia(persistedThenErrorMediaStore{d.store, lostAck}, files, discardLogger())
+	if _, err := library.Upload(d.ctx, mutationAs(t, staff, application.MediaUpload), pngImage(t, 1280, 720)); !errors.Is(err, lostAck) {
+		t.Fatalf("upload: %v", err)
+	}
+	if d.number(t, "SELECT count(*) FROM media_assets") != 1 || d.number(t, "SELECT count(*) FROM media_thumbnails") != 1 {
+		t.Fatal("metadata was not committed before the error")
+	}
+	trail := d.auditTrail(t)
+	if len(trail) != 1 || trail[0].action != "media.upload" {
+		t.Fatalf("audit was not committed with metadata: %+v", trail)
+	}
+	report, err := library.Reconcile(d.ctx, time.Hour, true)
+	if err != nil || report.Healthy != 1 || report.HealthyThumbnails != 1 || report.Problems() || len(report.Removed) != 0 {
+		t.Fatalf("retained live files must remain healthy: %+v, %v", report, err)
+	}
 }
 
 func (d *database) thumbnailDir(id string) string {
@@ -264,7 +332,7 @@ func TestUploadNoLargerThanTheRecipeGetsNoThumbnail(t *testing.T) {
 	}
 }
 
-func TestUploadWhoseThumbnailRowFailsLeavesNoPartialState(t *testing.T) {
+func TestUploadWhoseThumbnailRowFailsRollsBackMetadataAndRetainsFiles(t *testing.T) {
 	d := newDatabase(t, true)
 	staff := d.auditStaff(t, "a@example.com")
 	d.exec(t, `CREATE FUNCTION fail_thumbnail() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'injected thumbnail failure'; END $$`)
@@ -275,11 +343,10 @@ func TestUploadWhoseThumbnailRowFailsLeavesNoPartialState(t *testing.T) {
 	if d.number(t, "SELECT count(*) FROM media_assets") != 0 || len(d.auditTrail(t)) != 0 {
 		t.Fatal("a partial asset committed")
 	}
-	assertNoObjects(t, d)
-	assertNoThumbnails(t, d)
+	assertUnregisteredUploadFiles(t, d, 1)
 }
 
-func TestUploadWhoseAuditFailsRemovesItsThumbnail(t *testing.T) {
+func TestUploadWhoseAuditFailsRetainsOriginalAndThumbnail(t *testing.T) {
 	d := newDatabase(t, true)
 	staff := d.auditStaff(t, "a@example.com")
 	d.exec(t, `CREATE FUNCTION fail_audit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'injected audit failure'; END $$`)
@@ -290,8 +357,7 @@ func TestUploadWhoseAuditFailsRemovesItsThumbnail(t *testing.T) {
 	if d.number(t, "SELECT count(*) FROM media_assets") != 0 {
 		t.Fatal("an asset committed without its audit event")
 	}
-	assertNoObjects(t, d)
-	assertNoThumbnails(t, d)
+	assertUnregisteredUploadFiles(t, d, 1)
 }
 
 func TestUploadWhoseThumbnailCannotBeWrittenRegistersNothing(t *testing.T) {

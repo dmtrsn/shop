@@ -33,6 +33,7 @@ const maxConcurrentNormalizations = 2
 type MediaStore interface {
 	// CreateMediaAsset registers a stored object, its thumbnail if it has one,
 	// and one audit event in one transaction.
+	// An error does not prove rollback: the commit acknowledgement may be lost.
 	CreateMediaAsset(ctx context.Context, mutation domain.StaffMutation, asset domain.MediaAsset, thumbnail *domain.MediaThumbnail) (domain.MediaAsset, error)
 	MediaAssets(ctx context.Context, page, limit int) (domain.MediaPage, error)
 	// MediaAsset and LiveMedia return ErrNotFound for unknown and deleted assets.
@@ -74,10 +75,10 @@ func NewMedia(store MediaStore, files media.Store, logger *slog.Logger) *Media {
 }
 
 // Upload validates and normalizes one image, derives its thumbnail, writes
-// both to the store and only then registers them. If registration fails the
-// new files are removed best effort; a crash in between leaves an orphan that
-// reconciliation removes after its grace period. A row therefore never names
-// bytes that were not written completely.
+// both to the store and only then registers them. Once registration starts,
+// errors may mean a lost commit acknowledgement, so both files are retained.
+// True orphans are left for reconciliation after its grace period. A row
+// therefore never names bytes that were not written completely.
 func (m *Media) Upload(ctx context.Context, mutation domain.StaffMutation, data []byte) (domain.MediaAsset, error) {
 	if err := requireAction(mutation, MediaUpload); err != nil {
 		return domain.MediaAsset{}, err
@@ -142,7 +143,8 @@ func (m *Media) register(ctx context.Context, mutation domain.StaffMutation, nor
 		Width: normalized.Width, Height: normalized.Height, SHA256: normalized.SHA256,
 	}, row)
 	if err != nil {
-		m.discardFiles(id)
+		// The metadata/audit transaction may already be durable. Never remove
+		// its files on an error that does not prove the transaction rolled back.
 		return domain.MediaAsset{}, err
 	}
 	return asset, nil
@@ -153,7 +155,7 @@ func thumbnailRow(thumbnail media.Thumbnail) domain.MediaThumbnail {
 		SizeBytes: int64(len(thumbnail.Data)), Width: thumbnail.Width, Height: thumbnail.Height, SHA256: thumbnail.SHA256}
 }
 
-// discardFiles removes the files of an asset that was never registered.
+// discardFiles is safe only before metadata registration has been attempted.
 func (m *Media) discardFiles(id string) {
 	if err := m.files.RemoveThumbnails(id); err != nil {
 		m.logger.Error("unregistered media thumbnail left for reconciliation", "media", id, "error", err)

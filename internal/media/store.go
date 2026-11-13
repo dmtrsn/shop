@@ -109,6 +109,9 @@ var ThumbnailDigestPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
 // FileStore keeps managed media in a directory the process owns.
 type FileStore struct {
 	root string
+	// Per-store seam for testing failures after publication without changing
+	// filesystem operations or sharing mutable hooks between stores.
+	syncDirectory func(string) error
 }
 
 // OpenFileStore checks the configured root and prepares its layout. The root
@@ -143,7 +146,7 @@ func openFileStore(root string, readOnly bool) (*FileStore, error) {
 	if info.Mode().Perm()&0o002 != 0 {
 		return nil, errors.New("MEDIA_ROOT must not be world-writable")
 	}
-	store := &FileStore{root: root}
+	store := &FileStore{root: root, syncDirectory: syncDir}
 	if readOnly {
 		return store, nil
 	}
@@ -152,11 +155,19 @@ func openFileStore(root string, readOnly bool) (*FileStore, error) {
 			return nil, fmt.Errorf("MEDIA_ROOT is not writable: %w", err)
 		}
 	}
+	// Make the layout entries durable, including entries left by a failed
+	// earlier startup, before any publication can be registered in the DB.
+	if err := store.syncDirectory(root); err != nil {
+		return nil, fmt.Errorf("sync MEDIA_ROOT layout: %w", err)
+	}
 	probe, err := os.CreateTemp(filepath.Join(root, tmpDir), "probe-")
 	if err != nil {
 		return nil, fmt.Errorf("MEDIA_ROOT is not writable: %w", err)
 	}
-	probe.Close()
+	if err := probe.Close(); err != nil {
+		_ = os.Remove(probe.Name())
+		return nil, fmt.Errorf("MEDIA_ROOT probe close: %w", err)
+	}
 	if err := os.Remove(probe.Name()); err != nil {
 		return nil, fmt.Errorf("MEDIA_ROOT is not writable: %w", err)
 	}
@@ -179,7 +190,15 @@ func (s *FileStore) Put(id string, data []byte) error {
 	if err := os.Mkdir(filepath.Dir(target), dirMode); err != nil && !errors.Is(err, fs.ErrExist) {
 		return fmt.Errorf("%w: create object directory: %v", ErrStorage, err)
 	}
-	return s.publish(target, data)
+	if err := s.publish(target, data); err != nil {
+		return err
+	}
+	// Sync the shard entry even if it existed: another writer (or an earlier
+	// failed sync) may have created it without making its parent durable yet.
+	if err := s.syncDirectory(filepath.Join(s.root, objectsDir)); err != nil {
+		return fmt.Errorf("%w: sync object shard parent: %w", ErrStorage, err)
+	}
+	return nil
 }
 
 // thumbnailDir is the only way a thumbnail path is formed: from a validated ID.
@@ -219,9 +238,13 @@ func (s *FileStore) writeThumbnail(id, sum string, data []byte, place func(oldpa
 	if err := s.write(target, data, place); err != nil {
 		return err
 	}
-	// The per-asset directory is new, so its own entry must reach the disk too.
-	syncDir(filepath.Dir(dir))
-	syncDir(filepath.Join(s.root, thumbnailsDir))
+	// Persist both the per-asset and shard entries. Existing directories may
+	// still need this after another writer or an earlier failed sync.
+	for _, parent := range []string{filepath.Dir(dir), filepath.Join(s.root, thumbnailsDir)} {
+		if err := s.syncDirectory(parent); err != nil {
+			return fmt.Errorf("%w: sync thumbnail parent: %w", ErrStorage, err)
+		}
+	}
 	return nil
 }
 
@@ -262,15 +285,26 @@ func (s *FileStore) write(target string, data []byte, place func(oldpath, newpat
 	if err := place(temp.Name(), target); err != nil {
 		return fmt.Errorf("%w: publish object: %v", ErrStorage, err)
 	}
-	syncDir(filepath.Dir(target))
+	// Publication has happened. On sync failure retain the final name: callers
+	// must see the error, but a recoverable file is safer than deleting bytes
+	// that may already be durable (including thumbnail replacements).
+	if err := s.syncDirectory(filepath.Dir(target)); err != nil {
+		return fmt.Errorf("%w: sync published file directory: %w", ErrStorage, err)
+	}
 	return nil
 }
 
-func syncDir(path string) {
-	if dir, err := os.Open(path); err == nil {
-		dir.Sync()
-		dir.Close()
+func syncDir(path string) error {
+	return syncDirWithOpen(path, os.Open)
+}
+
+func syncDirWithOpen(path string, open func(string) (*os.File, error)) error {
+	dir, err := open(path)
+	if err != nil {
+		return fmt.Errorf("open directory for sync: %w", err)
 	}
+	// Close even when Sync fails, preserving either or both errors.
+	return errors.Join(dir.Sync(), dir.Close())
 }
 
 func writeSynced(file *os.File, data []byte) error {

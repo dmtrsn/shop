@@ -25,6 +25,9 @@ type fakeMediaStore struct {
 	set        []domain.ProductMedia
 	createErr  error
 	deleteErr  error
+	// Simulate a committed metadata/audit transaction whose acknowledgement is lost.
+	createErrAfterPersist error
+	audit                 []string
 }
 
 func (f *fakeMediaStore) CreateMediaAsset(_ context.Context, _ domain.StaffMutation, asset domain.MediaAsset, thumbnail *domain.MediaThumbnail) (domain.MediaAsset, error) {
@@ -33,6 +36,10 @@ func (f *fakeMediaStore) CreateMediaAsset(_ context.Context, _ domain.StaffMutat
 	}
 	f.live[asset.ID] = domain.StoredMedia{ID: asset.ID, ContentType: asset.ContentType, SizeBytes: asset.SizeBytes, SHA256: asset.SHA256}
 	f.thumbnails[asset.ID] = thumbnail
+	f.audit = append(f.audit, asset.ID)
+	if f.createErrAfterPersist != nil {
+		return domain.MediaAsset{}, f.createErrAfterPersist
+	}
 	return asset, nil
 }
 
@@ -60,11 +67,13 @@ func (f *fakeMediaStore) SetProductMedia(_ context.Context, _ domain.StaffMutati
 
 // fakeFiles is an in-memory media.Store whose writes and removals can fail.
 type fakeFiles struct {
-	objects         map[string][]byte
-	thumbnails      map[string]map[string][]byte
-	putErr          error
-	putThumbnailErr error
-	removeErr       error
+	objects                   map[string][]byte
+	thumbnails                map[string]map[string][]byte
+	putErr                    error
+	putThumbnailErr           error
+	removeErr                 error
+	putErrAfterWrite          error
+	putThumbnailErrAfterWrite error
 }
 
 func (f *fakeFiles) Put(id string, data []byte) error {
@@ -72,7 +81,7 @@ func (f *fakeFiles) Put(id string, data []byte) error {
 		return f.putErr
 	}
 	f.objects[id] = data
-	return nil
+	return f.putErrAfterWrite
 }
 func (f *fakeFiles) PutThumbnail(id, sum string, data []byte) error {
 	if f.putThumbnailErr != nil {
@@ -82,7 +91,7 @@ func (f *fakeFiles) PutThumbnail(id, sum string, data []byte) error {
 		f.thumbnails[id] = map[string][]byte{}
 	}
 	f.thumbnails[id][sum] = data
-	return nil
+	return f.putThumbnailErrAfterWrite
 }
 func (f *fakeFiles) RemoveThumbnails(id string) error {
 	if f.removeErr != nil {
@@ -230,14 +239,36 @@ func TestSmallUploadGetsNoThumbnail(t *testing.T) {
 	}
 }
 
-func TestFailedRegistrationRemovesOriginalAndThumbnail(t *testing.T) {
+func TestFailedRegistrationRetainsFilesWhenRollbackIsNotExposed(t *testing.T) {
 	library, store, files := newMediaFixture()
 	store.createErr = errors.New("database down")
 	if _, err := library.Upload(context.Background(), staffMutationFor(t, MediaUpload), wide(t)); !errors.Is(err, store.createErr) {
 		t.Fatalf("upload: %v", err)
 	}
-	if len(files.objects)+len(files.thumbnails)+len(store.live) != 0 {
-		t.Fatal("a failed registration left files behind")
+	if len(files.objects) != 1 || len(files.thumbnails) != 1 || len(store.live) != 0 {
+		t.Fatal("a registration error must retain files even when the fake did not persist rows")
+	}
+}
+
+func TestPersistedThenErrorRegistrationRetainsOriginalAndThumbnail(t *testing.T) {
+	library, store, files := newMediaFixture()
+	store.createErrAfterPersist = errors.New("commit acknowledgement lost")
+	if _, err := library.Upload(context.Background(), staffMutationFor(t, MediaUpload), wide(t)); !errors.Is(err, store.createErrAfterPersist) {
+		t.Fatalf("upload: %v", err)
+	}
+	if len(store.live) != 1 || len(store.audit) != 1 {
+		t.Fatalf("fake must persist metadata and audit before returning an error: %+v, %v", store.live, store.audit)
+	}
+	id := store.audit[0]
+	stored, row := store.live[id], store.thumbnails[id]
+	if row == nil {
+		t.Fatal("fake did not persist the thumbnail row")
+	}
+	if data := files.objects[id]; int64(len(data)) != stored.SizeBytes {
+		t.Error("persisted original was removed after an uncertain registration")
+	}
+	if data := files.thumbnails[id][row.SHA256]; int64(len(data)) != row.SizeBytes {
+		t.Error("persisted thumbnail was removed after an uncertain registration")
 	}
 }
 
@@ -249,6 +280,29 @@ func TestFailedThumbnailWriteRemovesOriginalAndRegistersNothing(t *testing.T) {
 	}
 	if len(files.objects)+len(files.thumbnails)+len(store.live) != 0 {
 		t.Fatal("a failed thumbnail write left state behind")
+	}
+}
+
+func TestFailedThumbnailSyncCleansFilesBeforeRegistration(t *testing.T) {
+	library, store, files := newMediaFixture()
+	files.putThumbnailErrAfterWrite = errors.New("directory sync failed after publication")
+	if _, err := library.Upload(context.Background(), staffMutationFor(t, MediaUpload), wide(t)); !errors.Is(err, domain.ErrStorageUnavailable) {
+		t.Fatalf("upload: %v", err)
+	}
+	// Both files were published, but no metadata transaction was attempted.
+	if len(files.objects)+len(files.thumbnails)+len(store.live)+len(store.audit) != 0 {
+		t.Fatal("pre-registration thumbnail failure left partial work")
+	}
+}
+
+func TestFailedOriginalSyncLeavesRecoverableFileAndRegistersNothing(t *testing.T) {
+	library, store, files := newMediaFixture()
+	files.putErrAfterWrite = errors.New("directory sync failed after publication")
+	if _, err := library.Upload(context.Background(), staffMutationFor(t, MediaUpload), wide(t)); !errors.Is(err, domain.ErrStorageUnavailable) {
+		t.Fatalf("upload: %v", err)
+	}
+	if len(files.objects) != 1 || len(files.thumbnails)+len(store.live)+len(store.audit) != 0 {
+		t.Fatal("original publication failure must retain its leftover without registering metadata")
 	}
 }
 

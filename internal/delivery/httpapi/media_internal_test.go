@@ -351,7 +351,7 @@ func TestUploadRefusals(t *testing.T) {
 	}
 }
 
-func TestFailedRegistrationRemovesTheNewObject(t *testing.T) {
+func TestFailedRegistrationRetainsTheNewObjectWithoutExposingTheError(t *testing.T) {
 	store := newTestMediaStore()
 	store.createErr = errors.New("database down")
 	handler, _, root := mediaHandler(t, store)
@@ -361,11 +361,16 @@ func TestFailedRegistrationRemovesTheNewObject(t *testing.T) {
 	if rec.Code != 500 || strings.Contains(rec.Body.String(), "database down") {
 		t.Fatalf("%d %s", rec.Code, rec.Body.String())
 	}
-	shards, _ := os.ReadDir(filepath.Join(root, "objects"))
-	for _, shard := range shards {
-		if entries, _ := os.ReadDir(filepath.Join(root, "objects", shard.Name())); len(entries) != 0 {
-			t.Fatal("unregistered object left behind")
-		}
+	files, err := media.OpenFileStoreReadOnly(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	objects, err := files.Objects()
+	if err != nil || len(objects) != 1 || objects[0].Temp {
+		t.Fatalf("registration outcome is not exposed; keep the object: %+v, %v", objects, err)
+	}
+	if len(store.rows) != 0 || len(store.mutations) != 0 {
+		t.Fatal("fake registered an asset on failure")
 	}
 }
 
