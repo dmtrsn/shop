@@ -125,7 +125,11 @@ func mediaCommand(args []string, stdout, stderr io.Writer) int {
 		logger.Error(err.Error())
 		return exitUsage
 	}
-	files, err := media.OpenFileStore(strings.TrimSpace(os.Getenv("MEDIA_ROOT")))
+	openStore := media.OpenFileStoreReadOnly
+	if *apply {
+		openStore = media.OpenFileStore
+	}
+	files, err := openStore(strings.TrimSpace(os.Getenv("MEDIA_ROOT")))
 	if err != nil {
 		logger.Error("invalid MEDIA_ROOT", "error", err)
 		return exitUsage

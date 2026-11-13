@@ -382,12 +382,16 @@ func TestLegacyMediaApplyRunLockExcludesAConcurrentRun(t *testing.T) {
 	if _, err := d.store.LockLegacyMigration(d.ctx); err == nil || !errors.Is(err, postgres.ErrLegacyMigrationRunning) {
 		t.Fatalf("second lock: %v", err)
 	}
-	release()
+	if err := release(); err != nil {
+		t.Fatal(err)
+	}
 	second, err := d.store.LockLegacyMigration(d.ctx)
 	if err != nil {
 		t.Fatalf("lock after release: %v", err)
 	}
-	second()
+	if err := second(); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestLegacyMediaApplyRequiresAnActiveActor(t *testing.T) {

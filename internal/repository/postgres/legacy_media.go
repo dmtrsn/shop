@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -20,11 +21,15 @@ import (
 // ASCII) held for one apply run.
 const legacyMigrationLockKey int64 = 0x73776565746c6763
 
+// Match the schema migrator's independent cleanup budget, shared by unlock
+// and close so cancellation cannot leave command cleanup waiting indefinitely.
+const legacyMigrationCleanupTimeout = 5 * time.Second
+
 // ErrLegacyMigrationRunning: another apply run holds the lock.
 var ErrLegacyMigrationRunning = errors.New("another legacy media migration is running")
 
 // LockLegacyMigration takes the run lock and returns its release function.
-func (s *Store) LockLegacyMigration(ctx context.Context) (func(), error) {
+func (s *Store) LockLegacyMigration(ctx context.Context) (func() error, error) {
 	conn, err := s.pool.Acquire(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("acquire migration connection: %w", err)
@@ -38,16 +43,24 @@ func (s *Store) LockLegacyMigration(ctx context.Context) (func(), error) {
 		conn.Release()
 		return nil, ErrLegacyMigrationRunning
 	}
-	return func() { releaseLegacyMigrationLock(conn) }, nil
+	return func() error { return releaseLegacyMigrationLock(conn) }, nil
 }
 
-func releaseLegacyMigrationLock(conn *pgxpool.Conn) {
-	// A failed unlock leaves the lock on a pooled session; closing it ends
-	// the session and frees the lock.
-	if _, err := conn.Exec(context.Background(), `SELECT pg_advisory_unlock($1)`, legacyMigrationLockKey); err != nil {
-		_ = conn.Conn().Close(context.Background())
+func releaseLegacyMigrationLock(conn *pgxpool.Conn) error {
+	cleanupCtx, cancel := context.WithTimeout(context.Background(), legacyMigrationCleanupTimeout)
+	defer cancel()
+	if _, err := conn.Exec(cleanupCtx, `SELECT pg_advisory_unlock($1)`, legacyMigrationLockKey); err != nil {
+		// An uncertain unlock must never return the session to the pool.
+		// Like the schema migrator, take ownership before closing. pgx Close
+		// closes the underlying socket even when the cleanup budget expires.
+		closeErr := conn.Hijack().Close(cleanupCtx)
+		if closeErr != nil {
+			closeErr = fmt.Errorf("close legacy migration connection: %w", closeErr)
+		}
+		return errors.Join(fmt.Errorf("release legacy migration lock: %w", err), closeErr)
 	}
 	conn.Release()
+	return nil
 }
 
 // LegacyMediaProducts lists every product, archived ones included, in ID order.

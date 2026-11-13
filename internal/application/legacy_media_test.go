@@ -3,6 +3,7 @@ package application
 import (
 	"bytes"
 	"context"
+	"errors"
 	"image"
 	"image/color"
 	"image/png"
@@ -19,23 +20,26 @@ import (
 
 type fakeLegacyStore struct {
 	MediaStore
-	products   []domain.LegacyMediaProduct
-	refs       map[string]*domain.LegacyPathReferences
-	byDigest   map[string]domain.StoredMedia
-	assets     []domain.MediaAsset
-	thumbnails []domain.MediaThumbnail
-	migrated   map[string]domain.ProductMedia
-	retired    []string
-	attachE    error
-	locks      int
+	products    []domain.LegacyMediaProduct
+	refs        map[string]*domain.LegacyPathReferences
+	byDigest    map[string]domain.StoredMedia
+	assets      []domain.MediaAsset
+	thumbnails  []domain.MediaThumbnail
+	migrated    map[string]domain.ProductMedia
+	retired     []string
+	attachE     error
+	locks       int
+	releaseErr  error
+	productsErr error
+	released    bool
 }
 
-func (s *fakeLegacyStore) LockLegacyMigration(context.Context) (func(), error) {
+func (s *fakeLegacyStore) LockLegacyMigration(context.Context) (func() error, error) {
 	s.locks++
-	return func() {}, nil
+	return func() error { s.released = true; return s.releaseErr }, nil
 }
 func (s *fakeLegacyStore) LegacyMediaProducts(context.Context) ([]domain.LegacyMediaProduct, error) {
-	return s.products, nil
+	return s.products, s.productsErr
 }
 func (s *fakeLegacyStore) LiveMediaBySHA256(_ context.Context, sum string) (domain.StoredMedia, error) {
 	if stored, ok := s.byDigest[sum]; ok {
@@ -64,6 +68,44 @@ func (s *fakeLegacyStore) CreateMediaAsset(_ context.Context, _ domain.StaffMuta
 	}
 	s.byDigest[asset.SHA256] = domain.StoredMedia{ID: asset.ID, ContentType: asset.ContentType, SizeBytes: asset.SizeBytes, SHA256: asset.SHA256}
 	return asset, nil
+}
+
+func TestLegacyMigrationCleanupErrorPrecedence(t *testing.T) {
+	primary := errors.New("list products failed")
+	cleanup := errors.New("unlock failed")
+	for _, tc := range []struct {
+		name             string
+		primary, cleanup error
+	}{
+		{"success", nil, nil},
+		{"operation error", primary, nil},
+		{"cleanup error", nil, cleanup},
+		{"both errors", primary, cleanup},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			store := newLegacyStore()
+			store.productsErr, store.releaseErr = tc.primary, tc.cleanup
+			migration, _, _ := legacyHarness(t, store)
+			report, err := migration.Run(context.Background(), true, staffActor(), "cleanup-test")
+			if !store.released || report.Mode != "apply" {
+				t.Fatalf("cleanup skipped or report lost: released=%v report=%+v", store.released, report)
+			}
+			if tc.primary == nil && tc.cleanup == nil && err != nil {
+				t.Fatal(err)
+			}
+			for _, want := range []error{tc.primary, tc.cleanup} {
+				if want != nil && !errors.Is(err, want) {
+					t.Fatalf("lost error %v: %v", want, err)
+				}
+			}
+			if tc.primary != nil && tc.cleanup == nil && err != tc.primary {
+				t.Fatalf("primary error changed: %v", err)
+			}
+			if tc.primary != nil && tc.cleanup != nil && err.Error() != primary.Error()+"\n"+cleanup.Error() {
+				t.Fatalf("operation error must come first: %v", err)
+			}
+		})
+	}
 }
 
 func samplePNG(t *testing.T, value uint8) []byte {

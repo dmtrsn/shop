@@ -156,7 +156,7 @@ func (s *LegacyMediaSummary) add(status LegacyMediaStatus) {
 // LegacyMediaStore is the metadata port of the migration; only PostgreSQL
 // implements it.
 type LegacyMediaStore interface {
-	LockLegacyMigration(ctx context.Context) (func(), error)
+	LockLegacyMigration(ctx context.Context) (func() error, error)
 	LegacyMediaProducts(ctx context.Context) ([]domain.LegacyMediaProduct, error)
 	LiveMediaBySHA256(ctx context.Context, sum string) (domain.StoredMedia, error)
 	MigrateLegacyProductMedia(ctx context.Context, mutation domain.StaffMutation, expected domain.LegacyMediaProduct, value domain.ProductMedia) error
@@ -203,8 +203,8 @@ type legacyRun struct {
 // Run classifies every product and, with apply, migrates them one at a time.
 // A product failure is recorded and never stops the others; the returned
 // error means the run itself could not continue, and the report is partial.
-func (m *LegacyMediaMigration) Run(ctx context.Context, apply bool, staff domain.StaffUser, requestID string) (LegacyMediaReport, error) {
-	report := LegacyMediaReport{Mode: "dry-run", Products: []LegacyProductReport{}, ActiveLegacyProducts: []string{},
+func (m *LegacyMediaMigration) Run(ctx context.Context, apply bool, staff domain.StaffUser, requestID string) (report LegacyMediaReport, runErr error) {
+	report = LegacyMediaReport{Mode: "dry-run", Products: []LegacyProductReport{}, ActiveLegacyProducts: []string{},
 		Files: []LegacyFileReport{}, MissingFiles: []string{}, SafeToDelete: []string{}}
 	run := &legacyRun{LegacyMediaMigration: m, apply: apply, sources: map[string]*legacySource{}}
 	if apply {
@@ -223,7 +223,13 @@ func (m *LegacyMediaMigration) Run(ctx context.Context, apply bool, staff domain
 		if err != nil {
 			return report, err
 		}
-		defer release()
+		defer func() {
+			if cleanupErr := release(); cleanupErr != nil {
+				// Keep the operation error first and discoverable with errors.Is;
+				// a cleanup-only failure must also make the command fail.
+				runErr = errors.Join(runErr, cleanupErr)
+			}
+		}()
 	}
 	products, err := m.store.LegacyMediaProducts(ctx)
 	if err != nil {
