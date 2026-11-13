@@ -10,6 +10,7 @@ import { replaceDocument } from "@/lib/browser-navigation";
 import { loginPath, loginReturnTarget } from "@/lib/return-to";
 
 import styles from "./login.module.css";
+import { useInvalidFieldFocus } from "./use-invalid-field-focus";
 
 type Field = "email" | "password";
 type FieldErrors = Partial<Record<Field, string>>;
@@ -52,6 +53,7 @@ export function LoginForm({ target }: { target: string }) {
   const [password, setPassword] = useState("");
   const [pending, setPending] = useState(false);
   const [failure, setFailure] = useState<Failure | null>(null);
+  const formRef = useInvalidFieldFocus(failure);
   const inFlight = useRef(false);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -83,7 +85,7 @@ export function LoginForm({ target }: { target: string }) {
 
   const fields = failure?.fields ?? {};
   return (
-    <form className={styles.form} method="post" noValidate onSubmit={(event) => void submit(event)}>
+    <form className={styles.form} method="post" noValidate onSubmit={(event) => void submit(event)} ref={formRef}>
       <TextInput
         aria-describedby={fields.email ? "login-email-error" : undefined}
         aria-invalid={fields.email ? true : undefined}

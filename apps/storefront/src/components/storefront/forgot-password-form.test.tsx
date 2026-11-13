@@ -7,7 +7,11 @@ import { deferred, jsonResponse } from "@/test/favorites-fixtures";
 import { ForgotPasswordForm, resetRequestFailure } from "./forgot-password-form";
 
 const fetcher = vi.fn<typeof fetch>();
-const submit = () => fireEvent.click(screen.getByRole("button", { name: "Отправить ссылку" }));
+const submit = () => {
+  const button = screen.getByRole("button", { name: "Отправить ссылку" });
+  button.focus();
+  fireEvent.click(button);
+};
 
 beforeEach(() => { fetcher.mockReset(); vi.stubGlobal("fetch", fetcher); });
 afterEach(() => { vi.unstubAllGlobals(); });
@@ -23,6 +27,8 @@ describe("forgot password form", () => {
     render(<ForgotPasswordForm />);
     submit();
     expect(screen.getByText("Укажите email")).toBeInTheDocument();
+    expect(document.activeElement).toBe(screen.getByLabelText("Email"));
+    expect(screen.getByLabelText("Email")).toHaveAccessibleDescription("Укажите email");
     expect(fetcher).not.toHaveBeenCalled();
   });
 
@@ -30,10 +36,12 @@ describe("forgot password form", () => {
     const pending = deferred<Response>();
     fetcher.mockReturnValueOnce(pending.promise);
     render(<ForgotPasswordForm />);
+    submit();
     fireEvent.change(screen.getByLabelText("Email"), { target: { value: " kate@example.test " } });
     submit();
     fireEvent.submit(screen.getByLabelText("Email").closest("form")!);
     expect(fetcher).toHaveBeenCalledOnce();
+    expect(document.activeElement).not.toBe(screen.getByLabelText("Email"));
     expect(fetcher.mock.calls[0][0]).toBe("/api/auth/password-reset");
     expect(JSON.parse(fetcher.mock.calls[0][1]!.body as string)).toEqual({ email: "kate@example.test" });
     await act(async () => pending.resolve(jsonResponse({ status: "pending" }, 202, null)));
@@ -49,6 +57,18 @@ describe("forgot password form", () => {
     submit();
     expect(await screen.findByText("Укажите корректный email")).toBeInTheDocument();
     expect(screen.getByLabelText("Email")).toHaveAttribute("aria-invalid", "true");
+    expect(document.activeElement).toBe(screen.getByLabelText("Email"));
+    expect(screen.getByLabelText("Email")).toHaveAccessibleDescription("Укажите корректный email");
+  });
+
+  it.each([500, 422])("keeps general errors neutral without focusing email (%i)", async (status) => {
+    fetcher.mockResolvedValueOnce(jsonResponse({ error: { code: "validation_error", message: "backend detail: user exists", fields: [{ field: "other", message: "ignored" }] } }, status, null));
+    render(<ForgotPasswordForm />);
+    fireEvent.change(screen.getByLabelText("Email"), { target: { value: "kate@example.test" } });
+    submit();
+    expect(await screen.findByRole("alert")).toHaveTextContent(status === 422 ? "Проверьте email" : "Сервис восстановления недоступен, попробуйте позже");
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Отправить ссылку" }));
+    expect(screen.queryByText(/backend detail|ignored/)).toBeNull();
   });
 
   it.each([

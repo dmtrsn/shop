@@ -9,6 +9,7 @@ import { registerCustomer, resendRegistration } from "@/lib/api/auth-client";
 import { BrowserRequestError } from "@/lib/api/browser-request";
 
 import styles from "./login.module.css";
+import { useInvalidFieldFocus } from "./use-invalid-field-focus";
 
 type Field = "name" | "email" | "password" | "phone";
 type FieldErrors = Partial<Record<Field, string>>;
@@ -47,6 +48,7 @@ export function RegisterForm() {
   const [values, setValues] = useState<Record<Field, string>>({ name: "", email: "", password: "", phone: "" });
   const [pending, setPending] = useState(false);
   const [failure, setFailure] = useState<Failure | null>(null);
+  const formRef = useInvalidFieldFocus(failure);
   const [sentTo, setSentTo] = useState<string | null>(null);
   const inFlight = useRef(false);
   const sentHeading = useRef<HTMLHeadingElement>(null);
@@ -107,7 +109,7 @@ export function RegisterForm() {
   const fields = failure?.fields ?? {};
   const describedBy = (field: Field, hint?: string) => [hint, fields[field] ? `register-${field}-error` : ""].filter(Boolean).join(" ") || undefined;
   return (
-    <form className={styles.form} method="post" noValidate onSubmit={(event) => void submit(event)}>
+    <form className={styles.form} method="post" noValidate onSubmit={(event) => void submit(event)} ref={formRef}>
       <TextInput aria-describedby={describedBy("name")} aria-invalid={fields.name ? true : undefined} autoComplete="name"
         id="register-name" label="Имя" name="name" onChange={update("name")} readOnly={pending} value={values.name} />
       {fields.name ? <p className={styles.fieldError} id="register-name-error">{fields.name}</p> : null}

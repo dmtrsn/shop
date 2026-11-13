@@ -16,7 +16,11 @@ function fill({ name = "Анна", email = "ann@example.test", secret = password
   fireEvent.change(screen.getByLabelText("Пароль"), { target: { value: secret } });
   fireEvent.change(screen.getByLabelText("Телефон (необязательно)"), { target: { value: phone } });
 }
-const submit = () => fireEvent.click(screen.getByRole("button", { name: "Создать аккаунт" }));
+const submit = () => {
+  const button = screen.getByRole("button", { name: "Создать аккаунт" });
+  button.focus();
+  fireEvent.click(button);
+};
 
 beforeEach(() => {
   fetcher.mockReset();
@@ -47,6 +51,19 @@ describe("register form", () => {
     expect(screen.getByText("Укажите email")).toBeInTheDocument();
     expect(screen.getByText("Придумайте пароль")).toBeInTheDocument();
     expect(screen.getByLabelText("Имя")).toHaveAttribute("aria-invalid", "true");
+    expect(document.activeElement).toBe(screen.getByLabelText("Имя"));
+    expect(screen.getByLabelText("Имя")).toHaveAccessibleDescription("Укажите имя");
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [{ name: "Анна", email: "", secret: "" }, "Email", "Укажите email"],
+    [{ name: "Анна", email: "ann@example.test", secret: "" }, "Пароль", "Не короче 10 символов. Придумайте пароль"],
+  ])("focuses the first missing field after filled fields (%#)", (values, label, description) => {
+    render(<RegisterForm />);
+    fill(values); submit();
+    expect(document.activeElement).toBe(screen.getByLabelText(label));
+    expect(screen.getByLabelText(label)).toHaveAccessibleDescription(description);
     expect(fetcher).not.toHaveBeenCalled();
   });
 
@@ -54,10 +71,12 @@ describe("register form", () => {
     const pending = deferred<Response>();
     fetcher.mockReturnValueOnce(pending.promise);
     render(<RegisterForm />);
+    submit();
     fill({ email: " ann@example.test " });
     submit();
     fireEvent.submit(screen.getByLabelText("Имя").closest("form")!);
     expect(screen.getByRole("button", { name: "Отправляем…" })).toBeDisabled();
+    expect(document.activeElement).not.toBe(screen.getByLabelText("Имя"));
     expect(posts()).toHaveLength(1);
     expect(JSON.parse(posts()[0][1]!.body as string)).toEqual({ name: "Анна", email: "ann@example.test", password });
     await act(async () => pending.resolve(jsonResponse({ status: "pending" }, 202, null)));
@@ -72,7 +91,7 @@ describe("register form", () => {
 
   it("shows Go's field errors next to the fields", async () => {
     fetcher.mockResolvedValueOnce(jsonResponse({ error: { code: "validation_error", message: "x", requestId: "r",
-      fields: [{ field: "password", message: "Пароль должен быть не короче 10 символов" }, { field: "phone", message: "Телефон цифрами" }] } }, 422, null));
+      fields: [{ field: "phone", message: "Телефон цифрами" }, { field: "password", message: "Пароль должен быть не короче 10 символов" }] } }, 422, null));
     render(<RegisterForm />);
     fill({ secret: "short", phone: "abc" });
     submit();
@@ -80,6 +99,26 @@ describe("register form", () => {
     expect(screen.getByLabelText("Пароль")).toHaveAttribute("aria-describedby", "register-password-hint register-password-error");
     expect(screen.getByText("Телефон цифрами")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Создать аккаунт" })).toBeEnabled();
+    expect(document.activeElement).toBe(screen.getByLabelText("Пароль"));
+    expect(screen.getByLabelText("Пароль")).toHaveAccessibleDescription("Не короче 10 символов. Пароль должен быть не короче 10 символов");
+  });
+
+  it.each(["Имя", "Email", "Пароль", "Телефон (необязательно)"])("focuses a backend error on %s", async (label) => {
+    render(<RegisterForm />);
+    const input = screen.getByLabelText(label);
+    fetcher.mockResolvedValueOnce(jsonResponse({ error: { code: "validation_error", fields: [{ field: input.getAttribute("name"), message: "Проверьте поле" }] } }, 422, null));
+    fill(); submit();
+    await screen.findByText("Проверьте поле");
+    expect(document.activeElement).toBe(input);
+  });
+
+  it.each([500, 422])("keeps general errors neutral without focusing an unrelated field (%i)", async (status) => {
+    fetcher.mockResolvedValueOnce(jsonResponse({ error: { code: "validation_error", message: "backend detail: user exists", fields: [{ field: "other", message: "ignored" }] } }, status, null));
+    render(<RegisterForm />);
+    fill(); submit();
+    expect(await screen.findByRole("alert")).toHaveTextContent(status === 422 ? "Проверьте заполненные поля" : "Сервис регистрации недоступен, попробуйте позже");
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Создать аккаунт" }));
+    expect(screen.queryByText(/backend detail|ignored/)).toBeNull();
   });
 
   it.each([

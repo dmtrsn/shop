@@ -118,7 +118,7 @@ function QuickFilters({ state }: { state: CatalogState }) {
       {quickFilters.map(({ key, label }) => {
         const active = state[key];
         return (
-          <Link aria-pressed={active} href={catalogUrl(state, { [key]: !active })} key={key} role="button">
+          <Link data-active={active} href={catalogUrl(state, { [key]: !active })} key={key}>
             {active ? <CheckIcon /> : null}
             {label}
           </Link>
@@ -263,8 +263,8 @@ export function CatalogView({ data, state }: CatalogViewProps) {
                 <button type="submit">Применить</button>
               </form>
               <div aria-label="Плотность каталога" className={styles.density} role="group">
-                <Link aria-pressed={state.view === "comfortable"} href={catalogUrl(state, { view: "comfortable" }, { resetPage: false })} role="button">Обзор</Link>
-                <Link aria-pressed={state.view === "compact"} href={catalogUrl(state, { view: "compact" }, { resetPage: false })} role="button">Список</Link>
+                <Link aria-current={state.view === "comfortable" ? "page" : undefined} href={catalogUrl(state, { view: "comfortable" }, { resetPage: false })}>Обзор</Link>
+                <Link aria-current={state.view === "compact" ? "page" : undefined} href={catalogUrl(state, { view: "compact" }, { resetPage: false })}>Список</Link>
               </div>
               <form action="/catalog" className={styles.sizeForm} method="get">
                 {catalogHiddenFields(state, ["pageSize"]).map(([name, value], index) => (

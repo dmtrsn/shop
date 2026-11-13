@@ -1,4 +1,5 @@
 import { screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { render } from "@/test/render-with-favorites";
 import { describe, expect, it } from "vitest";
 
@@ -60,15 +61,76 @@ describe("CatalogView", () => {
     render(<CatalogView data={data()} state={parseCatalogState({ category: "chocolate", page: "3", sale: "1" })} />);
 
     const group = screen.getByRole("group", { name: "Быстрые фильтры" });
-    const chips = within(group).getAllByRole("button");
-    expect(chips.map((chip) => [chip.textContent, chip.getAttribute("aria-pressed"), chip.getAttribute("href")])).toEqual([
+    const chips = within(group).getAllByRole("link");
+    expect(chips.map((chip) => [chip.textContent, chip.getAttribute("data-active"), chip.getAttribute("href")])).toEqual([
       ["В наличии", "false", "/catalog?category=chocolate&stock=1&sale=1"],
       ["Новинки", "false", "/catalog?category=chocolate&sale=1&new=1"],
-      // Active: pressed, with a check mark, and the link removes it again.
+      // Active: selected styling and a check mark; the link removes the filter.
       ["Сниженная цена", "true", "/catalog?category=chocolate"],
     ]);
     expect(chips[2].querySelector("svg")).not.toBeNull();
     expect(chips[0].querySelector("svg")).toBeNull();
+    expect(within(group).queryByRole("button")).toBeNull();
+    for (const chip of chips) {
+      expect(chip.tagName).toBe("A");
+      expect(chip).not.toHaveAttribute("role");
+      expect(chip).not.toHaveAttribute("aria-pressed");
+      // An active filter's destination removes it, so it is not the current URL.
+      expect(chip).not.toHaveAttribute("aria-current");
+    }
+  });
+
+  it.each(["comfortable", "compact"])("keeps density navigation and its current choice in %s mode", (view) => {
+    render(<CatalogView data={data()} state={parseCatalogState({ category: "chocolate", page: "3", view, sale: "1" })} />);
+    const group = screen.getByRole("group", { name: "Плотность каталога" });
+    const links = within(group).getAllByRole("link");
+    expect(links.map((link) => [link.textContent, link.getAttribute("href")])).toEqual([
+      ["Обзор", "/catalog?category=chocolate&sale=1&page=3"],
+      ["Список", "/catalog?category=chocolate&sale=1&page=3&view=compact"],
+    ]);
+    expect(links[view === "comfortable" ? 0 : 1]).toHaveAttribute("aria-current", "page");
+    expect(links[view === "comfortable" ? 1 : 0]).not.toHaveAttribute("aria-current");
+    expect(within(group).queryByRole("button")).toBeNull();
+    for (const link of links) {
+      expect(link.tagName).toBe("A");
+      expect(link).not.toHaveAttribute("role");
+      expect(link).not.toHaveAttribute("aria-pressed");
+    }
+  });
+
+  it("keeps native Enter, click and modified-click activation without Space activation", async () => {
+    const user = userEvent.setup();
+    render(<CatalogView data={data()} state={parseCatalogState({})} />);
+    const destinations: string[] = [];
+    // Observe uncancelled anchor activation, then suppress jsdom's unsupported
+    // document navigation. No router or link keyboard behavior is mocked.
+    const observeNavigation = (event: MouseEvent) => {
+      const link = (event.target as Element).closest("a");
+      if (!link) return;
+      expect(event.defaultPrevented).toBe(false);
+      destinations.push(link.getAttribute("href")!);
+      event.preventDefault();
+    };
+    document.addEventListener("click", observeNavigation);
+    try {
+      for (const name of ["Быстрые фильтры", "Плотность каталога"]) {
+        const links = within(screen.getByRole("group", { name })).getAllByRole("link");
+        for (const link of links) {
+          link.focus();
+          const before = destinations.length;
+          await user.keyboard(" ");
+          expect(destinations).toHaveLength(before);
+          await user.keyboard("{Enter}");
+          await user.click(link);
+          await user.keyboard("{Control>}");
+          await user.click(link);
+          await user.keyboard("{/Control}");
+          expect(destinations.slice(before)).toEqual(Array(3).fill(link.getAttribute("href")));
+        }
+      }
+    } finally {
+      document.removeEventListener("click", observeNavigation);
+    }
   });
 
   it("names search results by the query unless a category heading applies", () => {

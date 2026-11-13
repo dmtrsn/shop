@@ -9,6 +9,7 @@ import { requestPasswordReset } from "@/lib/api/auth-client";
 import { BrowserRequestError } from "@/lib/api/browser-request";
 
 import styles from "./login.module.css";
+import { useInvalidFieldFocus } from "./use-invalid-field-focus";
 
 type Failure = { message: string; field?: string };
 
@@ -33,6 +34,7 @@ export function ForgotPasswordForm() {
   const [address, setAddress] = useState("");
   const [pending, setPending] = useState(false);
   const [failure, setFailure] = useState<Failure | null>(null);
+  const formRef = useInvalidFieldFocus(failure);
   const [sent, setSent] = useState(false);
   const inFlight = useRef(false);
   const sentHeading = useRef<HTMLHeadingElement>(null);
@@ -81,7 +83,7 @@ export function ForgotPasswordForm() {
   }
 
   return (
-    <form className={styles.form} method="post" noValidate onSubmit={(event) => void submit(event)}>
+    <form className={styles.form} method="post" noValidate onSubmit={(event) => void submit(event)} ref={formRef}>
       <TextInput aria-describedby={failure?.field ? "forgot-email-error" : undefined} aria-invalid={failure?.field ? true : undefined}
         autoComplete="email" id="forgot-email" inputMode="email" label="Email" name="email"
         onChange={(event) => setAddress(event.target.value)} readOnly={pending} type="email" value={address} />

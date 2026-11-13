@@ -64,7 +64,7 @@
 }
 
 /* Active: dark fill plus a check mark or aria-current, never colour alone. */
-.quickFilters a[aria-pressed="true"],
+.quickFilters a[data-active="true"],
 .categoryNavigation a[aria-current="page"] {
   border-color: var(--color-accent);
   background: var(--color-accent);
@@ -348,7 +348,7 @@
   text-decoration: none;
 }
 
-.density a[aria-pressed="true"] {
+.density a[aria-current="page"] {
   background: var(--color-surface-subtle);
   box-shadow: inset 0 0 0 1px var(--color-accent);
   font-weight: var(--weight-bold);

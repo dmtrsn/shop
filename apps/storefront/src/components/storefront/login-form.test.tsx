@@ -16,7 +16,11 @@ function fill(email = "user@example.test", password = "unit-test-only") {
   fireEvent.change(screen.getByLabelText("Email"), { target: { value: email } });
   fireEvent.change(screen.getByLabelText("Пароль"), { target: { value: password } });
 }
-const submit = () => fireEvent.click(screen.getByRole("button", { name: "Войти" }));
+const submit = () => {
+  const button = screen.getByRole("button", { name: "Войти" });
+  button.focus();
+  fireEvent.click(button);
+};
 const posts = () => fetcher.mock.calls.filter(([, init]) => init?.method === "POST");
 
 beforeEach(() => {
@@ -42,6 +46,7 @@ describe("login form", () => {
   it("posts once and replaces the document with the server-normalized target; the CSRF token is dropped", async () => {
     fetcher.mockResolvedValueOnce(jsonResponse(success, 200, null));
     render(<LoginForm target="/checkout" />);
+    submit();
     fill(" user@example.test ");
     submit();
     await waitFor(() => expect(replaceDocument).toHaveBeenCalledExactlyOnceWith("/checkout"));
@@ -54,6 +59,8 @@ describe("login form", () => {
     expect(document.cookie).not.toContain(csrf);
     expect(window.location.href).not.toContain(csrf);
     expect(document.body.innerHTML).not.toContain(csrf);
+    expect(document.activeElement).not.toBe(screen.getByLabelText("Email"));
+    expect(document.activeElement).not.toBe(screen.getByLabelText("Пароль"));
   });
 
   it("restores a basePath taken from its own /login URL", async () => {
@@ -97,6 +104,22 @@ describe("login form", () => {
     expect(screen.getByText("Укажите email")).toBeInTheDocument();
     expect(screen.getByText("Укажите пароль")).toBeInTheDocument();
     expect(screen.getByLabelText("Email")).toHaveAttribute("aria-invalid", "true");
+    expect(screen.getByLabelText("Email")).toHaveAccessibleDescription("Укажите email");
+    expect(document.activeElement).toBe(screen.getByLabelText("Email"));
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it("focuses a missing password after a valid email, including repeated invalid submissions", () => {
+    render(<LoginForm target="/checkout" />);
+    fill("user@example.test", "");
+    submit();
+    expect(document.activeElement).toBe(screen.getByLabelText("Пароль"));
+    expect(screen.getByLabelText("Пароль")).toHaveAccessibleDescription("Укажите пароль");
+    screen.getByLabelText("Email").focus();
+    fireEvent.change(screen.getByLabelText("Email"), { target: { value: "other@example.test" } });
+    expect(document.activeElement).toBe(screen.getByLabelText("Email"));
+    submit();
+    expect(document.activeElement).toBe(screen.getByLabelText("Пароль"));
     expect(fetcher).not.toHaveBeenCalled();
   });
 
@@ -116,6 +139,7 @@ describe("login form", () => {
     expect(posts()).toHaveLength(1);
     expect(screen.getByLabelText("Email")).toHaveValue("user@example.test");
     expect(screen.getByRole("button", { name: "Войти" })).toBeEnabled();
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Войти" }));
   });
 
   it("maps a network failure and a malformed success to the unavailable message", async () => {
@@ -132,7 +156,7 @@ describe("login form", () => {
 
   it("shows Go's field validation messages next to the fields", async () => {
     fetcher.mockResolvedValueOnce(jsonResponse({ error: { code: "validation_error", message: "Проверьте заполненные поля",
-      fields: [{ field: "email", message: "Укажите email" }, { field: "password", message: "Укажите пароль" }, { field: "other", message: "ignored" }] } }, 422, null));
+      fields: [{ field: "password", message: "Укажите пароль" }, { field: "email", message: "Укажите email" }, { field: "other", message: "ignored" }] } }, 422, null));
     render(<LoginForm target="/checkout" />);
     fill(); submit();
     expect(await screen.findByText("Укажите пароль")).toHaveAttribute("id", "login-password-error");
@@ -140,5 +164,24 @@ describe("login form", () => {
     expect(screen.getByLabelText("Пароль")).toHaveAttribute("aria-describedby", "login-password-error");
     expect(screen.queryByText("ignored")).toBeNull();
     expect(screen.queryByRole("alert")).toBeNull();
+    expect(document.activeElement).toBe(screen.getByLabelText("Email"));
+    expect(screen.getByLabelText("Email")).toHaveAccessibleDescription("Укажите email");
+  });
+
+  it("focuses a backend password-only error", async () => {
+    fetcher.mockResolvedValueOnce(jsonResponse({ error: { code: "validation_error", fields: [{ field: "password", message: "Укажите пароль" }] } }, 422, null));
+    render(<LoginForm target="/checkout" />);
+    fill(); submit();
+    await screen.findByText("Укажите пароль");
+    expect(document.activeElement).toBe(screen.getByLabelText("Пароль"));
+  });
+
+  it("does not focus a field for unrecognized backend field errors", async () => {
+    fetcher.mockResolvedValueOnce(jsonResponse({ error: { code: "validation_error", fields: [{ field: "other", message: "ignored" }] } }, 422, null));
+    render(<LoginForm target="/checkout" />);
+    fill(); submit();
+    expect(await screen.findByRole("alert")).toHaveTextContent("Проверьте email и пароль");
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Войти" }));
+    expect(screen.queryByText("ignored")).toBeNull();
   });
 });
