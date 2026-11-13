@@ -198,9 +198,11 @@ export function GlobalSearch({ className }: { className?: string }) {
   const hasPanel = status === "loading" || (status !== "idle" && resultQuery === trimmed);
   const expanded = open && hasPanel;
 
+  // Loading can keep old items in memory, but only this query owns selectable options.
+  const currentItems = resultQuery === trimmed ? items : [];
   const groups = GROUPS.map((group) => ({
     ...group,
-    items: items.filter((item) => item.type === group.type),
+    items: currentItems.filter((item) => item.type === group.type),
   })).filter((group) => group.items.length > 0);
   const options: Option[] = [
     ...groups.flatMap((group) =>

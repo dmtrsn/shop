@@ -162,6 +162,129 @@ describe("GlobalSearch", () => {
     expect(screen.getByRole("status")).toHaveTextContent("1 подсказка");
   });
 
+  it("removes old options immediately and resets the active selection when the query changes", async () => {
+    const { user } = setup();
+    const input = screen.getByRole("combobox");
+    await user.type(input, "cocoa");
+    await debounce();
+    await settle(ok([product]));
+    await user.keyboard("{ArrowDown}");
+    expect(input).toHaveAttribute("aria-activedescendant", screen.getAllByRole("option")[0].id);
+
+    fireEvent.change(input, { target: { value: "vanilla" } });
+
+    expect(input).not.toHaveAttribute("aria-activedescendant");
+    expect(screen.queryByRole("option", { name: /Молочный шоколад/, hidden: true })).toBeNull();
+    expect(pending).toHaveLength(1);
+    await debounce();
+    expect(pending.at(-1)?.query).toBe("vanilla");
+    expect(screen.getAllByRole("option")).toHaveLength(1);
+  });
+
+  it("cannot activate an old product with the keyboard while the new query is pending", async () => {
+    const { user } = setup();
+    const input = screen.getByRole("combobox");
+    await user.type(input, "cocoa");
+    await debounce();
+    await settle(ok([product]));
+    fireEvent.change(input, { target: { value: "vanilla" } });
+    await debounce();
+
+    await user.keyboard("{ArrowDown}{Enter}");
+
+    expect(navigation.push).toHaveBeenCalledExactlyOnceWith("/catalog?q=vanilla");
+  });
+
+  it("offers only the current full-search action to the pointer while the new query is pending", async () => {
+    const { user } = setup();
+    const input = screen.getByRole("combobox");
+    await user.type(input, "cocoa");
+    await debounce();
+    await settle(ok([product]));
+    fireEvent.change(input, { target: { value: "vanilla" } });
+    await debounce();
+
+    expect(screen.queryByRole("option", { name: /Молочный шоколад/ })).toBeNull();
+    const options = screen.getAllByRole("option");
+    expect(options).toHaveLength(1);
+    await user.click(options[0]);
+    expect(navigation.push).toHaveBeenCalledExactlyOnceWith("/catalog?q=vanilla");
+  });
+
+  it("makes the new response selectable after hiding old results during loading", async () => {
+    const vanilla = { ...product, id: "vanilla", slug: "vanilla", title: "Vanilla" };
+    const { user } = setup();
+    const input = screen.getByRole("combobox");
+    await user.type(input, "cocoa");
+    await debounce();
+    await settle(ok([product]));
+    fireEvent.change(input, { target: { value: "vanilla" } });
+    await debounce();
+    expect(screen.getAllByRole("option")).toHaveLength(1);
+
+    await settle(ok([vanilla]));
+
+    expect(screen.getAllByRole("option")).toHaveLength(2);
+    expect(screen.queryByRole("option", { name: /Молочный шоколад/ })).toBeNull();
+    await user.keyboard("{ArrowDown}{Enter}");
+    expect(navigation.push).toHaveBeenCalledExactlyOnceWith("/products/vanilla");
+  });
+
+  it("does not restore old options when the new query fails", async () => {
+    const { user } = setup();
+    const input = screen.getByRole("combobox");
+    await user.type(input, "cocoa");
+    await debounce();
+    await settle(ok([product]));
+    fireEvent.change(input, { target: { value: "vanilla" } });
+    await debounce();
+    await settle(failed(502));
+
+    expect(screen.getByRole("status")).toHaveTextContent("Подсказки временно недоступны");
+    expect(screen.getAllByRole("option")).toHaveLength(1);
+    await user.keyboard("{ArrowDown}{Enter}");
+    expect(navigation.push).toHaveBeenCalledExactlyOnceWith("/catalog?q=vanilla");
+  });
+
+  it("keeps a response arriving during the next debounce out of the new query's options", async () => {
+    const { user } = setup();
+    const input = screen.getByRole("combobox");
+    await user.type(input, "cocoa");
+    await debounce();
+    const cocoaRequest = pending[0];
+    fireEvent.change(input, { target: { value: "vanilla" } });
+    await settle(ok([product]), cocoaRequest);
+
+    expect(screen.queryByRole("option", { name: /Молочный шоколад/, hidden: true })).toBeNull();
+    await debounce();
+    expect(screen.getAllByRole("option")).toHaveLength(1);
+    await settle(ok([brand]));
+    expect(screen.getByRole("option", { name: /Atelier Noir/ })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: /Молочный шоколад/ })).toBeNull();
+  });
+
+  it("keeps the existing request behavior when returning to a previously loaded query", async () => {
+    const { user } = setup();
+    const input = screen.getByRole("combobox");
+    await user.type(input, "cocoa");
+    await debounce();
+    await settle(ok([product]));
+    fireEvent.change(input, { target: { value: "vanilla" } });
+    await debounce();
+    const vanillaRequest = pending[1];
+
+    fireEvent.change(input, { target: { value: "cocoa" } });
+    await debounce();
+
+    expect(pending.map((request) => request.query)).toEqual(["cocoa", "vanilla", "cocoa"]);
+    expect(vanillaRequest.signal?.aborted).toBe(true);
+    await settle(ok([brand]), vanillaRequest);
+    expect(screen.queryByRole("option", { name: /Atelier Noir/ })).toBeNull();
+    await settle(ok([category]));
+    expect(screen.getByRole("option", { name: /Плиточный шоколад/ })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: /Молочный шоколад/ })).toBeNull();
+  });
+
   it("moves the active option with arrows and opens it with Enter", async () => {
     const { user } = setup();
     const input = screen.getByRole("combobox");
