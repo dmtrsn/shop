@@ -111,8 +111,14 @@ func (s *Store) DeleteSession(ctx context.Context, hash string, transport domain
 func (s *Store) ListCategories(ctx context.Context) ([]domain.Category, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT c.id,c.slug,c.name,c.description,COALESCE(c.parent_id,''),c.icon,
-			(SELECT count(*) FROM products p JOIN categories pc ON pc.id=p.category_id WHERE (pc.id=c.id OR pc.parent_id=c.id) AND p.archived_at IS NULL)
-		FROM categories c WHERE c.archived_at IS NULL ORDER BY c.sort_order,c.name`)
+			COALESCE(sum(counts.product_count),0)
+		FROM categories c
+		LEFT JOIN categories pc ON pc.id=c.id OR pc.parent_id=c.id
+		LEFT JOIN (
+			SELECT category_id,count(*) AS product_count FROM products
+			WHERE archived_at IS NULL GROUP BY category_id
+		) counts ON counts.category_id=pc.id
+		WHERE c.archived_at IS NULL GROUP BY c.id ORDER BY c.sort_order,c.name`)
 	if err != nil {
 		return nil, fmt.Errorf("list categories: %w", err)
 	}
@@ -330,7 +336,17 @@ func (s *Store) queryProducts(ctx context.Context, filter domain.ProductFilter, 
 			page = 1
 		}
 		args = append(args, limit, (page-1)*limit)
-		query += fmt.Sprintf(" LIMIT $%d OFFSET $%d", len(args)-1, len(args))
+		pagination := fmt.Sprintf(" LIMIT $%d OFFSET $%d", len(args)-1, len(args))
+		if page == 1 {
+			query += pagination
+		} else {
+			// Select only the page IDs before projecting managed media. Otherwise
+			// PostgreSQL can evaluate the media subquery for rows skipped by OFFSET.
+			// Page one has no skipped rows and keeps the simpler query.
+			query = "WITH page AS MATERIALIZED (SELECT p.id" + productJoins + where +
+				" ORDER BY " + sortSQL(filter.Sort) + pagination + ") SELECT " +
+				productColumns + productJoins + " JOIN page ON page.id=p.id ORDER BY " + sortSQL(filter.Sort)
+		}
 	}
 	rows, err := s.pool.Query(ctx, query, args...)
 	if err != nil {
@@ -357,10 +373,6 @@ func (s *Store) ListProducts(ctx context.Context, filter domain.ProductFilter) (
 	if err := s.pool.QueryRow(ctx, "SELECT count(*)"+productJoins+where, args...).Scan(&total); err != nil {
 		return domain.ProductPage{}, fmt.Errorf("count products: %w", err)
 	}
-	items, err := s.queryProducts(ctx, filter, true)
-	if err != nil {
-		return domain.ProductPage{}, err
-	}
 	page, limit := filter.Page, filter.Limit
 	if page < 1 {
 		page = 1
@@ -368,7 +380,18 @@ func (s *Store) ListProducts(ctx context.Context, filter domain.ProductFilter) (
 	if limit < 1 {
 		limit = 24
 	}
-	return domain.ProductPage{Items: items, Total: total, Page: page, Limit: limit, TotalPages: int(math.Ceil(float64(total) / float64(limit)))}, nil
+	result := domain.ProductPage{Items: []domain.Product{}, Total: total, Page: page, Limit: limit, TotalPages: int(math.Ceil(float64(total) / float64(limit)))}
+	// Compare by division so even an enormous requested page cannot overflow
+	// the offset multiplication. Keep the requested page in the response.
+	if total == 0 || page-1 > (total-1)/limit {
+		return result, nil
+	}
+	items, err := s.queryProducts(ctx, filter, true)
+	if err != nil {
+		return domain.ProductPage{}, err
+	}
+	result.Items = items
+	return result, nil
 }
 
 func (s *Store) CatalogFacets(ctx context.Context, filter domain.ProductFilter) (domain.CatalogFacets, error) {
@@ -432,12 +455,12 @@ func (s *Store) Product(ctx context.Context, idOrSlug string) (domain.Product, e
 }
 
 func (s *Store) Suggestions(ctx context.Context, query string, limit int) ([]domain.SearchSuggestion, error) {
-	page, err := s.ListProducts(ctx, domain.ProductFilter{Query: query, Page: 1, Limit: limit})
+	items, err := s.queryProducts(ctx, domain.ProductFilter{Query: query, Page: 1, Limit: limit}, true)
 	if err != nil {
 		return nil, err
 	}
 	result := make([]domain.SearchSuggestion, 0, limit)
-	for _, p := range page.Items {
+	for _, p := range items {
 		suggestion := domain.SearchSuggestion{Type: "product", ID: p.ID, Slug: p.Slug, Title: p.Name, Subtitle: p.Manufacturer.Name + " · " + p.Unit, Image: p.Image}
 		if p.ManagedMedia != nil && p.ManagedMedia.Primary != nil {
 			suggestion.Thumbnail = p.ManagedMedia.Primary.ThumbnailURL
