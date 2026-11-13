@@ -39,12 +39,23 @@ limit_req_zone $auth_rate_limit_key zone=customer_signup:10m rate=3r/m;
 limit_req_zone $auth_rate_limit_key zone=customer_email:10m rate=3r/m;
 limit_req_zone $auth_rate_limit_key zone=customer_token:10m rate=6r/m;
 
+upstream shop_go {
+    server app:8080;
+    keepalive 16;
+}
+
+upstream shop_storefront {
+    server storefront:${STOREFRONT_PORT};
+    keepalive 16;
+}
+
 server {
     listen 8080;
     server_name _;
 
     # Browser-visible requests are always same-origin. Do not add CORS here.
     proxy_http_version 1.1;
+    proxy_set_header Connection "";
     proxy_set_header Host $host;
     proxy_set_header X-Real-IP $remote_addr;
     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -75,43 +86,43 @@ server {
     location = /api/auth/session {
         limit_req zone=customer_auth burst=10 nodelay;
         error_page 429 @auth_rate_limited;
-        proxy_pass http://app:8080;
+        proxy_pass http://shop_go;
     }
 
     location = /api/auth/login {
         limit_req zone=customer_auth burst=10 nodelay;
         error_page 429 @auth_rate_limited;
-        proxy_pass http://app:8080;
+        proxy_pass http://shop_go;
     }
 
     location = /api/auth/registration/confirm {
         limit_req zone=customer_auth burst=10 nodelay;
         error_page 429 @auth_rate_limited;
-        proxy_pass http://app:8080;
+        proxy_pass http://shop_go;
     }
 
     location = /api/auth/registration {
         limit_req zone=customer_signup burst=5 nodelay;
         error_page 429 @registration_rate_limited;
-        proxy_pass http://app:8080;
+        proxy_pass http://shop_go;
     }
 
     location = /api/auth/registration/resend {
         limit_req zone=customer_email burst=3 nodelay;
         error_page 429 @account_email_rate_limited;
-        proxy_pass http://app:8080;
+        proxy_pass http://shop_go;
     }
 
     location = /api/auth/password-reset {
         limit_req zone=customer_email burst=3 nodelay;
         error_page 429 @account_email_rate_limited;
-        proxy_pass http://app:8080;
+        proxy_pass http://shop_go;
     }
 
     location = /api/auth/password-reset/confirm {
         limit_req zone=customer_token burst=6 nodelay;
         error_page 429 @token_rate_limited;
-        proxy_pass http://app:8080;
+        proxy_pass http://shop_go;
     }
 
     # A slot frees every 6 s at 10r/m, so the retry hint is exact. The body
@@ -151,11 +162,20 @@ server {
     }
 
     location = /api {
-        proxy_pass http://app:8080;
+        proxy_pass http://shop_go;
+    }
+
+    # Keep all authentication responses out of edge compression.
+    location ^~ /api/auth/ {
+        proxy_pass http://shop_go;
     }
 
     location ^~ /api/ {
-        proxy_pass http://app:8080;
+        gzip on;
+        gzip_vary on;
+        gzip_min_length 1024;
+        gzip_types application/json;
+        proxy_pass http://shop_go;
     }
 
     # Managed product media (ADR 019): public, read-only, served by Go from
@@ -168,39 +188,39 @@ server {
         limit_except GET {
             deny all;
         }
-        proxy_pass http://app:8080;
+        proxy_pass http://shop_go;
     }
 
     # Legacy web assets remain owned by Go during the migration.
     location = /assets {
-        proxy_pass http://app:8080;
+        proxy_pass http://shop_go;
     }
 
     location ^~ /assets/ {
-        proxy_pass http://app:8080;
+        proxy_pass http://shop_go;
     }
 
     location ^~ /_next/ {
-        proxy_pass http://storefront:${STOREFRONT_PORT};
+        proxy_pass http://shop_storefront;
     }
 
     # Legacy's root-relative shell files, needed by /legacy until it is retired.
-    location = /app.js { proxy_pass http://app:8080; }
-    location = /migration.js { proxy_pass http://app:8080; }
-    location = /styles.css { proxy_pass http://app:8080; }
+    location = /app.js { proxy_pass http://shop_go; }
+    location = /migration.js { proxy_pass http://shop_go; }
+    location = /styles.css { proxy_pass http://shop_go; }
 
     # Strip the compatibility mount: Go serves files relative to web/.
     location = /legacy {
-        proxy_pass http://app:8080/;
+        proxy_pass http://shop_go/;
     }
 
     location ^~ /legacy/ {
-        proxy_pass http://app:8080/;
+        proxy_pass http://shop_go/;
     }
 
     # Next owns / and every other path, including its own 404s.
     # Rollback: EDGE_ROUTE_MAP=legacy-root selects legacy-root.conf.template.
     location / {
-        proxy_pass http://storefront:${STOREFRONT_PORT};
+        proxy_pass http://shop_storefront;
     }
 }
