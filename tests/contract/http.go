@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"runtime"
 	"strconv"
@@ -298,7 +299,12 @@ func Run(t *testing.T, handler http.Handler) {
 	request("POST", "/api/cart/items", `{"productId":"p18","quantity":1}`, 409, true)
 	request("POST", "/api/cart/items", `{"productId":"p01","quantity":0}`, 422, true)
 	request("POST", "/api/cart/items", `{"productId":"missing","quantity":1}`, 404, true)
-	request("PATCH", "/api/cart/items/cha-701", `{"quantity":2,"selected":false}`, 200, true)
+	cart = request("PATCH", "/api/cart/items/cha-701", `{"quantity":2,"selected":false}`, 200, true)
+	assertLine(t, cart, "p01", 2, false)
+	cart = request("PATCH", "/api/cart/items/p01", `{"quantity":4}`, 200, true)
+	assertLine(t, cart, "p01", 4, false)
+	cart = request("PATCH", "/api/cart/items/dark-chocolate-sea-salt", `{"selected":true}`, 200, true)
+	assertLine(t, cart, "p01", 4, true)
 	request("PATCH", "/api/cart/items/p01", `{}`, 422, true)
 	request("PATCH", "/api/cart/items/missing", `{"selected":false}`, 404, true)
 	request("PATCH", "/api/cart/selection", `{"productIds":["p18"],"selected":true}`, 200, true)
@@ -335,10 +341,32 @@ func Run(t *testing.T, handler http.Handler) {
 		request("POST", "/api/cart/items", body, 422, true)
 	}
 	request("POST", "/api/orders", `{"deliveryAddress":"  "}`, 422, true)
-	// The malformed boolean is intentionally destructive in the CURRENT contract.
-	cart = request("DELETE", "/api/cart?selectedOnly=invalid", "", 200, true)
-	if len(cart["items"].([]any)) != 0 {
-		t.Fatal("legacy malformed selectedOnly behavior changed")
+	// Malformed deletion scope must leave selected AND unselected lines intact.
+	request("POST", "/api/cart/items", `{"productId":"p01","quantity":2,"selected":true}`, 201, true)
+	request("POST", "/api/cart/items", `{"productId":"p02","quantity":1,"selected":false}`, 201, true)
+	beforeClear := request("GET", "/api/cart", "", 200, true)
+	for _, raw := range []string{"tru", "abc", "invalid", "", "yes", "TRUEE"} {
+		result := request("DELETE", "/api/cart?selectedOnly="+raw, "", 422, true)
+		if result["error"].(map[string]any)["code"] != "validation_error" {
+			t.Fatal("expected selectedOnly validation error")
+		}
+		if after := request("GET", "/api/cart", "", 200, true); !reflect.DeepEqual(beforeClear, after) {
+			t.Fatal("malformed selectedOnly changed cart values")
+		}
+	}
+	cart = request("DELETE", "/api/cart?selectedOnly=true", "", 200, true)
+	assertLine(t, cart, "p02", 1, false)
+	for _, line := range cart["items"].([]any) {
+		if line.(map[string]any)["selected"].(bool) {
+			t.Fatal("selectedOnly=true retained a selected line")
+		}
+	}
+	for _, suffix := range []string{"?selectedOnly=false", "", "?selectedOnly=0", "?selectedOnly=1", "?selectedOnly=T", "?selectedOnly=FALSE"} {
+		request("POST", "/api/cart/items", `{"productId":"p01","quantity":2}`, 201, true)
+		cart = request("DELETE", "/api/cart"+suffix, "", 200, true)
+		if len(cart["items"].([]any)) != 0 || len(cart["groups"].([]any)) != 0 {
+			t.Fatal("whole-cart clear or ParseBool syntax changed")
+		}
 	}
 	request("POST", "/api/orders", `{"deliveryAddress":"Test"}`, 409, true)
 	request("POST", "/api/cart/items", `{"productId":"p01","quantity":2}`, 201, true)

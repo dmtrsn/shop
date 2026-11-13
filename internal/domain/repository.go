@@ -29,6 +29,7 @@ type Repository interface {
 
 	Cart(context.Context, string) (Cart, error)
 	SetCartItem(context.Context, string, string, int, bool) (Cart, error)
+	PatchCartItem(context.Context, string, string, CartPatch) (Cart, error)
 	RemoveCartItem(context.Context, string, string) (Cart, error)
 	ClearCart(context.Context, string, bool) (Cart, error)
 	SetCartSelection(context.Context, string, []string, bool) (Cart, error)

@@ -497,13 +497,38 @@ func (s *Store) SetCartItem(_ context.Context, userID, productID string, quantit
 	if !ok {
 		return domain.Cart{}, domain.ErrNotFound
 	}
-	if quantity > p.Stock {
-		return domain.Cart{}, domain.ErrOutOfStock
+	if err := domain.ValidateCartQuantity(p, quantity); err != nil {
+		return domain.Cart{}, err
 	}
 	if s.carts[userID] == nil {
 		s.carts[userID] = map[string]cartRow{}
 	}
 	s.carts[userID][p.ID] = cartRow{quantity: quantity, selected: selected, updated: time.Now().UTC()}
+	return s.buildCart(userID), nil
+}
+
+func (s *Store) PatchCartItem(_ context.Context, userID, productID string, patch domain.CartPatch) (domain.Cart, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	p, ok := s.findProduct(productID)
+	if !ok {
+		return domain.Cart{}, domain.ErrNotFound
+	}
+	row, ok := s.carts[userID][p.ID]
+	if !ok {
+		return domain.Cart{}, domain.ErrNotFound
+	}
+	if patch.Quantity != nil {
+		row.quantity = *patch.Quantity
+		if err := domain.ValidateCartQuantity(p, row.quantity); err != nil {
+			return domain.Cart{}, err
+		}
+	}
+	if patch.Selected != nil {
+		row.selected = *patch.Selected
+	}
+	row.updated = time.Now().UTC()
+	s.carts[userID][p.ID] = row
 	return s.buildCart(userID), nil
 }
 

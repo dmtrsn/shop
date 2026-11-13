@@ -266,13 +266,17 @@ func (s *Service) SetCartItem(ctx context.Context, userID, productID string, qua
 	if err != nil {
 		return domain.Cart{}, err
 	}
-	if quantity > product.Stock {
-		return domain.Cart{}, domain.ErrOutOfStock
-	}
-	if quantity < product.MinimumQuantity || (quantity-product.MinimumQuantity)%product.QuantityStep != 0 {
-		return domain.Cart{}, &domain.ValidationError{Fields: []domain.FieldError{{Field: "quantity", Message: fmt.Sprintf("Минимум %d, шаг %d", product.MinimumQuantity, product.QuantityStep)}}}
+	if err := domain.ValidateCartQuantity(product, quantity); err != nil {
+		return domain.Cart{}, err
 	}
 	return s.repo.SetCartItem(ctx, userID, product.ID, quantity, selected)
+}
+
+func (s *Service) PatchCartItem(ctx context.Context, userID, productID string, patch domain.CartPatch) (domain.Cart, error) {
+	if patch.Quantity == nil && patch.Selected == nil {
+		return domain.Cart{}, &domain.ValidationError{Fields: []domain.FieldError{{Field: "body", Message: "Передайте quantity или selected"}}}
+	}
+	return s.repo.PatchCartItem(ctx, userID, productID, patch)
 }
 
 func (s *Service) RemoveCartItem(ctx context.Context, userID, productID string) (domain.Cart, error) {

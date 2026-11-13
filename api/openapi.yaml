@@ -1266,8 +1266,8 @@ paths:
     delete:
       operationId: clearCart
       summary: clearCart
-      description: Deletes only selected lines when selectedOnly parses true; otherwise deletes every user cart
-        line.
+      description: Deletes only selected lines when selectedOnly parses true; false or an absent parameter deletes
+        every user cart line. A supplied invalid boolean returns 422 without deleting anything.
       security:
       - bearerAuth: []
       - sessionCookie: []
@@ -1342,6 +1342,19 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        '422':
+          description: validation_error; selectedOnly was supplied but is not a valid boolean. No lines are deleted.
+          headers:
+            X-Authenticated-User-ID:
+              $ref: '#/components/headers/AuthenticatedUserID'
+            X-Request-ID:
+              description: Echoed X-Request-ID or server-generated identifier.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
       parameters:
       - $ref: '#/components/parameters/selectedOnly'
       - $ref: '#/components/parameters/expectedAuthenticatedUserID'
@@ -1351,8 +1364,7 @@ paths:
       summary: setCartItem
       description: Absolute quantity assignment, not increment. selected defaults true when omitted/null. Resolves
         product ID/slug/SKU. Quantity must be positive, <= stock, >= minimum and (quantity-minimum)%step=0. Stock
-        is rechecked under product lock; minimum/step are checked by the service before that lock. Always returns
-        201, including overwrite.
+        and minimum/step are rechecked under product lock. Always returns 201, including overwrite.
       security:
       - bearerAuth: []
       - sessionCookie: []
@@ -1465,8 +1477,9 @@ paths:
     patch:
       operationId: updateCartItem
       summary: updateCartItem
-      description: Must supply non-null quantity or selected. Existing line required. Selection-only changes bypass
-        quantity/stock validation so unavailable lines can be deselected. Quantity plus selected revalidates quantity.
+      description: Must supply non-null quantity or selected. Existing line required; a removed line is never recreated.
+        Omitted fields are preserved atomically under the cart-owner lock. Selection-only changes bypass quantity/stock
+        validation so unavailable lines can be deselected. Supplied quantity is validated under the product lock.
         Resolves ID/slug/SKU in cart.
       security:
       - bearerAuth: []
@@ -3088,8 +3101,8 @@ components:
       name: selectedOnly
       in: query
       required: false
-      description: True deletes selected lines; missing, empty, FALSE and even malformed values mean false and DELETE
-        ALL cart lines. This legacy behavior is preserved.
+      description: Parsed with strconv.ParseBool. True deletes selected lines; false or missing deletes all cart lines.
+        A supplied invalid value (including empty) returns 422 and leaves the cart unchanged.
       schema:
         type: string
     product:

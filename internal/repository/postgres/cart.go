@@ -107,21 +107,66 @@ func (s *Store) SetCartItem(ctx context.Context, userID, productID string, quant
 		return domain.Cart{}, err
 	}
 	defer tx.Rollback(ctx)
-	var id string
-	var stock int
-	err = tx.QueryRow(ctx, `SELECT id,stock FROM products WHERE (id=$1 OR slug=$1 OR lower(sku)=lower($1)) AND archived_at IS NULL ORDER BY id FOR UPDATE`, productID).Scan(&id, &stock)
+	var product domain.Product
+	err = tx.QueryRow(ctx, `SELECT id,stock,minimum_quantity,quantity_step FROM products WHERE (id=$1 OR slug=$1 OR lower(sku)=lower($1)) AND archived_at IS NULL ORDER BY id FOR UPDATE`, productID).Scan(&product.ID, &product.Stock, &product.MinimumQuantity, &product.QuantityStep)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.Cart{}, domain.ErrNotFound
 	}
 	if err != nil {
 		return domain.Cart{}, fmt.Errorf("lock cart product: %w", err)
 	}
-	if quantity > stock {
-		return domain.Cart{}, domain.ErrOutOfStock
+	if err := domain.ValidateCartQuantity(product, quantity); err != nil {
+		return domain.Cart{}, err
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO cart_items(user_id,product_id,quantity,selected,updated_at) VALUES($1,$2,$3,$4,now()) ON CONFLICT(user_id,product_id) DO UPDATE SET quantity=EXCLUDED.quantity,selected=EXCLUDED.selected,updated_at=now()`, userID, id, quantity, selected)
+	_, err = tx.Exec(ctx, `INSERT INTO cart_items(user_id,product_id,quantity,selected,updated_at) VALUES($1,$2,$3,$4,now()) ON CONFLICT(user_id,product_id) DO UPDATE SET quantity=EXCLUDED.quantity,selected=EXCLUDED.selected,updated_at=now()`, userID, product.ID, quantity, selected)
 	if err != nil {
 		return domain.Cart{}, fmt.Errorf("set cart item: %w", err)
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return domain.Cart{}, err
+	}
+	return s.Cart(ctx, userID)
+}
+
+func (s *Store) PatchCartItem(ctx context.Context, userID, productID string, patch domain.CartPatch) (domain.Cart, error) {
+	tx, err := s.beginCartMutation(ctx, userID)
+	if err != nil {
+		return domain.Cart{}, err
+	}
+	defer tx.Rollback(ctx)
+	// Keep the existing owner -> product -> cart lock order. Archived products
+	// remain addressable so a selection-only patch can still deselect them.
+	var product domain.Product
+	err = tx.QueryRow(ctx, `SELECT id,stock,minimum_quantity,quantity_step,archived_at IS NOT NULL FROM products WHERE id=$1 OR slug=$1 OR lower(sku)=lower($1) ORDER BY id FOR UPDATE`, productID).Scan(&product.ID, &product.Stock, &product.MinimumQuantity, &product.QuantityStep, &product.Archived)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.Cart{}, domain.ErrNotFound
+	}
+	if err != nil {
+		return domain.Cart{}, fmt.Errorf("lock cart patch product: %w", err)
+	}
+	var quantity int
+	var selected bool
+	err = tx.QueryRow(ctx, `SELECT quantity,selected FROM cart_items WHERE user_id=$1 AND product_id=$2 FOR UPDATE`, userID, product.ID).Scan(&quantity, &selected)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.Cart{}, domain.ErrNotFound
+	}
+	if err != nil {
+		return domain.Cart{}, fmt.Errorf("lock cart patch item: %w", err)
+	}
+	if patch.Quantity != nil {
+		quantity = *patch.Quantity
+		if err := domain.ValidateCartQuantity(product, quantity); err != nil {
+			return domain.Cart{}, err
+		}
+	}
+	// Selection alone must remain possible even if the stored quantity has
+	// become invalid or the product is now unavailable.
+	if patch.Selected != nil {
+		selected = *patch.Selected
+	}
+	_, err = tx.Exec(ctx, `UPDATE cart_items SET quantity=$3,selected=$4,updated_at=now() WHERE user_id=$1 AND product_id=$2`, userID, product.ID, quantity, selected)
+	if err != nil {
+		return domain.Cart{}, fmt.Errorf("patch cart item: %w", err)
 	}
 	if err = tx.Commit(ctx); err != nil {
 		return domain.Cart{}, err

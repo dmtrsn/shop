@@ -326,58 +326,12 @@ func (s *Server) addCartItem(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) updateCartItem(w http.ResponseWriter, r *http.Request) {
-	var input struct {
-		Quantity *int  `json:"quantity"`
-		Selected *bool `json:"selected"`
-	}
+	var input domain.CartPatch
 	if err := decodeJSON(w, r, &input); err != nil {
 		s.writeError(w, r, err)
 		return
 	}
-	if input.Quantity == nil && input.Selected == nil {
-		s.writeError(w, r, &domain.ValidationError{Fields: []domain.FieldError{{Field: "body", Message: "Передайте quantity или selected"}}})
-		return
-	}
-	userID := currentUser(r).ID
-	productID := r.PathValue("product")
-	cart, err := s.service.Cart(r.Context(), userID)
-	if err != nil {
-		s.writeError(w, r, err)
-		return
-	}
-	quantity, selected, found := 0, true, false
-	for _, item := range cart.Items {
-		if item.Product.ID == productID || item.Product.Slug == productID || strings.EqualFold(item.Product.SKU, productID) {
-			quantity = item.Quantity
-			selected = item.Selected
-			productID = item.Product.ID
-			found = true
-			break
-		}
-	}
-	if !found {
-		s.writeError(w, r, domain.ErrNotFound)
-		return
-	}
-	if input.Quantity != nil {
-		quantity = *input.Quantity
-	}
-	if input.Selected != nil {
-		selected = *input.Selected
-	}
-	// Selection-only updates must remain possible when a product has gone out of
-	// stock after it was put in the cart. Re-validating the stale quantity here
-	// would otherwise make the item impossible to deselect and block checkout.
-	if input.Quantity == nil && input.Selected != nil {
-		cart, err = s.service.SetCartSelection(r.Context(), userID, []string{productID}, selected)
-		if err != nil {
-			s.writeError(w, r, err)
-			return
-		}
-		writeJSON(w, http.StatusOK, cart)
-		return
-	}
-	cart, err = s.service.SetCartItem(r.Context(), userID, productID, quantity, selected)
+	cart, err := s.service.PatchCartItem(r.Context(), currentUser(r).ID, r.PathValue("product"), input)
 	if err != nil {
 		s.writeError(w, r, err)
 		return
@@ -394,7 +348,15 @@ func (s *Server) removeCartItem(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, cart)
 }
 func (s *Server) clearCart(w http.ResponseWriter, r *http.Request) {
-	selectedOnly, _ := strconv.ParseBool(r.URL.Query().Get("selectedOnly"))
+	selectedOnly := false
+	if r.URL.Query().Has("selectedOnly") {
+		var err error
+		selectedOnly, err = strconv.ParseBool(r.URL.Query().Get("selectedOnly"))
+		if err != nil {
+			s.writeError(w, r, &domain.ValidationError{Fields: []domain.FieldError{{Field: "selectedOnly", Message: "Ожидается true или false"}}})
+			return
+		}
+	}
 	cart, err := s.service.ClearCart(r.Context(), currentUser(r).ID, selectedOnly)
 	if err != nil {
 		s.writeError(w, r, err)
