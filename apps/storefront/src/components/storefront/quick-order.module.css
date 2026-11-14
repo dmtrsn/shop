@@ -3,13 +3,15 @@
 .summary { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); margin-block: var(--space-5); padding: var(--space-4); border: var(--border-control); border-radius: var(--radius-panel); background: var(--color-surface); }
 .layout { display: grid; grid-template-columns: minmax(14rem, 19rem) minmax(0, 1fr); gap: var(--space-5); align-items: start; }
 .sidebar, .products { min-width: 0; padding: var(--space-4); border: var(--border-control); border-radius: var(--radius-panel); background: var(--color-surface); }
-.sidebar { position: sticky; top: calc(var(--header-height) + var(--space-4)); max-height: calc(100svh - var(--header-height) - var(--space-6)); overflow-y: auto; }
+.sidebar { position: sticky; top: calc(var(--header-height) + var(--space-4)); display: flex; flex-direction: column; max-height: calc(100svh - var(--header-height) - var(--space-6)); }
 .sidebar h2, .products h2, .dialog h2 { margin-top: 0; font-size: var(--font-size-lg); }
 .manufacturers { list-style: none; padding: 0; margin-bottom: 0; }
+.sidebar .manufacturers { min-height: 0; overflow-y: auto; overscroll-behavior-y: contain; }
 .manufacturers button { display: block; width: 100%; min-height: var(--control-height); padding: var(--space-3); border: 0; border-radius: var(--radius-small); background: transparent; text-align: left; overflow-wrap: anywhere; cursor: pointer; }
 .manufacturers button:hover { background: var(--color-surface-subtle); }
 .manufacturers button[aria-current] { background: var(--color-surface-selected); font-weight: var(--weight-bold); text-decoration: underline; }
-.products { max-height: calc(100svh - var(--header-height) - var(--space-6)); overflow-y: auto; overscroll-behavior-y: contain; }
+.products { display: flex; flex-direction: column; max-height: calc(100svh - var(--header-height) - var(--space-6)); }
+.productResults { min-height: 0; overflow-y: auto; overscroll-behavior-y: contain; }
 .rows { list-style: none; padding: 0; margin-bottom: 0; }
 .row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--space-3) var(--space-4); padding: var(--space-4); border-top: var(--border-control); }
 .row[hidden], .rows[hidden] { display: none; }
@@ -36,7 +38,8 @@
   .layout { grid-template-columns: minmax(0, 1fr); }
   .sidebar { display: none; }
   .mobileChooser { display: block; }
-  .products { max-height: none; overflow: visible; }
+  .products { max-height: none; }
+  .productResults { overflow: visible; }
 }
 @media (max-width: 40rem) {
   .row { grid-template-columns: minmax(0, 1fr); padding-inline: var(--space-2); }

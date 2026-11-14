@@ -106,13 +106,23 @@ describe("Fast Order manufacturers and route", () => {
   it("clears query, draft and product scroll when switching and returning through history", async () => {
     await ready(); typeQuantity("5");
     fireEvent.change(search(), { target: { value: "персик" } });
-    screen.getByRole("region", { name: /Товары:/ }).scrollTop = 200;
+    within(screen.getByRole("region", { name: /Товары:/ })).getByRole("list").parentElement!.scrollTop = 200;
     choose("ИП Бета"); expect(search()).toHaveValue("");
     await screen.findByRole("link", { name: products[0].name });
     navigate("alpha");
     await screen.findByRole("link", { name: products[0].name });
     expect(search()).toHaveValue(""); expect(input()).toHaveValue("");
-    expect(screen.getByRole("region", { name: /Товары:/ }).scrollTop).toBe(0);
+    expect(within(screen.getByRole("region", { name: /Товары:/ })).getByRole("list").parentElement!.scrollTop).toBe(0);
+  });
+
+  it("keeps both search inputs outside their respective lists", async () => {
+    await ready();
+    const directory = screen.getByRole("complementary", { name: "Производители" });
+    expect(within(directory).getByRole("list")).not.toContainElement(within(directory).getByRole("searchbox"));
+    const region = screen.getByRole("region", { name: /Товары:/ });
+    const results = within(region).getByRole("list").parentElement!;
+    expect(results).not.toContainElement(search());
+    expect(region).toContainElement(search());
   });
 
   it("mobile chooser is named, searchable, closes after selection and returns focus", async () => {
@@ -215,7 +225,7 @@ describe("Fast Order quantity and shared cart", () => {
     expect(writes).toHaveLength(0);
   });
 
-  it.each([["", "Укажите количество."], ["1.5", "Введите целое число."], ["1", "Минимальное количество: 2."], ["6", "Допустимые количества: от 2 с шагом 3."], ["14", "Доступно только 11."]])("explains invalid %s and Enter cannot submit it", async (draft, message) => {
+  it.each([["", "Укажите количество."], ["1.5", "Введите целое число."], ["-1", "Минимальное количество: 2."], ["1", "Минимальное количество: 2."], ["6", "Допустимые количества: от 2 с шагом 3."], ["14", "Доступно только 11."]])("explains invalid %s and Enter cannot submit it", async (draft, message) => {
     await ready(); typeQuantity(draft);
     await userEvent.click(input()); await userEvent.keyboard("{Enter}");
     expect(screen.getAllByText(message, { exact: false }).length).toBeGreaterThan(0);
@@ -225,12 +235,26 @@ describe("Fast Order quantity and shared cart", () => {
     expect(writes).toHaveLength(0); expect(input()).toHaveValue(draft);
   });
 
+  it("explains minimum and step failures together", async () => {
+    await ready(); typeQuantity("1");
+    expect(input()).toHaveAccessibleDescription(/Минимальное количество: 2.*от 2 с шагом 3/);
+  });
+
   it("offers explicit suggestion without rounding the typed draft; submits the explicit quantity", async () => {
     await ready(); typeQuantity("6"); expect(input()).toHaveValue("6");
     const suggestion = screen.getByRole("button", { name: "Добавить 8" });
     await userEvent.click(suggestion);
     await screen.findByText("✓ В корзине: 8 кор.");
     expect(writes[0].body).toEqual({ productId: "p01", quantity: 8 });
+  });
+
+  it("explains stock and step failures together and offers an optional valid quantity", async () => {
+    products = [product("p01", { stock: 50 })];
+    await ready(); typeQuantity("99");
+    expect(input()).toHaveAccessibleDescription(/Доступно только 50.*от 2 с шагом 3/);
+    expect(screen.getByRole("button", { name: "Добавить 50" })).toBeInTheDocument();
+    expect(input()).toHaveValue("99"); expect(writes).toHaveLength(0);
+    typeQuantity("2"); expect(input()).toHaveAttribute("aria-invalid", "false");
   });
 
   it("Add and valid Enter use the same new-line mutation and authoritative highlight", async () => {

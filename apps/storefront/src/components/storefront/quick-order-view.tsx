@@ -38,9 +38,8 @@ function Products({ manufacturer, cart }: { manufacturer: Manufacturer; cart: Qu
   useEffect(() => {
     const current = ++generation.current;
     const controller = new AbortController();
-    // The panel owns scrolling; its replacement starts at the top.
+    // The keyed replacement starts its results list at the top.
     if (panel.current) {
-      panel.current.scrollTop = 0;
       // On mobile the document scrolls rather than the panel. Back/Forward can
       // replace a long list while the viewport is still deep inside it.
       const top = panel.current.getBoundingClientRect().top;
@@ -75,6 +74,7 @@ function Products({ manufacturer, cart }: { manufacturer: Manufacturer; cart: Qu
     <h2>{manufacturer.name}</h2>
     <SearchInput label="Поиск товара" placeholder="Название или артикул" ref={search} value={query}
       onChange={(event) => { ++queryGeneration.current; setQuery(event.target.value); }} />
+    <div className={styles.productResults}>
     {load.status === "loading" ? <p role="status" aria-busy="true">Загружаем товары производителя…</p> : null}
     {load.status === "error" ? <div role="alert"><p>Не удалось загрузить товары производителя.</p>
       <Button onClick={() => { setLoad({ status: "loading", products: [] }); setAttempt((value) => value + 1); }} variant="secondary">Повторить загрузку товаров</Button></div> : null}
@@ -86,6 +86,7 @@ function Products({ manufacturer, cart }: { manufacturer: Manufacturer; cart: Qu
       </ol>
       {!visible.length ? <EmptyState title={load.products.length ? "Ничего не найдено у этого производителя" : "У этого производителя пока нет товаров"} level={3} /> : null}
     </> : null}
+    </div>
   </section>;
 }
 

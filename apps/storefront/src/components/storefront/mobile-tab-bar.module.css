@@ -12,7 +12,7 @@
     left: 0;
     display: grid;
     height: calc(var(--tab-bar-height) + env(safe-area-inset-bottom));
-    grid-template-columns: repeat(6, minmax(0, 1fr));
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.1fr) minmax(0, 1.1fr) minmax(0, 1fr) minmax(0, 1fr);
     padding: var(--space-2) max(var(--space-1), env(safe-area-inset-right)) env(safe-area-inset-bottom) max(var(--space-1), env(safe-area-inset-left));
     border-top: var(--border-control);
     background: color-mix(in srgb, var(--color-surface) 96%, transparent);
@@ -29,7 +29,7 @@
   gap: 0.1875rem;
   border-radius: var(--radius-small);
   color: var(--color-text-muted);
-  font-size: var(--font-size-eyebrow);
+  font-size: 0.625rem;
   font-weight: var(--weight-medium);
   line-height: 1.1;
   text-align: center;
@@ -43,8 +43,6 @@
 
 .tab span {
   max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
   white-space: normal;
 }
 

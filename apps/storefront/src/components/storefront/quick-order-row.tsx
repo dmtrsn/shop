@@ -17,14 +17,14 @@ import styles from "./quick-order.module.css";
 
 function quantityProblem(result: QuantityResult): string {
   const { minimumQuantity, quantityStep, stock } = result.rules;
-  switch (result.state) {
-    case "empty": return "Укажите количество.";
-    case "invalid-integer": return "Введите целое число.";
-    case "below-minimum": return `Минимальное количество: ${minimumQuantity}.`;
-    case "invalid-step": return `Допустимые количества: от ${minimumQuantity} с шагом ${quantityStep}.`;
-    case "above-stock": return `Доступно только ${stock}. Уменьшите количество.`;
-    case "valid": return "";
-  }
+  if (result.state === "empty") return "Укажите количество.";
+  if (result.state === "invalid-integer") return "Введите целое число.";
+  const quantity = result.quantity!;
+  const messages = [];
+  if (quantity > stock) messages.push(`Доступно только ${stock}. Уменьшите количество.`);
+  if (quantity < minimumQuantity) messages.push(`Минимальное количество: ${minimumQuantity}.`);
+  if ((quantity - minimumQuantity) % quantityStep !== 0) messages.push(`Допустимые количества: от ${minimumQuantity} с шагом ${quantityStep}.`);
+  return messages.join(" ");
 }
 
 // Only an explicit submission installs temporary focus listeners. Rows have no
