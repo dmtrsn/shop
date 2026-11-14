@@ -13,11 +13,12 @@ import { MobileTabBar } from "./mobile-tab-bar";
 const tabs = () => within(screen.getByRole("navigation", { name: "Основная навигация" })).getAllByRole("link");
 
 describe("MobileTabBar", () => {
-  it("has five real, labelled destinations; private ones are not prefetched", () => {
+  it("has six real, labelled destinations; private ones are not prefetched", () => {
     render(<MobileTabBar />);
     expect(tabs().map((link) => [link.textContent, link.getAttribute("href"), link.getAttribute("data-prefetch")])).toEqual([
       ["Главная", "/", "false"],
       ["Каталог", "/catalog", "undefined"],
+      ["Быстрый заказ", "/quick-order", "undefined"],
       ["Избранное", "/favorites", "false"],
       ["Корзина", "/cart", "false"],
       ["Аккаунт", "/account", "false"],
@@ -27,6 +28,7 @@ describe("MobileTabBar", () => {
 
   it.each([
     ["/", "Главная"], ["/catalog", "Каталог"], ["/products/chocolate", "Каталог"], ["/categories/bars", "Каталог"],
+    ["/quick-order", "Быстрый заказ"],
     ["/favorites", "Избранное"], ["/checkout", "Корзина"], ["/account/orders/ord-1", "Аккаунт"], ["/login", "Аккаунт"],
   ])("marks %s as the %s tab only", (pathname, current) => {
     navigation.pathname = pathname;

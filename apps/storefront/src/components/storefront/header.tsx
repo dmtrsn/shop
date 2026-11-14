@@ -26,10 +26,13 @@ export function StorefrontHeader() {
         <HomeLink aria-label="Слой — на главную" className={styles.logo}>
           <LogoMark wordmark />
         </HomeLink>
-        <ButtonLink className={styles.catalog} href="/catalog">
-          <GridIcon />
-          Каталог
-        </ButtonLink>
+        <nav aria-label="Каталог и быстрый заказ" className={styles.catalogLinks}>
+          <ButtonLink className={styles.catalog} href="/catalog">
+            <GridIcon />
+            Каталог
+          </ButtonLink>
+          <ButtonLink href="/quick-order" size="sm" variant="quiet">Быстрый заказ</ButtonLink>
+        </nav>
         <GlobalSearch className={styles.search} />
         <nav aria-label="Покупки и аккаунт" className={styles.actions}>
           {actions.map(({ href, label, Icon }) => (

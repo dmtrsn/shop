@@ -25,6 +25,7 @@ describe("StorefrontHeader", () => {
     expect(logo).toHaveTextContent("слой");
     expect(screen.getByRole("link", { name: "Каталог" })).toHaveAttribute("href", "/catalog");
     expect(screen.getByRole("link", { name: "Каталог" })).toHaveAttribute("data-prefetch", "undefined");
+    expect(screen.getByRole("link", { name: "Быстрый заказ" })).toHaveAttribute("href", "/quick-order");
     expect(screen.getAllByRole("search")).toHaveLength(1);
     expect(screen.getByRole("search")).toHaveAttribute("action", "/catalog");
     expect(screen.getByRole("combobox", { name: "Поиск по магазину" })).toBeInTheDocument();

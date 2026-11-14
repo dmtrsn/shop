@@ -9,6 +9,7 @@ import CatalogError from "./catalog/error";
 import CheckoutError from "./checkout/error";
 import NotFound from "./not-found";
 import ProductNotFound from "./products/[slug]/not-found";
+import QuickOrderError from "./quick-order/error";
 
 type ErrorBoundary = ComponentType<{ error: Error & { digest?: string }; reset: () => void }>;
 
@@ -18,6 +19,7 @@ describe("route error boundaries", () => {
     ["account", AccountError, "Не удалось открыть аккаунт", null],
     ["checkout", CheckoutError, "Не удалось открыть оформление заказа", "/cart"],
     ["catalog", CatalogError, "Не удалось загрузить товары", "/"],
+    ["quick-order", QuickOrderError, "Не удалось открыть быстрый заказ", "/catalog"],
   ] as const)("%s is an alert with retry, never an empty or signed-out state", (_, Boundary: ErrorBoundary, title, href) => {
     const reset = vi.fn();
     render(<Boundary error={new Error("upstream detail")} reset={reset} />);

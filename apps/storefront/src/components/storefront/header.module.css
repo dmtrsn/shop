@@ -27,6 +27,8 @@
   min-width: 0;
 }
 
+.catalogLinks { display: flex; align-items: center; gap: var(--space-2); }
+
 .actions {
   display: flex;
   gap: var(--space-3);
@@ -61,6 +63,7 @@
 
 /* 1180px: labels move to the accessible name only; icons stay. */
 @media (max-width: 73.75rem) {
+  .catalogLinks { flex-direction: column; gap: 0; }
   .bar {
     gap: var(--space-3);
   }
@@ -89,7 +92,7 @@
     grid-template-columns: auto minmax(0, 1fr);
   }
 
-  .catalog,
+  .catalogLinks,
   .actions {
     display: none;
   }

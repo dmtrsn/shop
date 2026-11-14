@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
-import { BagIcon, GridIcon, HeartIcon, HomeIcon, UserIcon } from "@/components/ui/icons";
+import { BagIcon, GridIcon, HeartIcon, HomeIcon, ReceiptIcon, UserIcon } from "@/components/ui/icons";
 
 import styles from "./mobile-tab-bar.module.css";
 
@@ -14,6 +14,7 @@ const tabs = [
   { href: "/", label: "Главная", Icon: HomeIcon, prefetch: false, match: (path: string) => path === "/" },
   { href: "/catalog", label: "Каталог", Icon: GridIcon, prefetch: undefined,
     match: (path: string) => catalogSections.some((section) => path === section || path.startsWith(`${section}/`)) },
+  { href: "/quick-order", label: "Быстрый заказ", Icon: ReceiptIcon, prefetch: undefined, match: (path: string) => path === "/quick-order" },
   { href: "/favorites", label: "Избранное", Icon: HeartIcon, prefetch: false, match: (path: string) => path === "/favorites" },
   { href: "/cart", label: "Корзина", Icon: BagIcon, prefetch: false,
     match: (path: string) => path === "/cart" || path === "/checkout" },
