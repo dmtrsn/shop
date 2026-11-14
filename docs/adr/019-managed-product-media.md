@@ -248,9 +248,9 @@ There is no `Content-Disposition` and no file name. `If-None-Match` answers 304,
 
 ### Backup and restore
 
-A complete backup is now **PostgreSQL plus the `media_data` volume**. A database-only backup loses every uploaded image, and the rows would then point at missing files.
+A matched backup requires **PostgreSQL plus the complete `media_data` volume**, together with the matching application release for legacy assets. A database-only backup loses uploaded images, and the rows would then point at missing files. A local copy also requires verified off-host storage before it can be considered production-complete.
 
-- **Order:** back up the database, then the volume. Files written after the dump are just orphans to the restored database, which reconciliation removes after the grace period.
+- **Quiescence:** stop all database and media writers for the entire database and volume copy, including maintenance commands, other deployments and external writers. Taking the copies sequentially while writes continue is not proven safe.
 - **Restore:** restore both from the same backup set, then run `shopctl media verify` (no `--apply`). It must report no `missing`.
 - **Legacy images** live in the repository and image (`web/assets`). They are versioned with the code, not part of the volume, and are retained for historical orders and the legacy storefront ([ADR 021](021-legacy-media-migration.md)).
 
