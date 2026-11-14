@@ -156,7 +156,7 @@ describe("commit and recovery", () => {
     fireEvent.click(submit());
     await screen.findByText("2 + 3 = 5 в корзине");
     expect(previews()).toHaveLength(2); expect(posts()).toHaveLength(1);
-    expect(quantity()).toHaveValue("3"); expect(screen.getByRole("alert")).toHaveFocus();
+    expect(quantity()).toHaveValue("3"); await waitFor(() => expect(screen.getByRole("alert")).toHaveFocus());
     error("validation_error", 422); fireEvent.click(submit()); await screen.findByText(/Добавление не выполнено/);
     const keys = posts().map(([, init]) => (init?.headers as Record<string, string>)["Idempotency-Key"]);
     expect(keys[0]).not.toBe(keys[1]); expect(previews()).toHaveLength(2);

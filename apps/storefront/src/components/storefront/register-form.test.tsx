@@ -99,7 +99,7 @@ describe("register form", () => {
     expect(screen.getByLabelText("Пароль")).toHaveAttribute("aria-describedby", "register-password-hint register-password-error");
     expect(screen.getByText("Телефон цифрами")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Создать аккаунт" })).toBeEnabled();
-    expect(document.activeElement).toBe(screen.getByLabelText("Пароль"));
+    await waitFor(() => expect(screen.getByLabelText("Пароль")).toHaveFocus());
     expect(screen.getByLabelText("Пароль")).toHaveAccessibleDescription("Не короче 10 символов. Пароль должен быть не короче 10 символов");
   });
 
@@ -109,7 +109,7 @@ describe("register form", () => {
     fetcher.mockResolvedValueOnce(jsonResponse({ error: { code: "validation_error", fields: [{ field: input.getAttribute("name"), message: "Проверьте поле" }] } }, 422, null));
     fill(); submit();
     await screen.findByText("Проверьте поле");
-    expect(document.activeElement).toBe(input);
+    await waitFor(() => expect(input).toHaveFocus());
   });
 
   it.each([500, 422])("keeps general errors neutral without focusing an unrelated field (%i)", async (status) => {
