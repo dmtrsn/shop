@@ -5,7 +5,7 @@ import { PassThrough } from "node:stream";
 import { existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { withChromeStartup } from "./test-release-flow.mjs";
 
 const target = [{ type: "page", webSocketDebuggerUrl: "ws://127.0.0.1:9223/devtools/page/test" }];
@@ -414,4 +414,157 @@ test("exit without closed stdio produces a bounded cleanup failure and retains p
   await assert.rejects(withChromeStartup(() => assert.fail("journey must not run"), state.options), /Chrome stdio did not close; profile retained/);
   assert.equal(readdirSync(state.root).length, 1);
   assert.deepEqual(state.child.kills, []);
+});
+
+
+test("Chrome and version probe share child-only D-Bus overrides and preserve unrelated settings", async (t) => {
+  const inherited = Object.freeze({
+    CHROME_BIN: "/fake/chrome", CI: "1", PATH: "/fixture/bin",
+    DBUS_SESSION_BUS_ADDRESS: "unknown:session-fixture",
+    DBUS_SYSTEM_BUS_ADDRESS: "unknown:system-fixture",
+    XDG_RUNTIME_DIR: "/fixture/runtime", KEEP_ME: "preserved-fixture",
+  });
+  const before = JSON.stringify(process.env);
+  let versionEnv;
+  const state = fixture(t, {
+    env: inherited,
+    probeVersion: (command, env) => { versionEnv = env; return { output: "Fake Chrome version" }; },
+  });
+  await withChromeStartup(() => {
+    assert.notEqual(state.settings.env, inherited);
+    assert.equal(state.settings.env, versionEnv, "same policy for both subprocesses");
+    assert.deepEqual(state.settings.env, {
+      ...inherited, DBUS_SESSION_BUS_ADDRESS: "unix:path=/dev/null", DBUS_SYSTEM_BUS_ADDRESS: "unix:path=/dev/null",
+    });
+  }, state.options);
+  assert.equal(inherited.DBUS_SESSION_BUS_ADDRESS, "unknown:session-fixture");
+  assert.equal(inherited.DBUS_SYSTEM_BUS_ADDRESS, "unknown:system-fixture");
+  assert.ok(JSON.stringify(process.env) === before, "parent environment unchanged");
+  assert.deepEqual(readdirSync(state.root), []);
+});
+
+for (const [name, bus] of [
+  ["absent", {}],
+  ["empty", { DBUS_SESSION_BUS_ADDRESS: "", DBUS_SYSTEM_BUS_ADDRESS: "" }],
+  ["autolaunch", { DBUS_SESSION_BUS_ADDRESS: "autolaunch:", DBUS_SYSTEM_BUS_ADDRESS: "autolaunch:" }],
+  ["desktop", { DBUS_SESSION_BUS_ADDRESS: "unix:path=/fixture/session-bus", DBUS_SYSTEM_BUS_ADDRESS: "unix:path=/fixture/system-bus" }],
+]) {
+  test(`${name} inherited bus settings get explicit inert Unix addresses`, async (t) => {
+    const inherited = Object.freeze({ CHROME_BIN: "/fake/chrome", ...bus });
+    const state = fixture(t, { env: inherited });
+    await withChromeStartup(() => {
+      assert.equal(state.settings.env.DBUS_SESSION_BUS_ADDRESS, "unix:path=/dev/null");
+      assert.equal(state.settings.env.DBUS_SYSTEM_BUS_ADDRESS, "unix:path=/dev/null");
+      assert.equal(Object.hasOwn(state.settings.env, "XDG_RUNTIME_DIR"), false, "no unrelated variable introduced");
+    }, state.options);
+  });
+}
+
+test("default process.env is copied without mutating parent D-Bus/runtime/unrelated settings", async (t) => {
+  const replacements = {
+    CHROME_BIN: "/fake/chrome",
+    DBUS_SESSION_BUS_ADDRESS: "invalid:parent-session-fixture",
+    DBUS_SYSTEM_BUS_ADDRESS: "invalid:parent-system-fixture",
+    XDG_RUNTIME_DIR: "/fixture/parent-runtime",
+    RELEASE_STARTUP_TEST_SENTINEL: "parent-preserved-fixture",
+  };
+  const saved = Object.fromEntries(Object.keys(replacements).map((key) => [key, process.env[key]]));
+  try {
+    Object.assign(process.env, replacements);
+    const before = JSON.stringify(process.env);
+    const state = fixture(t, { env: undefined });
+    await withChromeStartup(() => {
+      assert.notEqual(state.settings.env, process.env);
+      assert.equal(state.settings.env.DBUS_SESSION_BUS_ADDRESS, "unix:path=/dev/null");
+      assert.equal(state.settings.env.DBUS_SYSTEM_BUS_ADDRESS, "unix:path=/dev/null");
+      assert.equal(state.settings.env.XDG_RUNTIME_DIR, replacements.XDG_RUNTIME_DIR);
+      assert.equal(state.settings.env.RELEASE_STARTUP_TEST_SENTINEL, replacements.RELEASE_STARTUP_TEST_SENTINEL);
+    }, state.options);
+    assert.ok(JSON.stringify(process.env) === before, "parent environment unchanged");
+  } finally {
+    for (const [key, value] of Object.entries(saved)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+});
+
+test("failure diagnostics contain no inherited bus/runtime values or environment dump", async (t) => {
+  const inherited = {
+    CHROME_BIN: "/fake/chrome", DBUS_SESSION_BUS_ADDRESS: 'unknown:session-"private-fixture',
+    DBUS_SYSTEM_BUS_ADDRESS: "tcp:host=private-system-fixture,port=1234",
+    XDG_RUNTIME_DIR: "/private/runtime-fixture", OTHER_SECRET: "unrelated-private-fixture",
+  };
+  const busOutput = `${inherited.DBUS_SESSION_BUS_ADDRESS} ${inherited.DBUS_SYSTEM_BUS_ADDRESS} ${inherited.XDG_RUNTIME_DIR} unix:path=/dev/null`;
+  const state = fixture(t, {
+    env: inherited, probeVersion: () => ({ output: busOutput, status: 1 }),
+  });
+  state.options.fetchReady = async () => {
+    state.child.stdout.write(busOutput);
+    state.child.stderr.write(busOutput);
+    queueMicrotask(() => state.child.emit("exit", 1, null));
+    return response();
+  };
+  const { error, diagnostic } = await failed(state);
+  assert.ok(!error.message.includes("private-fixture"));
+  assert.ok(!error.message.includes(inherited.OTHER_SECRET));
+  assert.ok(!error.message.includes("unix:path=/dev/null"));
+  for (const key of ["env", "chromeEnv", "DBUS_SESSION_BUS_ADDRESS", "DBUS_SYSTEM_BUS_ADDRESS", "XDG_RUNTIME_DIR", "OTHER_SECRET"]) {
+    assert.ok(!error.message.includes(`"${key}"`), "no environment fields added to diagnostics");
+  }
+  assert.match(diagnostic.version.output, /REDACTED/);
+  assert.match(diagnostic.stderrTail, /REDACTED/);
+  assert.match(diagnostic.stdoutTail, /REDACTED/);
+});
+
+test("real fake Chrome rejects malformed D-Bus but normalized version and startup succeed", async (t) => {
+  const binaryRoot = mkdtempSync(join(tmpdir(), "release-dbus-fake-"));
+  t.after(() => rmSync(binaryRoot, { recursive: true, force: true }));
+  const binary = join(binaryRoot, "fake-chrome");
+  writeFileSync(binary, `#!/bin/sh
+if [ "$DBUS_SESSION_BUS_ADDRESS" != 'unix:path=/dev/null' ] || [ "$DBUS_SYSTEM_BUS_ADDRESS" != 'unix:path=/dev/null' ]; then
+  printf '%s\\n' 'D-Bus environment rejected' >&2
+  exit 78
+fi
+if [ "$1" = '--version' ]; then
+  printf '%s\\n' 'Fake Chrome D-Bus fixture 1'
+  exit 0
+fi
+printf '%s\\n' 'ready'
+while :; do :; done
+`, { mode: 0o700 });
+  const inherited = Object.freeze({
+    CHROME_BIN: binary, DBUS_SESSION_BUS_ADDRESS: "unknown:session-fixture", DBUS_SYSTEM_BUS_ADDRESS: "unknown:system-fixture",
+    XDG_RUNTIME_DIR: "/fixture/runtime", KEEP_ME: "preserved-fixture",
+  });
+  for (const args of [[], ["--version"]]) {
+    const rejected = spawnSync(binary, args, { env: inherited, encoding: "utf8", timeout: 1000 });
+    assert.equal(rejected.status, 78, "fixture refuses unsanitized startup and version environment");
+    assert.match(rejected.stderr, /D-Bus environment rejected/);
+  }
+  let ready, child, spawned = 0;
+  const initialized = new Promise((resolveReady) => { ready = resolveReady; });
+  const state = fixture(t, {
+    env: inherited, probeVersion: undefined, startupMs: 2000, requestMs: 500, termMs: 1000, killMs: 1000,
+    spawnChrome: (command, args, settings) => {
+      spawned++;
+      assert.equal(settings.env.DBUS_SESSION_BUS_ADDRESS, "unix:path=/dev/null");
+      assert.equal(settings.env.DBUS_SYSTEM_BUS_ADDRESS, "unix:path=/dev/null");
+      assert.equal(settings.env.KEEP_ME, inherited.KEEP_ME);
+      child = spawn(command, args, settings);
+      child.stdout.once("data", ready);
+      return child;
+    },
+    fetchReady: async () => { await initialized; return response(); },
+  });
+  t.after(() => {
+    if (child && child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
+  });
+  await withChromeStartup((ws, diagnostic) => {
+    assert.equal(diagnostic.version.status, 0, "real --version subprocess gets normalized environment");
+    assert.match(diagnostic.version.output, /Fake Chrome D-Bus fixture 1/);
+  }, state.options);
+  assert.equal(spawned, 1);
+  assert.deepEqual(readdirSync(state.root), []);
+  assert.throws(() => process.kill(child.pid, 0), { code: "ESRCH" });
 });

@@ -27,9 +27,9 @@ function executable(command, env) {
   return null;
 }
 
-function chromeVersion(command) {
+function chromeVersion(command, env) {
   const result = spawnSync(command, ["--version"], {
-    encoding: "utf8", timeout: 1000, killSignal: "SIGKILL", maxBuffer: TAIL_BYTES,
+    encoding: "utf8", timeout: 1000, killSignal: "SIGKILL", maxBuffer: TAIL_BYTES, env,
   });
   return {
     output: `${result.stdout || ""}${result.stderr || ""}`.slice(-TAIL_BYTES).trim(),
@@ -66,6 +66,14 @@ export async function withChromeStartup(journey, options = {}) {
     probePort = portStatus, startupMs = 10000, requestMs = 500,
     pollMs = 100, termMs = 5000, killMs = 1000, profileRoot = tmpdir(),
   } = options;
+  // Headless smoke needs no desktop bus. Explicit Unix addresses avoid both
+  // inherited invalid transports and session discovery/autolaunch on unset.
+  // Keep XDG_RUNTIME_DIR and all unrelated settings; never mutate the parent.
+  const chromeEnv = {
+    ...env,
+    DBUS_SESSION_BUS_ADDRESS: "unix:path=/dev/null",
+    DBUS_SYSTEM_BUS_ADDRESS: "unix:path=/dev/null",
+  };
   const host = "127.0.0.1";
   const port = Number(env.CDP_PORT || 9223);
   const started = performance.now();
@@ -118,7 +126,7 @@ export async function withChromeStartup(journey, options = {}) {
     if (!diagnostic.command) throw new Error("Chrome/Chromium not found; set CHROME_BIN");
     diagnostic.executable = executable(diagnostic.command, env);
     const command = diagnostic.executable || diagnostic.command;
-    try { diagnostic.version = probeVersion(command); }
+    try { diagnostic.version = probeVersion(command, chromeEnv); }
     catch (error) { diagnostic.version = { error: error.code || "version probe failed" }; }
     diagnostic.profile = mkdtempSync(join(profileRoot, "release-smoke-chrome-"));
     diagnostic.arguments = [
@@ -129,7 +137,7 @@ export async function withChromeStartup(journey, options = {}) {
     if (env.CI) diagnostic.arguments.push("--no-sandbox");
     diagnostic.arguments.push("about:blank");
     diagnostic.portBeforeSpawn = await probePort(host, port);
-    child = spawnChrome(command, diagnostic.arguments, { stdio: ["ignore", "pipe", "pipe"] });
+    child = spawnChrome(command, diagnostic.arguments, { stdio: ["ignore", "pipe", "pipe"], env: chromeEnv });
     deadline = performance.now() + startupMs;
     diagnostic.pid = child.pid || null;
     child.stdout?.on("data", (chunk) => { if (!inJourney) stdout = tail(stdout, chunk); });
@@ -222,7 +230,11 @@ export async function withChromeStartup(journey, options = {}) {
     diagnostic.stderrTail = stderr.toString("utf8");
     // Only known startup fields are reported; never dump the process environment.
     let detail = `${failure.message}\nChrome startup diagnostics: ${JSON.stringify(diagnostic)}`;
-    for (const secret of [env.SMOKE_EMAIL, env.SMOKE_PASSWORD].filter(Boolean)) {
+    for (const secret of [
+      env.SMOKE_EMAIL, env.SMOKE_PASSWORD,
+      env.DBUS_SESSION_BUS_ADDRESS, env.DBUS_SYSTEM_BUS_ADDRESS, env.XDG_RUNTIME_DIR,
+      chromeEnv.DBUS_SESSION_BUS_ADDRESS, chromeEnv.DBUS_SYSTEM_BUS_ADDRESS,
+    ].filter(Boolean)) {
       detail = detail.replaceAll(secret, "[REDACTED]").replaceAll(JSON.stringify(secret).slice(1, -1), "[REDACTED]");
     }
     throw new Error(detail);
