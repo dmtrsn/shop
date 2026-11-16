@@ -9,86 +9,238 @@
 //   CHROME_BIN     Chrome/Chromium binary (default: first found on PATH)
 //   SMOKE_EMAIL / SMOKE_PASSWORD   default: the demo account (APP_MODE=demo)
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { accessSync, constants, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { delimiter, join, resolve } from "node:path";
+import { createConnection } from "node:net";
+import { pathToFileURL } from "node:url";
+
+// Startup is import-safe so deterministic tests need neither Chrome nor the shop.
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const TAIL_BYTES = 8192;
+
+function executable(command, env) {
+  for (const candidate of command.includes("/") ? [resolve(command)] :
+    (env.PATH || "").split(delimiter).map((dir) => resolve(dir, command))) {
+    try { accessSync(candidate, constants.X_OK); return candidate; } catch { /* next PATH entry */ }
+  }
+  return null;
+}
+
+function chromeVersion(command) {
+  const result = spawnSync(command, ["--version"], {
+    encoding: "utf8", timeout: 1000, killSignal: "SIGKILL", maxBuffer: TAIL_BYTES,
+  });
+  return {
+    output: `${result.stdout || ""}${result.stderr || ""}`.slice(-TAIL_BYTES).trim(),
+    status: result.status, signal: result.signal,
+    error: result.error?.code || null,
+  };
+}
+
+function portStatus(host, port) {
+  return new Promise((resolveStatus) => {
+    const socket = createConnection({ host, port });
+    const finish = (status) => { socket.destroy(); resolveStatus(status); };
+    socket.once("connect", () => finish("occupied"));
+    socket.once("error", (error) => finish(error.code === "ECONNREFUSED" ? "free" : "unknown"));
+    socket.setTimeout(200, () => finish("unknown"));
+  });
+}
+
+async function bounded(promise, milliseconds, onTimeout) {
+  let timer;
+  try {
+    return await Promise.race([promise, new Promise((_, reject) => {
+      timer = setTimeout(() => { onTimeout?.(); reject(new Error("timeout/stalled-request")); }, Math.max(1, milliseconds));
+    })]);
+  } finally { clearTimeout(timer); }
+}
+
+// Owns the profile, child and WebSocket from creation through journey completion.
+// Injectable boundaries are only for startup tests; production uses Node's APIs.
+export async function withChromeStartup(journey, options = {}) {
+  const {
+    env = process.env, spawnChrome = spawn, fetchReady = fetch,
+    WebSocketClass = globalThis.WebSocket, probeVersion = chromeVersion,
+    probePort = portStatus, startupMs = 10000, requestMs = 500,
+    pollMs = 100, termMs = 5000, killMs = 1000, profileRoot = tmpdir(),
+  } = options;
+  const host = "127.0.0.1";
+  const port = Number(env.CDP_PORT || 9223);
+  const started = performance.now();
+  const diagnostic = {
+    command: null, executable: null, version: null, pid: null, arguments: [],
+    host, port, portBeforeSpawn: "unknown", profile: null, elapsedMs: 0,
+    exitCode: null, signal: null, processEvent: null, cleanupSignal: null,
+    lastReadinessFailure: null, stdoutTail: "", stderrTail: "", cleanup: null,
+  };
+  let child, ws, deadline, failure, inJourney = false, dead = false, stopped = false, closed = false;
+  let stdout = Buffer.alloc(0), stderr = Buffer.alloc(0);
+  let recordDeath, recordStopped, recordClosed;
+  const close = new Promise((resolveClose) => { recordClosed = resolveClose; });
+  const stop = new Promise((resolveStop) => { recordStopped = resolveStop; });
+  const death = new Promise((resolveDeath) => { recordDeath = resolveDeath; });
+  const processDied = (event, code = null, signal = null) => {
+    if (!event.startsWith("spawn-error") || !child?.pid) {
+      stopped = true;
+      recordStopped();
+    }
+    if (dead) {
+      if (code !== null || signal !== null) { diagnostic.exitCode = code; diagnostic.signal = signal; }
+      return;
+    }
+    dead = true;
+    diagnostic.processEvent = event;
+    diagnostic.exitCode = code;
+    diagnostic.signal = signal;
+    recordDeath();
+  };
+  const assertAlive = () => {
+    if (dead) throw new Error(`Chrome ${diagnostic.processEvent} before DevTools startup completed`);
+  };
+  const whileAlive = (promise) => Promise.race([
+    promise, death.then(() => { assertAlive(); }),
+  ]);
+  const tail = (previous, chunk) => {
+    const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    if (bytes.length >= TAIL_BYTES) return Buffer.from(bytes.subarray(-TAIL_BYTES));
+    return Buffer.concat([previous.subarray(Math.max(0, previous.length + bytes.length - TAIL_BYTES)), bytes]);
+  };
+  const remaining = () => Math.max(1, deadline - performance.now());
+  const waitForDeath = async (milliseconds) => {
+    if (stopped) return;
+    try { await bounded(stop, milliseconds); } catch { /* caller checks death */ }
+  };
+  try {
+    diagnostic.command = env.CHROME_BIN || ["google-chrome", "google-chrome-stable", "chromium", "chromium-browser"]
+      .find((name) => executable(name, env));
+    if (!diagnostic.command) throw new Error("Chrome/Chromium not found; set CHROME_BIN");
+    diagnostic.executable = executable(diagnostic.command, env);
+    const command = diagnostic.executable || diagnostic.command;
+    try { diagnostic.version = probeVersion(command); }
+    catch (error) { diagnostic.version = { error: error.code || "version probe failed" }; }
+    diagnostic.profile = mkdtempSync(join(profileRoot, "release-smoke-chrome-"));
+    diagnostic.arguments = [
+      "--headless=new", `--remote-debugging-port=${port}`, `--user-data-dir=${diagnostic.profile}`,
+      "--no-first-run", "--no-default-browser-check", "--disable-gpu", "--disable-extensions",
+    ];
+    // Ubuntu 24.04 CI runners restrict unprivileged user namespaces.
+    if (env.CI) diagnostic.arguments.push("--no-sandbox");
+    diagnostic.arguments.push("about:blank");
+    diagnostic.portBeforeSpawn = await probePort(host, port);
+    child = spawnChrome(command, diagnostic.arguments, { stdio: ["ignore", "pipe", "pipe"] });
+    deadline = performance.now() + startupMs;
+    diagnostic.pid = child.pid || null;
+    child.stdout?.on("data", (chunk) => { if (!inJourney) stdout = tail(stdout, chunk); });
+    child.stderr?.on("data", (chunk) => { if (!inJourney) stderr = tail(stderr, chunk); });
+    child.on("error", (error) => processDied(`spawn-error (${error.code || "unknown"})`));
+    child.once("exit", (code, signal) => processDied("early-exit", code, signal));
+    child.once("close", (code, signal) => {
+      closed = true;
+      recordClosed();
+      processDied("early-close", code, signal);
+    });
+
+    let endpoint;
+    while (performance.now() < deadline) {
+      assertAlive();
+      const controller = new AbortController();
+      try {
+        endpoint = await bounded(whileAlive((async () => {
+          let response;
+          try { response = await fetchReady(`http://${host}:${port}/json/list`, { signal: controller.signal }); }
+          catch { throw new Error("connection/fetch-failure"); }
+          if (!response.ok) {
+            void response.body?.cancel().catch(() => {});
+            throw new Error(`http-non-success (${response.status})`);
+          }
+          let targets;
+          try { targets = await response.json(); }
+          catch { throw new Error("malformed-json"); }
+          const page = Array.isArray(targets) && targets.find((target) =>
+            target?.type === "page" && typeof target.webSocketDebuggerUrl === "string" && target.webSocketDebuggerUrl);
+          if (!page) throw new Error("response-without-page-target");
+          return page.webSocketDebuggerUrl;
+        })()), Math.min(requestMs, remaining()), () => controller.abort());
+        assertAlive();
+        break;
+      } catch (error) {
+        assertAlive();
+        diagnostic.lastReadinessFailure = error.message;
+      } finally { controller.abort(); }
+      // This is the existing readiness polling interval, bounded by the deadline.
+      await whileAlive(sleep(Math.min(pollMs, remaining())));
+    }
+    if (!endpoint) throw new Error("Chrome DevTools readiness budget exhausted");
+    try {
+      ws = new WebSocketClass(endpoint);
+      await bounded(whileAlive(new Promise((resolveOpen, reject) => {
+        ws.addEventListener("open", resolveOpen, { once: true });
+        ws.addEventListener("error", () => reject(new Error("websocket-error")), { once: true });
+        ws.addEventListener("close", () => reject(new Error("websocket-closed-before-open")), { once: true });
+      })), remaining());
+      assertAlive();
+    } catch (error) { throw new Error(`WebSocket setup failed: ${error.message}`); }
+    diagnostic.elapsedMs = Math.round(performance.now() - started);
+    inJourney = true;
+    await journey(ws, diagnostic);
+  } catch (error) {
+    failure = error;
+    if (!inJourney) diagnostic.elapsedMs = Math.round(performance.now() - started);
+  } finally {
+    try {
+      try { ws?.close(); } catch { /* already closed */ }
+      if (child?.pid && !stopped) {
+        diagnostic.cleanupSignal = "SIGTERM";
+        child.kill("SIGTERM");
+        await waitForDeath(termMs);
+        if (!stopped) {
+          // ChildProcess.kill targets only this exact spawned PID, never a group.
+          diagnostic.cleanupSignal = "SIGKILL";
+          child.kill("SIGKILL");
+          await waitForDeath(killMs);
+        }
+        if (!stopped) throw new Error("Chrome did not exit after SIGKILL; profile retained");
+      }
+      // Exit can precede the final stderr bytes and helper-process teardown.
+      if (child?.pid && !closed) {
+        try { await bounded(close, killMs); }
+        catch { throw new Error("Chrome stdio did not close; profile retained"); }
+      }
+      if (diagnostic.profile) rmSync(diagnostic.profile, { recursive: true, force: true, maxRetries: 3, retryDelay: 300 });
+      diagnostic.cleanup = "process stopped; profile removed";
+    } catch (error) {
+      diagnostic.cleanup = error.message;
+      failure = new Error(`${failure ? failure.message + "; " : ""}cleanup failed: ${error.message}`);
+      inJourney = false;
+    }
+  }
+  if (failure) {
+    if (inJourney) throw failure;
+    diagnostic.stdoutTail = stdout.toString("utf8");
+    diagnostic.stderrTail = stderr.toString("utf8");
+    // Only known startup fields are reported; never dump the process environment.
+    let detail = `${failure.message}\nChrome startup diagnostics: ${JSON.stringify(diagnostic)}`;
+    for (const secret of [env.SMOKE_EMAIL, env.SMOKE_PASSWORD].filter(Boolean)) {
+      detail = detail.replaceAll(secret, "[REDACTED]").replaceAll(JSON.stringify(secret).slice(1, -1), "[REDACTED]");
+    }
+    throw new Error(detail);
+  }
+}
 
 const EDGE = (process.env.EDGE_ORIGIN || "http://127.0.0.1:8080").replace(/\/$/, "");
 const EMAIL = process.env.SMOKE_EMAIL || "demo@sugar.ru";
 const PASSWORD = process.env.SMOKE_PASSWORD || "Sweet2026!";
 const PRODUCT = { id: "p01", slug: "dark-chocolate-sea-salt", name: "Тёмный шоколад 70% с морской солью" };
-const PORT = Number(process.env.CDP_PORT || 9223);
 
-function findChrome() {
-  if (process.env.CHROME_BIN) return process.env.CHROME_BIN;
-  for (const name of ["google-chrome", "google-chrome-stable", "chromium", "chromium-browser"]) {
-    if (spawnSync("which", [name]).status === 0) return name;
-  }
-  throw new Error("Chrome/Chromium not found; set CHROME_BIN");
-}
-
-const profile = mkdtempSync(join(tmpdir(), "release-smoke-chrome-"));
-const chromeArgs = [
-  "--headless=new", `--remote-debugging-port=${PORT}`, `--user-data-dir=${profile}`,
-  "--no-first-run", "--no-default-browser-check", "--disable-gpu", "--disable-extensions",
-];
-// Ubuntu 24.04 CI runners restrict unprivileged user namespaces.
-if (process.env.CI) chromeArgs.push("--no-sandbox");
-const chrome = spawn(findChrome(), [...chromeArgs, "about:blank"], { stdio: "ignore" });
-
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 let ws;
 let failures = 0;
-
-// Wait for Chrome to exit before removing its profile, or it recreates files.
-async function cleanup() {
-  try { ws?.close(); } catch { /* already closed */ }
-  if (chrome.exitCode === null && chrome.signalCode === null) {
-    const exited = new Promise((resolve) => chrome.once("exit", resolve));
-    chrome.kill("SIGTERM");
-    await Promise.race([exited, sleep(5000)]);
-  }
-  // Helper processes can still flush into the profile briefly after exit.
-  for (let attempt = 0; attempt < 10; attempt++) {
-    try { rmSync(profile, { recursive: true, force: true }); } catch { /* retried below */ }
-    await sleep(300);
-    if (!existsSync(profile)) break;
-  }
-}
-
-async function connect() {
-  for (let attempt = 0; attempt < 100; attempt++) {
-    try {
-      const targets = await (await fetch(`http://127.0.0.1:${PORT}/json/list`)).json();
-      const page = targets.find((target) => target.type === "page");
-      if (page) return page.webSocketDebuggerUrl;
-    } catch { /* Chrome is still starting */ }
-    await sleep(100);
-  }
-  throw new Error("Chrome DevTools endpoint did not start");
-}
-
-ws = new WebSocket(await connect());
-await new Promise((resolve, reject) => {
-  ws.addEventListener("open", resolve, { once: true });
-  ws.addEventListener("error", reject, { once: true });
-});
 
 let sequence = 0;
 const pending = new Map();
 const navigations = [];
 const requests = [];
-ws.addEventListener("message", ({ data }) => {
-  const message = JSON.parse(data);
-  if (message.id && pending.has(message.id)) {
-    pending.get(message.id)(message);
-    pending.delete(message.id);
-  } else if (message.method === "Page.frameNavigated" && !message.params.frame.parentId) {
-    navigations.push(message.params.frame.url);
-  } else if (message.method === "Network.requestWillBeSent") {
-    requests.push({ method: message.params.request.method, url: message.params.request.url });
-  }
-});
 
 function send(method, params = {}) {
   const id = ++sequence;
@@ -250,13 +402,31 @@ async function run() {
   check("every request stays on the edge origin", foreign.length === 0, foreign.map((request) => request.url).join(" "));
 }
 
-try {
-  await run();
-} catch (error) {
-  failures++;
-  console.log(`FAIL  ${error.message}`);
-} finally {
-  await cleanup();
+async function main() {
+  try {
+    await withChromeStartup(async (socket) => {
+      ws = socket;
+      ws.addEventListener("message", ({ data }) => {
+        const message = JSON.parse(data);
+        if (message.id && pending.has(message.id)) {
+          pending.get(message.id)(message);
+          pending.delete(message.id);
+        } else if (message.method === "Page.frameNavigated" && !message.params.frame.parentId) {
+          navigations.push(message.params.frame.url);
+        } else if (message.method === "Network.requestWillBeSent") {
+          requests.push({ method: message.params.request.method, url: message.params.request.url });
+        }
+      });
+      await run();
+    });
+  } catch (error) {
+    failures++;
+    console.log(`FAIL  ${error.message}`);
+  }
+  console.log(failures ? `\nrelease flow smoke FAILED (${failures})` : `\nrelease flow smoke passed for ${EDGE}`);
+  process.exit(failures ? 1 : 0);
 }
-console.log(failures ? `\nrelease flow smoke FAILED (${failures})` : `\nrelease flow smoke passed for ${EDGE}`);
-process.exit(failures ? 1 : 0);
+
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+  await main();
+}

@@ -74,6 +74,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - name: Release flow Chrome startup diagnostics and cleanup
+        run: node scripts/test-release-flow-startup.test.mjs
       - run: go mod download && go mod verify
       - name: Formatting, vet, unit and OpenAPI contract tests, legacy JS syntax
         run: make check
