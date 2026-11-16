@@ -87,8 +87,16 @@ give `FAIL`. Authentication failures are not successful admin/cart/order reads.
    extraction. Backups must remain unchanged for the duration of the drill.
 3. Refuse production environment names, source project/volume reuse, any existing
    target volumes/network/project, conflicting existing ports and occupied host
-   ports. Create an internal network, new local volumes and a DB without a host
-   port. Compose cannot inherit host `.env` or Compose overrides. All helpers use
+   ports. Create an internal backend bridge, new local volumes and a DB without
+   a host port. Only the app also joins a separate, invocation-owned ordinary
+   bridge for `127.0.0.1:<port>:8080` publication. An internal-only bridge can
+   retain a requested HostConfig binding without actually publishing it.
+   Direct container-IP HTTP would require changing the localhost read interface
+   and relying on host routing to Docker subnets, so it is not used.
+   The publication bridge gives the app a default route and outbound connectivity;
+   this topology does **not** provide full application egress isolation. PostgreSQL
+   stays on the internal backend only; email/SMTP remain disabled.
+   Compose cannot inherit host `.env` or Compose overrides. All helpers use
    `--network none`; only new target media is mounted for writing.
 4. Inspect labels, volume driver/options, actual mountpoints, container mounts and
    network IDs before restoring. No source DB connection is made. Wait for fresh
@@ -120,7 +128,18 @@ give `FAIL`. Authentication failures are not successful admin/cart/order reads.
    target DB URL, production mode, `RUN_MIGRATIONS=false`, disabled email and
    cleared SMTP/origin configuration, a read-only root filesystem, and a literal
    loopback port. Its DB sessions default to read-only transactions. Confirm its
-   actual image, env, mounts, network ID and bound port after start.
+   actual image, env, mounts, both network IDs and their exact participants after
+   start. Recheck that PostgreSQL has no published ports and no publication-network
+   attachment. Require the exact loopback binding in both HostConfig.PortBindings
+   and runtime NetworkSettings.Ports; a correct request with empty runtime ports,
+   wildcard address, wrong port, duplicates or another published port fails.
+   Subsequent HTTP health checks also require actual host reachability.
+
+   Docker's own host firewall/routing behavior remains a dependency. In particular,
+   [Docker documents](https://docs.docker.com/engine/network/port-publishing/)
+   same-L2 access to localhost-published ports on Engine versions before 28.0.0.
+   These metadata/HTTP checks do not prove protection against that engine issue;
+   do not treat a loopback binding as an external-network penetration test.
 10. Read health, catalog, a product detail, a product image, admin products, cart,
     orders, and a historical image when present. Require HTTP 200, JSON where
     applicable, and matching managed image digests. Redirects and environment

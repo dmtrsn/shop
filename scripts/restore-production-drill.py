@@ -193,10 +193,25 @@ def compose_model(a, token, app_id, pg_id, password):
             'security_opt': ['no-new-privileges:true'], 'tmpfs': ['/tmp:size=16m'],
             'ports': [{'host_ip': '127.0.0.1', 'published': str(a.port), 'target': 8080}],
             'volumes': [{'type': 'volume', 'source': 'media', 'target': '/var/lib/sweetshop/media'}],
-            'networks': ['isolated']}},
+            'networks': ['isolated', 'publication']}},
         'volumes': {'database': {'name': a.database_volume, 'driver': 'local', 'labels': labels},
                     'media': {'name': a.media_volume, 'driver': 'local', 'labels': labels}},
-        'networks': {'isolated': {'name': a.project + '_isolated', 'internal': True, 'labels': labels}}}
+        'networks': {'isolated': {'name': a.project + '_isolated', 'driver': 'bridge', 'internal': True, 'labels': labels},
+                     # Docker cannot publish ports from an internal-only bridge.
+                     # Only the app joins this bridge; it gains outbound access.
+                     'publication': {'name': a.project + '_publication', 'driver': 'bridge', 'internal': False, 'labels': labels}}}
+
+
+def prove_loopback_publication(container, port):
+    expected = {'8080/tcp': [{'HostIp': '127.0.0.1', 'HostPort': str(port)}]}
+    requested = container.get('HostConfig', {}).get('PortBindings') or {}
+    actual = container.get('NetworkSettings', {}).get('Ports') or {}
+    require({key: value for key, value in requested.items() if value} == expected,
+            'Unexpected requested application port')
+    # HostConfig records a request, not a live publication. Internal-only
+    # networks can leave NetworkSettings.Ports empty despite a correct request.
+    require({key: value for key, value in actual.items() if value} == expected,
+            'Unexpected bound application port')
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -276,7 +291,8 @@ def drill(a, report):
     existing_volumes = run(['docker', 'volume', 'ls', '--format', '{{.Name}}']).splitlines()
     existing_networks = run(['docker', 'network', 'ls', '--format', '{{.Name}}']).splitlines()
     require(not set(existing_volumes).intersection({a.database_volume, a.media_volume}), 'Nonempty/existing target volume refused')
-    require(a.project + '_isolated' not in existing_networks, 'Existing target network refused')
+    require(not {a.project + '_isolated', a.project + '_publication'}.intersection(existing_networks),
+            'Existing target network refused')
     require(not run(['docker', 'ps', '-aq', '--filter', 'label=com.docker.compose.project=' + a.project]),
             'Existing target Compose project refused')
     for cid in run(['docker', 'ps', '-aq']).splitlines():
@@ -311,7 +327,7 @@ def drill(a, report):
     db_id = run(compose + ['ps', '-q', a.database_service])
     require(bool(db_id) and '\n' not in db_id, 'Ambiguous target DB container')
 
-    def prove_container(cid, service, volume, destination):
+    def prove_container(cid, service, volume, destination, app_cid=None):
         c = inspect('container', cid)
         labels = c['Config'].get('Labels') or {}
         require(labels.get(LABEL) == token and labels.get('com.docker.compose.project') == a.project
@@ -322,14 +338,29 @@ def drill(a, report):
         require(not any(x.get('Name') in {s['Name'] for s in sources} or
                         x.get('Source') in {s['Mountpoint'] for s in sources} for x in c['Mounts']),
                 'Source mount alias on target')
-        net = inspect('network', a.project + '_isolated')
-        require(net.get('Internal') is True and net.get('Labels', {}).get(LABEL) == token,
-                'Target network is not isolated')
-        require(set(c['NetworkSettings']['Networks']) == {net['Name']}, 'Unexpected target network')
-        require(c['NetworkSettings']['Networks'][net['Name']]['NetworkID'] == net['Id'], 'Network identity alias')
+        expected_networks = {a.project + '_isolated'}
+        if service == 'app':
+            expected_networks.add(a.project + '_publication')
+        require(set(c['NetworkSettings']['Networks']) == expected_networks, 'Unexpected target network')
         permitted = {db_id, cid}
-        require(set(net.get('Containers', {})).issubset(permitted), 'Unknown container joined the drill network')
-        return c, net
+        if app_cid:
+            permitted.add(app_cid)
+        networks = {}
+        for name in sorted(expected_networks):
+            net = inspect('network', name)
+            backend = name == a.project + '_isolated'
+            require(net['Name'] == name and net.get('Driver') == 'bridge'
+                    and net.get('Internal') is backend and net.get('Labels', {}).get(LABEL) == token,
+                    'Target network identity or isolation mismatch')
+            require(c['NetworkSettings']['Networks'][name]['NetworkID'] == net['Id'], 'Network identity alias')
+            require(set(net.get('Containers', {})) == (permitted if backend else {cid}),
+                    'Unexpected drill network participants')
+            networks[name] = net
+        if service != 'app':
+            require(not any((c['NetworkSettings'].get('Ports') or {}).values())
+                    and not any((c.get('HostConfig', {}).get('PortBindings') or {}).values()),
+                    'Database must not publish ports')
+        return c, networks[a.project + '_isolated']
 
     db, network = prove_container(db_id, a.database_service, a.database_volume, '/var/lib/postgresql/data')
     targets = []
@@ -423,9 +454,14 @@ def drill(a, report):
     env = dict(item.split('=', 1) for item in running['Config']['Env'] if '=' in item)
     require(all(env.get(k) == v for k, v in model['services']['app']['environment'].items()), 'Restored app dependency configuration differs')
     require(running['Image'] == app['Id'], 'Unexpected application image')
-    bindings = running['NetworkSettings']['Ports'].get('8080/tcp') or []
-    require(bindings == [{'HostIp': '127.0.0.1', 'HostPort': str(a.port)}], 'Unexpected bound application port')
+    prove_loopback_publication(running, a.port)
+    prove_container(db_id, a.database_service, a.database_volume, '/var/lib/postgresql/data', app_cid=app_id)
     report['isolation']['target']['appContainerId'] = app_id
+    report['isolation']['target'].update(
+        publicationNetwork=a.project + '_publication',
+        publicationNetworkId=running['NetworkSettings']['Networks'][a.project + '_publication']['NetworkID'],
+        runtimePortBindings=running['NetworkSettings']['Ports'],
+        applicationEgress='Default route via publication bridge; outbound connectivity is not isolated')
     report['isolation']['afterStart'] = 'PASS'
     report['checks']['isolation'] = 'PASS'
     for attempt in range(60):

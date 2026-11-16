@@ -70,6 +70,7 @@ class FakeDocker:
         self.source['historicalImages'] = ['/assets/state-b.png']
         self.source_media = b'source-media-state-B'
         self.token = None
+        self.app_started = False
 
     def inspect(self, kind, ident):
         a = self.test.args
@@ -86,19 +87,41 @@ class FakeDocker:
             return {'Name': ident, 'Driver': 'local', 'Options': {}, 'Mountpoint': mountpoint,
                     'Labels': {'com.docker.compose.project': 'source'} if source else {drill.LABEL: self.token}}
         if kind == 'network':
-            return {'Name': a.project + '_isolated', 'Id': 'new-network-id', 'Internal': True,
-                    'Labels': {drill.LABEL: self.token}}
+            publication = ident == a.project + '_publication'
+            members = {'new-app': {}} if publication else {'new-db': {}}
+            if not publication and self.app_started:
+                members['new-app'] = {}
+            if publication and self.failure == 'publication-participant':
+                members['source-app'] = {}
+            if publication and self.failure == 'db-on-publication':
+                members['new-db'] = {}
+            return {'Name': ident, 'Id': 'publication-network-id' if publication else 'new-network-id',
+                    'Driver': 'bridge', 'Internal': not publication,
+                    'Labels': {drill.LABEL: self.token}, 'Containers': members}
         if kind == 'container':
             service = 'app' if ident == 'new-app' else a.database_service
             app = service == 'app'
+            networks = {a.project + '_' + key: {'NetworkID': 'publication-network-id' if key == 'publication' else 'new-network-id'}
+                        for key in self.model['services'][service]['networks']}
+            if app and self.failure == 'network-alias':
+                networks[a.project + '_publication']['NetworkID'] = 'source-network-id'
+            requested = {'8080/tcp': [{'HostIp': '127.0.0.1', 'HostPort': str(a.port)}]} if app else {}
+            # A correct request on an internal-only topology is NOT published.
+            publication = app and any(not self.model['networks'][key]['internal']
+                                      for key in self.model['services'][service]['networks'])
+            actual = copy.deepcopy(requested) if publication else {}
+            if app and self.failure == 'unpublished':
+                actual = {}
+            if not app and self.failure == 'db-published':
+                actual = {'5432/tcp': [{'HostIp': '127.0.0.1', 'HostPort': '5432'}]}
             return {'Id': ident, 'Image': 'sha256:' + ('a' if app else 'b') * 64, 'State': {'Running': True},
                     'Config': {'Labels': {drill.LABEL: self.token, 'com.docker.compose.project': a.project,
                                          'com.docker.compose.service': service},
                                'Env': [k + '=' + v for k, v in self.model['services'][service]['environment'].items()]},
                     'Mounts': [{'Destination': '/var/lib/sweetshop/media' if app else '/var/lib/postgresql/data',
                                 'Type': 'volume', 'Name': a.media_volume if app else a.database_volume}],
-                    'NetworkSettings': {'Networks': {a.project + '_isolated': {'NetworkID': 'new-network-id'}},
-                                        'Ports': {'8080/tcp': [{'HostIp': '127.0.0.1', 'HostPort': str(a.port)}]} if app else {}}}
+                    'HostConfig': {'PortBindings': requested},
+                    'NetworkSettings': {'Networks': networks, 'Ports': actual}}
         raise AssertionError((kind, ident))
 
     def run(self, argv, *, stdin=None, stdout=None, timeout=180):
@@ -119,7 +142,9 @@ class FakeDocker:
             if self.model:
                 volumes += [self.test.args.database_volume, self.test.args.media_volume]
             return '\n'.join(volumes)
-        if argv[1:3] == ['network', 'ls'] or argv[1] == 'ps':
+        if argv[1:3] == ['network', 'ls']:
+            return self.test.args.project + '_publication' if self.failure == 'existing-publication' else ''
+        if argv[1] == 'ps':
             return ''
         if argv[1] == 'compose':
             self.model = json.loads(Path(argv[argv.index('--file') + 1]).read_text())
@@ -129,6 +154,8 @@ class FakeDocker:
             if 'up' in argv:
                 if argv[-1] == 'app' and self.failure == 'app-start':
                     raise IntegrityError('Command failed: docker')
+                if argv[-1] == 'app':
+                    self.app_started = True
                 return ''
             if 'ps' in argv:
                 return 'new-app' if argv[-1] == 'app' else 'new-db'
@@ -261,9 +288,46 @@ class RestoreTests(unittest.TestCase):
                     self.assertNotIn('source_database', argument)
         model = fake.model
         self.assertTrue(model['networks']['isolated']['internal'])
+        self.assertFalse(model['networks']['publication']['internal'])
+        self.assertEqual(model['services']['postgres']['networks'], ['isolated'])
+        self.assertEqual(model['services']['app']['networks'], ['isolated', 'publication'])
+        self.assertEqual(report['isolation']['target']['publicationNetworkId'], 'publication-network-id')
         self.assertNotIn('ports', model['services']['postgres'])
         self.assertEqual(model['services']['app']['environment']['RUN_MIGRATIONS'], 'false')
         self.assertEqual(model['services']['app']['environment']['EMAIL_TRANSPORT'], '')
+
+    def test_requested_binding_without_runtime_publication_fails(self):
+        code, report, fake = self.execute('unpublished')
+        app = fake.inspect('container', 'new-app')
+        self.assertEqual(app['HostConfig']['PortBindings'],
+                         {'8080/tcp': [{'HostIp': '127.0.0.1', 'HostPort': str(self.args.port)}]})
+        self.assertEqual(app['NetworkSettings']['Ports'], {})
+        self.assertEqual((code, report['verdict']), (1, 'FAIL'))
+        self.assertEqual(report['failure'], 'Unexpected bound application port')
+        self.assertFalse(fake.reads)
+
+    def test_runtime_publication_rejects_unsafe_or_extra_bindings(self):
+        expected = {'HostIp': '127.0.0.1', 'HostPort': str(self.args.port)}
+        requested = {'8080/tcp': [expected]}
+        for ports in ({}, {'8080/tcp': None},
+                      {'8080/tcp': [dict(expected, HostIp='0.0.0.0')]},
+                      {'8080/tcp': [dict(expected, HostIp='::')]},
+                      {'8080/tcp': [dict(expected, HostPort='12345')]},
+                      {'8080/tcp': [expected, expected]},
+                      dict(requested, **{'9090/tcp': [expected]})):
+            with self.subTest(ports=ports), self.assertRaises(IntegrityError):
+                drill.prove_loopback_publication(
+                    {'HostConfig': {'PortBindings': requested}, 'NetworkSettings': {'Ports': ports}}, self.args.port)
+        drill.prove_loopback_publication(
+            {'HostConfig': {'PortBindings': requested}, 'NetworkSettings': {'Ports': requested}}, self.args.port)
+
+    def test_fake_does_not_publish_internal_only_app(self):
+        fake = FakeDocker(self)
+        fake.model = drill.compose_model(self.args, 'token', 'app', 'pg', 'secret')
+        fake.model['services']['app']['networks'] = ['isolated']
+        app = fake.inspect('container', 'new-app')
+        self.assertTrue(app['HostConfig']['PortBindings'])
+        self.assertEqual(app['NetworkSettings']['Ports'], {})
 
     def test_artifact_failures_create_no_docker_resources(self):
         (self.backup / 'LOCAL_COMPLETE').unlink()
@@ -457,7 +521,8 @@ class RestoreTests(unittest.TestCase):
                 drill.compare_metadata(self.manifest, state)
 
     def test_failure_injection_never_passes(self):
-        for failure in ('pg_restore', 'counts', 'nonempty-db', 'nonempty-media', 'app-start', 'http', 'alias', 'existing', 'legacy'):
+        for failure in ('pg_restore', 'counts', 'nonempty-db', 'nonempty-media', 'app-start', 'http', 'alias', 'existing', 'legacy',
+                        'existing-publication', 'publication-participant', 'db-on-publication', 'network-alias', 'db-published'):
             with self.subTest(failure=failure):
                 code, report, fake = self.execute(failure)
                 self.assertEqual((code, report['verdict']), (1, 'FAIL'))
